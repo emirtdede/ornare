@@ -26,7 +26,7 @@ public record DiagnosticReport(
 public static class DiagnosticExportService
 {
     private static readonly Regex UserPathRegex = new(
-        @"(?<=[A-Za-z]:[\\/](?:Users|home)[\\/])[^\\/\r\n]+",
+        @"(?<=(?:[A-Za-z]:)?[\\/](?:Users|home)[\\/])[^\\/\r\n]+",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string RedactUserPath(string? path)

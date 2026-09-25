@@ -37,6 +37,7 @@ ui-captures/
 *.appxbundle
 *.pfx
 production_artifacts/release/layout/
+production_artifacts/release/candidate/layout/
 
 # Test directories
 OrnareGate1Final/

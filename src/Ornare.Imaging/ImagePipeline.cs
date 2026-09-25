@@ -63,10 +63,13 @@ public sealed class ImagePipeline : IImagePipeline
         }
 
         // 1. Validate header / metadata without full decoding
+        bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
         MagickImageInfo info;
         try
         {
-            info = new MagickImageInfo(imageBytes);
+            info = isIco
+                ? new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Ico })
+                : new MagickImageInfo(imageBytes);
         }
         catch (Exception ex)
         {
@@ -89,7 +92,9 @@ public sealed class ImagePipeline : IImagePipeline
         // 2. Decode and normalize
         try
         {
-            using MagickImage sourceImage = new(imageBytes);
+            using MagickImage sourceImage = isIco
+                ? new(imageBytes, new MagickReadSettings { Format = MagickFormat.Ico })
+                : new(imageBytes);
 
             sourceImage.AutoOrient();
             sourceImage.ColorSpace = ColorSpace.sRGB;

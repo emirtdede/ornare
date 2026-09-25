@@ -290,6 +290,21 @@ private:
                     wcscpy_s(appExePath, MAX_PATH, devPath);
                     foundExe = true;
                 }
+                else
+                {
+                    wchar_t devPath2[MAX_PATH] = {};
+                    GetModuleFileNameW(hModule, devPath2, MAX_PATH);
+                    PathRemoveFileSpecW(devPath2);
+                    PathRemoveFileSpecW(devPath2);
+                    PathRemoveFileSpecW(devPath2);
+                    PathRemoveFileSpecW(devPath2);
+                    PathAppendW(devPath2, L"Ornare.App\\bin\\Release\\net10.0-windows10.0.26100.0\\Ornare.App.exe");
+                    if (PathFileExistsW(devPath2))
+                    {
+                        wcscpy_s(appExePath, MAX_PATH, devPath2);
+                        foundExe = true;
+                    }
+                }
             }
         }
 

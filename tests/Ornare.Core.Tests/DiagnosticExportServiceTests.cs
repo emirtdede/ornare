@@ -17,6 +17,20 @@ public class DiagnosticExportServiceTests
         string unixPath = @"/home/alice/documents/secret.png";
         string redactedUnix = DiagnosticExportService.RedactUserPath(unixPath);
         Assert.DoesNotContain("johndoe", redactedWin, StringComparison.Ordinal);
+        Assert.Equal(@"/home/<REDACTED_USER>/documents/secret.png", redactedUnix);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\Şevket Çetin\Documents\secret.png", "Şevket Çetin")]
+    [InlineData(@"C:\Users\Ömer Faruk\Desktop\Folder", "Ömer Faruk")]
+    [InlineData(@"C:\Users\İpek.Aydın\Pictures\test.ico", "İpek.Aydın")]
+    [InlineData(@"C:\Users\user with spaces and (special) [chars]\Data", "user with spaces and (special) [chars]")]
+    [InlineData(@"D:\Users\nested.user.name\sub\folder\path\deep\file.txt", "nested.user.name")]
+    public void RedactUserPathAdversarialPathsMaskPersonalIdentifiers(string inputPath, string sensitiveSegment)
+    {
+        string redacted = DiagnosticExportService.RedactUserPath(inputPath);
+        Assert.DoesNotContain(sensitiveSegment, redacted, StringComparison.Ordinal);
+        Assert.Contains("<REDACTED_USER>", redacted, StringComparison.Ordinal);
     }
 
     [Fact]
