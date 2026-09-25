@@ -7,7 +7,7 @@
 - **Status Model:** Every section is strictly classified as **VERIFIED**, **NOT PROVEN**, or **FAILED**.
 - **Final Decision Summary:**
   - **TECHNICAL RC:** **PASS**
-  - **PUBLIC RELEASE:** **BLOCKED** (Commercial Store signing, trademark clearance, and public vulnerability intake pending)
+  - **PUBLIC RELEASE:** **BLOCKED** (Physical ARM64 qualification, Partner Center Store identity/reservation, brand legal review, and direct web distribution signing pending)
 
 ---
 
@@ -276,7 +276,7 @@
 |---|---|---|---|
 | **RSK-001** | P1 (Release) | Physical ARM64 hardware qualification is NOT PROVEN. | Public release must be restricted to x64 until a certified ARM64 physical device test pass is executed. |
 | **RSK-002** | P1 (Release) | Physical OS reboot persistence is NOT PROVEN in CI. | Perform one-time manual verification on a rebooted clean Windows 11 machine. |
-| **RSK-003** | P2 (Commercial) | Commercial code signing and trademark clearance pending. | Complete Store developer registration and commercial certificate ingestion before public distribution. |
+| **RSK-003** | P2 (Commercial) | Direct Website Distribution requires a trusted commercial CA certificate / Azure Trusted Signing with timestamping; Microsoft Store submission does NOT require external signing as Microsoft re-signs the MSIX upon Store ingestion. | Direct website download remains blocked until certificate is provisioned; Microsoft Store channel requires Partner Center identity association only. |
 
 ---
 
@@ -285,7 +285,9 @@
 - **P0 Blockers (Data loss, Explorer crash, security compromise, wrong-target mutation):** **0**
 - **P1 Blockers (Core workflow failure, package failure, repair failure, WACK failure):** **0**
 - **P2 Blockers (Non-blocking polish issues):** **0**
-- **Commercial Prerequisites (Signing, Trademark, Store Submission):** **Pending explicit user instruction.**
+- **Distribution Model Prerequisites:**
+  - **Microsoft Store (Channel A):** Partner Center identity reservation, assets, support/privacy URLs required. External commercial code-signing certificate is **NOT** a Store blocker (packages are signed by Microsoft upon ingestion).
+  - **Direct Website (Channel B):** Public CA-trusted signing certificate + timestamping required (Blocked).
 
 ---
 
@@ -298,6 +300,6 @@ Based on comprehensive empirical verification across all 32 architecture invaria
 
 ### **PUBLIC RELEASE READINESS:**
 # **`PUBLIC RELEASE: BLOCKED`**
-*(Held for production code signing certificate, physical ARM64 qualification, and trademark brand clearance)*
+*(Held for physical ARM64 qualification, Partner Center Store identity/reservation, brand legal review, and direct web signing certificate)*
 
 In accordance with Section 113 of the contract, all deployment and release publishing is **STOPPED**.
