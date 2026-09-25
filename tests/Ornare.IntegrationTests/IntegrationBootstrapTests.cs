@@ -1,6 +1,8 @@
 using Ornare.Core;
 using Xunit;
 
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace Ornare.IntegrationTests;
 
 public class IntegrationBootstrapTests
@@ -11,3 +13,4 @@ public class IntegrationBootstrapTests
         Assert.NotNull(OrnareConstants.ApplicationName);
     }
 }
+

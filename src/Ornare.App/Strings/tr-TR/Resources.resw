@@ -105,4 +105,82 @@
   <data name="Appearance" xml:space="preserve">
     <value>Görünüm</value>
   </data>
+  <data name="CustomizedFolders" xml:space="preserve">
+    <value>Özelleştirilmiş Klasörler</value>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Tanılama</value>
+  </data>
+  <data name="ExportDiagnosticReport" xml:space="preserve">
+    <value>Tanılama Raporunu Dışa Aktar</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>Hakkında</value>
+  </data>
+  <data name="Version" xml:space="preserve">
+    <value>Sürüm</value>
+  </data>
+  <data name="Architecture" xml:space="preserve">
+    <value>Mimari</value>
+  </data>
+  <data name="PrivacyStatement" xml:space="preserve">
+    <value>Ornare tamamen çevrimdışı çalışır. Sıfır telemetri, sıfır bulut takibi, sıfır veri toplama.</value>
+  </data>
+  <data name="Healthy" xml:space="preserve">
+    <value>Sağlıklı</value>
+  </data>
+  <data name="NeedsAttention" xml:space="preserve">
+    <value>İlgi Gerektiriyor</value>
+  </data>
+  <data name="ExternalConflict" xml:space="preserve">
+    <value>Dış Değişiklik Çakışması</value>
+  </data>
+  <data name="MissingTarget" xml:space="preserve">
+    <value>Klasör Bulunamadı</value>
+  </data>
+  <data name="Repair" xml:space="preserve">
+    <value>Onar</value>
+  </data>
+  <data name="KeepExternal" xml:space="preserve">
+    <value>Dış Değişikliği Koru</value>
+  </data>
+  <data name="SearchLibrary" xml:space="preserve">
+    <value>Kitaplıkta ara</value>
+  </data>
+  <data name="EmptyLibraryTitle" xml:space="preserve">
+    <value>Kitaplıkta simge yok</value>
+  </data>
+  <data name="EmptyLibrarySubtitle" xml:space="preserve">
+    <value>Özelleştirdiğiniz simgeler burada görünecektir</value>
+  </data>
+  <data name="EmptyRecentTitle" xml:space="preserve">
+    <value>Son kullanılan simge yok</value>
+  </data>
+  <data name="EmptyFavoritesTitle" xml:space="preserve">
+    <value>Favori simge yok</value>
+  </data>
+  <data name="EmptyFoldersTitle" xml:space="preserve">
+    <value>Özelleştirilmiş klasör yok</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>Sil</value>
+  </data>
+  <data name="Favorite" xml:space="preserve">
+    <value>Favori</value>
+  </data>
+  <data name="Unfavorite" xml:space="preserve">
+    <value>Favorilerden Kaldır</value>
+  </data>
+  <data name="ApplyToFolder" xml:space="preserve">
+    <value>Klasöre Uygula</value>
+  </data>
+  <data name="OpenManager" xml:space="preserve">
+    <value>Yönetici</value>
+  </data>
+  <data name="OpenInExplorer" xml:space="preserve">
+    <value>Dosya Gezgini'nde Göster</value>
+  </data>
+  <data name="ClearRecent" xml:space="preserve">
+    <value>Son Kullanılanları Temizle</value>
+  </data>
 </root>

@@ -307,6 +307,64 @@ public class FolderCustomizationIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task LibraryDeleteInvariantDoesNotAffectCustomizedFolder()
+    {
+        string testRoot = Path.Combine(Path.GetTempPath(), "ornare_lib_del_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testRoot);
+
+        string dbPath = Path.Combine(testRoot, "test.db");
+        using var storage = new Ornare.Storage.SqliteStorageService();
+        await storage.InitializeAsync(dbPath);
+
+        string imagePath = Path.Combine(testRoot, "icon_source.png");
+        string stagedIco = Path.Combine(testRoot, "staged.ico");
+        string canonicalIco = Path.Combine(testRoot, "canonical.ico");
+
+        try
+        {
+            using (var img = new MagickImage(MagickColors.DodgerBlue, 64, 64))
+            {
+                img.Write(imagePath, MagickFormat.Png);
+            }
+
+            var proc = _imagePipeline.ProcessImage(imagePath, stagedIco);
+            Assert.True(proc.IsSuccess);
+            string hash = proc.Value!.ContentHash;
+
+            File.Copy(stagedIco, canonicalIco);
+            await storage.AddOrUpdateAssetAsync(hash, canonicalIco, "PNG");
+
+            // Apply to folder
+            var applyResult = _customizer.ApplyIcon(testRoot, stagedIco);
+            Assert.True(applyResult.IsSuccess);
+
+            string folderIco = Path.Combine(testRoot, @".ornare\folder.ico");
+            string iniPath = Path.Combine(testRoot, "desktop.ini");
+            Assert.True(File.Exists(folderIco));
+            Assert.True(File.Exists(iniPath));
+
+            // Section 9 Invariant: Delete Library asset
+            bool deleted = await storage.DeleteAssetAsync(hash);
+            Assert.True(deleted);
+
+            // Verify Library no longer has the asset
+            var asset = await storage.GetAssetByHashAsync(hash);
+            Assert.Null(asset);
+
+            // Crucial invariant: The folder's owned .ornare\folder.ico and desktop.ini remain fully intact!
+            Assert.True(File.Exists(folderIco), "Folder-owned .ornare\\folder.ico must remain intact after Library asset deletion");
+            Assert.True(File.Exists(iniPath), "Folder desktop.ini must remain intact after Library asset deletion");
+            string iniContent = File.ReadAllText(iniPath);
+            Assert.Contains(@"IconResource=.ornare\folder.ico,0", iniContent, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            CleanupFolder(testRoot);
+        }
+    }
+
     private static void CleanupFolder(string path)
     {
         try

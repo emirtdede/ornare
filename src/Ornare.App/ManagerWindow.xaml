@@ -1,0 +1,419 @@
+<Window
+    x:Class="Ornare.App.ManagerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.ColumnDefinitions>
+            <!-- Navigation Sidebar: 225px for comfortable label breathing room -->
+            <ColumnDefinition Width="225" />
+            <!-- Main Content Canvas -->
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar Navigation -->
+        <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Padding="16,24,16,20">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- App Brand / Identity -->
+                <StackPanel Grid.Row="0" Spacing="2" Margin="8,0,8,24">
+                    <TextBlock Text="Ornare" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock Text="Folder Icons" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Navigation Menu -->
+                <ListView
+                    x:Name="NavListView"
+                    Grid.Row="1"
+                    SelectionMode="Single"
+                    SelectionChanged="OnNavSelectionChanged">
+                    <ListViewItem x:Name="NavItemLibrary" AutomationProperties.Name="Library" Tag="Library" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="16" />
+                            <TextBlock x:Name="NavTextLibrary" Text="Library" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="NavItemRecent" AutomationProperties.Name="Recent" Tag="Recent" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE81C;" FontSize="16" />
+                            <TextBlock x:Name="NavTextRecent" Text="Recent" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="NavItemFavorites" AutomationProperties.Name="Favorites" Tag="Favorites" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE734;" FontSize="16" />
+                            <TextBlock x:Name="NavTextFavorites" Text="Favorites" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="NavItemFolders" AutomationProperties.Name="Customized Folders" Tag="Folders" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE838;" FontSize="16" />
+                            <TextBlock x:Name="NavTextFolders" Text="Customized Folders" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
+                    <ListViewItem x:Name="NavItemSettings" AutomationProperties.Name="Settings" Tag="Settings" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE713;" FontSize="16" />
+                            <TextBlock x:Name="NavTextSettings" Text="Settings" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
+                </ListView>
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area: Inset 32,28,32,28 per Visual Reference Spec -->
+        <Grid Grid.Column="1" Padding="32,28,32,28" RowDefinitions="Auto,*">
+            <!-- Header Bar -->
+            <Grid Grid.Row="0" Margin="0,0,0,24">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock x:Name="SectionTitleText" Text="Library" FontSize="26" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SectionSubtitleText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Search affordance for Library (Progressive disclosure: >= 13 assets) -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <TextBox
+                        x:Name="SearchTextBox"
+                        Width="220"
+                        PlaceholderText="Search library..."
+                        AutomationProperties.Name="Search library"
+                        Visibility="Collapsed"
+                        TextChanged="OnSearchTextChanged" />
+                    <Button
+                        x:Name="ClearRecentButton"
+                        Content="Clear Recent"
+                        AutomationProperties.Name="Clear Recent"
+                        Visibility="Collapsed"
+                        Click="OnClearRecentClicked" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Content Canvas -->
+            <Grid Grid.Row="1">
+                <!-- 1. LIBRARY VIEW -->
+                <Grid x:Name="LibraryView" Visibility="Visible">
+                    <!-- Empty State -->
+                    <StackPanel x:Name="LibraryEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                        <FontIcon Glyph="&#xE8B7;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="LibraryEmptyTitle" Text="No icons in library" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="LibraryEmptySubtitle" Text="Icons you customize will appear here" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Icon Grid: Clean 72px cells with whitespace -->
+                    <GridView
+                        x:Name="LibraryGridView"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnLibraryItemClick">
+                        <GridView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Image Source="{Binding PreviewImage}" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <!-- Favorite toggle -->
+                                    <Button
+                                        Grid.Row="0"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Padding="2"
+                                        Width="24"
+                                        Height="24"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Tag="{Binding Sha256}"
+                                        Click="OnToggleFavoriteClicked"
+                                        AutomationProperties.Name="Toggle Favorite">
+                                        <FontIcon Glyph="{Binding FavoriteGlyph}" FontSize="12" Foreground="{Binding FavoriteBrush}" />
+                                    </Button>
+                                    <!-- Format pill -->
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Text="{Binding SourceFormat}"
+                                        FontSize="10"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,4,0,0" />
+                                </Grid>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </Grid>
+
+                <!-- 2. RECENT VIEW -->
+                <Grid x:Name="RecentView" Visibility="Collapsed">
+                    <StackPanel x:Name="RecentEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                        <FontIcon Glyph="&#xE81C;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="RecentEmptyTitle" Text="No recent icons" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <GridView
+                        x:Name="RecentGridView"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnLibraryItemClick">
+                        <GridView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Image Source="{Binding PreviewImage}" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Text="{Binding TimeAgo}"
+                                        FontSize="10"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,4,0,0" />
+                                </Grid>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </Grid>
+
+                <!-- 3. FAVORITES VIEW -->
+                <Grid x:Name="FavoritesView" Visibility="Collapsed">
+                    <StackPanel x:Name="FavoritesEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                        <FontIcon Glyph="&#xE734;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="FavoritesEmptyTitle" Text="No favorite icons" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <GridView
+                        x:Name="FavoritesGridView"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnLibraryItemClick">
+                        <GridView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Image Source="{Binding PreviewImage}" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Button
+                                        Grid.Row="0"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Padding="2"
+                                        Width="24"
+                                        Height="24"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Tag="{Binding Sha256}"
+                                        Click="OnToggleFavoriteClicked"
+                                        AutomationProperties.Name="Unfavorite">
+                                        <FontIcon Glyph="&#xE735;" FontSize="12" Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </Button>
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Text="{Binding SourceFormat}"
+                                        FontSize="10"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,4,0,0" />
+                                </Grid>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </Grid>
+
+                <!-- 4. CUSTOMIZED FOLDERS VIEW -->
+                <Grid x:Name="FoldersView" Visibility="Collapsed">
+                    <StackPanel x:Name="FoldersEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                        <FontIcon Glyph="&#xE838;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="FoldersEmptyTitle" Text="No customized folders" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Flat list of folders with separators per Visual Reference Spec -->
+                    <ListView
+                        x:Name="FoldersListView"
+                        SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4,0,4" Padding="8,10,8,10" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Folder Icon Preview -->
+                                    <Image Grid.Column="0" Source="{Binding IconPreview}" Width="28" Height="28" VerticalAlignment="Center" HorizontalAlignment="Left" />
+
+                                    <!-- Folder Info -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Margin="8,0,16,0">
+                                        <TextBlock Text="{Binding FolderName}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding FolderPath}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+
+                                    <!-- Health Status Indicator -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <FontIcon Glyph="{Binding HealthGlyph}" FontSize="14" Foreground="{Binding HealthBrush}" />
+                                        <TextBlock Text="{Binding HealthLabel}" FontSize="12" Foreground="{Binding HealthBrush}" VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <!-- Actions: Repair / Keep / Open -->
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button
+                                            Content="Repair"
+                                            Visibility="{Binding RepairButtonVisibility}"
+                                            Tag="{Binding FolderPath}"
+                                            Click="OnRepairFolderClicked"
+                                            FontSize="12"
+                                            Padding="10,4,10,4"
+                                            AutomationProperties.Name="Repair folder icon" />
+                                        <Button
+                                            Content="Keep External"
+                                            Visibility="{Binding KeepExternalButtonVisibility}"
+                                            Tag="{Binding FolderPath}"
+                                            Click="OnKeepExternalClicked"
+                                            FontSize="12"
+                                            Padding="10,4,10,4"
+                                            AutomationProperties.Name="Keep external icon" />
+                                        <Button
+                                            Content="Reapply"
+                                            Visibility="{Binding KeepExternalButtonVisibility}"
+                                            Tag="{Binding FolderPath}"
+                                            Click="OnReapplyFolderClicked"
+                                            FontSize="12"
+                                            Padding="10,4,10,4"
+                                            AutomationProperties.Name="Reapply Ornare icon" />
+                                        <Button
+                                            Tag="{Binding FolderPath}"
+                                            Click="OnOpenFolderInExplorerClicked"
+                                            Padding="6"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            AutomationProperties.Name="Open folder in File Explorer"
+                                            ToolTipService.ToolTip="Open in File Explorer">
+                                            <FontIcon Glyph="&#xE8A7;" FontSize="14" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+
+                <!-- 5. SETTINGS VIEW -->
+                <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <!-- Clean flat rows with dividers; no card-in-card per Visual Reference Spec -->
+                    <StackPanel Spacing="24" MaxWidth="600" HorizontalAlignment="Left">
+                        <!-- Appearance Section -->
+                        <StackPanel Spacing="12">
+                            <TextBlock x:Name="SettingsAppearanceHeader" Text="Appearance" FontSize="16" FontWeight="SemiBold" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsThemeLabel" Text="App theme" VerticalAlignment="Center" FontSize="13" />
+                                <ComboBox
+                                    x:Name="ThemeComboBox"
+                                    Grid.Column="1"
+                                    Width="160"
+                                    SelectionChanged="OnThemeSelectionChanged"
+                                    AutomationProperties.Name="App theme">
+                                    <ComboBoxItem Content="System" Tag="System" />
+                                    <ComboBoxItem Content="Light" Tag="Light" />
+                                    <ComboBoxItem Content="Dark" Tag="Dark" />
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                        <!-- Language Section -->
+                        <StackPanel Spacing="12">
+                            <TextBlock x:Name="SettingsLanguageHeader" Text="Language" FontSize="16" FontWeight="SemiBold" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsLanguageLabel" Text="App language" VerticalAlignment="Center" FontSize="13" />
+                                <ComboBox
+                                    x:Name="LanguageComboBox"
+                                    Grid.Column="1"
+                                    Width="160"
+                                    SelectionChanged="OnLanguageSelectionChanged"
+                                    AutomationProperties.Name="App language">
+                                    <ComboBoxItem Content="System default" Tag="System" />
+                                    <ComboBoxItem Content="Türkçe" Tag="tr-TR" />
+                                    <ComboBoxItem Content="English" Tag="en-US" />
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                        <!-- Diagnostics Section -->
+                        <StackPanel Spacing="12">
+                            <TextBlock x:Name="SettingsDiagnosticsHeader" Text="Diagnostics" FontSize="16" FontWeight="SemiBold" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="SettingsDiagnosticsLabel" Text="Diagnostic Report" FontSize="13" />
+                                    <TextBlock x:Name="SettingsDiagnosticsSubtext" Text="Exports system and health status with personal paths anonymized." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <Button
+                                    x:Name="ExportReportButton"
+                                    Grid.Column="1"
+                                    Content="Export Diagnostic Report"
+                                    Click="OnExportDiagnosticReportClicked"
+                                    AutomationProperties.Name="Export Diagnostic Report"
+                                    FontSize="12" />
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                        <!-- About Section -->
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="SettingsAboutHeader" Text="About" FontSize="16" FontWeight="SemiBold" />
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsVersionLabel" Text="Version" FontSize="13" />
+                                <TextBlock Grid.Column="1" Text="1.0.0" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsArchLabel" Text="Architecture" FontSize="13" />
+                                <TextBlock x:Name="SettingsArchValue" Grid.Column="1" Text="x64" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                            <TextBlock
+                                x:Name="SettingsPrivacyStatement"
+                                Text="Ornare works completely offline. Zero telemetry, zero cloud tracking, zero data collection."
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                Margin="0,8,0,0"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

@@ -105,4 +105,82 @@
   <data name="Appearance" xml:space="preserve">
     <value>Appearance</value>
   </data>
+  <data name="CustomizedFolders" xml:space="preserve">
+    <value>Customized Folders</value>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Diagnostics</value>
+  </data>
+  <data name="ExportDiagnosticReport" xml:space="preserve">
+    <value>Export Diagnostic Report</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>About</value>
+  </data>
+  <data name="Version" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="Architecture" xml:space="preserve">
+    <value>Architecture</value>
+  </data>
+  <data name="PrivacyStatement" xml:space="preserve">
+    <value>Ornare works completely offline. Zero telemetry, zero cloud tracking, zero data collection.</value>
+  </data>
+  <data name="Healthy" xml:space="preserve">
+    <value>Healthy</value>
+  </data>
+  <data name="NeedsAttention" xml:space="preserve">
+    <value>Needs Attention</value>
+  </data>
+  <data name="ExternalConflict" xml:space="preserve">
+    <value>External Icon Conflict</value>
+  </data>
+  <data name="MissingTarget" xml:space="preserve">
+    <value>Folder Missing</value>
+  </data>
+  <data name="Repair" xml:space="preserve">
+    <value>Repair</value>
+  </data>
+  <data name="KeepExternal" xml:space="preserve">
+    <value>Keep External</value>
+  </data>
+  <data name="SearchLibrary" xml:space="preserve">
+    <value>Search library</value>
+  </data>
+  <data name="EmptyLibraryTitle" xml:space="preserve">
+    <value>No icons in library</value>
+  </data>
+  <data name="EmptyLibrarySubtitle" xml:space="preserve">
+    <value>Icons you customize will appear here</value>
+  </data>
+  <data name="EmptyRecentTitle" xml:space="preserve">
+    <value>No recent icons</value>
+  </data>
+  <data name="EmptyFavoritesTitle" xml:space="preserve">
+    <value>No favorite icons</value>
+  </data>
+  <data name="EmptyFoldersTitle" xml:space="preserve">
+    <value>No customized folders</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="Favorite" xml:space="preserve">
+    <value>Favorite</value>
+  </data>
+  <data name="Unfavorite" xml:space="preserve">
+    <value>Unfavorite</value>
+  </data>
+  <data name="ApplyToFolder" xml:space="preserve">
+    <value>Apply to Folder</value>
+  </data>
+  <data name="OpenManager" xml:space="preserve">
+    <value>Manager</value>
+  </data>
+  <data name="OpenInExplorer" xml:space="preserve">
+    <value>Open in Explorer</value>
+  </data>
+  <data name="ClearRecent" xml:space="preserve">
+    <value>Clear Recent</value>
+  </data>
 </root>

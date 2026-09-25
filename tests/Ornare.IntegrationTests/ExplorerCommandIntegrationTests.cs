@@ -220,6 +220,11 @@ public class ExplorerCommandIntegrationTests
                 Assert.Equal(0, hr);
                 Assert.Equal(2, nullState); // ECS_HIDDEN = 2
                 _output.WriteLine($"GetState on null verified: {nullState} (ECS_HIDDEN)");
+
+                if (fileArray != null) Marshal.FinalReleaseComObject(fileArray);
+                if (fileItem != null) Marshal.FinalReleaseComObject(fileItem);
+                if (itemArray != null) Marshal.FinalReleaseComObject(itemArray);
+                if (shellItem != null) Marshal.FinalReleaseComObject(shellItem);
             }
             finally
             {
@@ -228,10 +233,14 @@ public class ExplorerCommandIntegrationTests
                     Directory.Delete(testFolder, true);
                 }
             }
+
+            if (command != null) Marshal.FinalReleaseComObject(command);
+            if (factory != null) Marshal.FinalReleaseComObject(factory);
         }
         finally
         {
-            NativeShell.FreeLibrary(hModule);
+            // Note: Do not call FreeLibrary(hModule) here as CLR COM infrastructure and thread-local
+            // caches may still hold references; the test host process handles module unload on termination.
         }
     }
 }

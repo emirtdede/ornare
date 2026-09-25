@@ -51,15 +51,12 @@ public partial class App : Application, IDisposable
         await _storageService.InitializeAsync();
         await _storageService.ReconcileStartupAsync();
 
-        // 3. Create Quick Panel window
-        _window = new QuickPanelWindow(_imagePipeline, _folderCustomizer, _storageService);
-
-        // 4. Parse launch arguments
+        // 3. Parse launch arguments and determine window mode
         var currentArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
         await HandleActivationArgsAsync(currentArgs);
-
-        _window.Activate();
     }
+
+    private ManagerWindow? _managerWindow;
 
     private async Task HandleActivationArgsAsync(AppActivationArguments args)
     {
@@ -67,13 +64,19 @@ public partial class App : Application, IDisposable
         string? uiState = null;
         string? theme = null;
         string? lang = null;
+        string? section = null;
+        bool isManager = false;
 
         if (args.Kind == ExtendedActivationKind.Launch)
         {
             string[] cmdLineArgs = Environment.GetCommandLineArgs();
             for (int i = 0; i < cmdLineArgs.Length; i++)
             {
-                if (string.Equals(cmdLineArgs[i], "--set-folder", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
+                if (string.Equals(cmdLineArgs[i], "--manager", StringComparison.OrdinalIgnoreCase))
+                {
+                    isManager = true;
+                }
+                else if (string.Equals(cmdLineArgs[i], "--set-folder", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
                 {
                     targetFolder = cmdLineArgs[i + 1];
                 }
@@ -89,6 +92,11 @@ public partial class App : Application, IDisposable
                 {
                     lang = cmdLineArgs[i + 1];
                 }
+                else if (string.Equals(cmdLineArgs[i], "--section", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
+                {
+                    section = cmdLineArgs[i + 1];
+                    isManager = true;
+                }
             }
         }
         else if (args.Kind == ExtendedActivationKind.Protocol && args.Data is global::Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs protocolArgs)
@@ -102,16 +110,19 @@ public partial class App : Application, IDisposable
             }
         }
 
-        // Fallback: If no folder specified, default to Desktop folder for interactive exploration
-        if (string.IsNullOrWhiteSpace(targetFolder))
+        if (isManager || (string.IsNullOrWhiteSpace(targetFolder) && string.IsNullOrEmpty(uiState)))
         {
-            targetFolder = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            _managerWindow ??= new ManagerWindow(_storageService, _folderCustomizer);
+            _managerWindow.ApplyVisualTestState(section ?? "Library", theme, lang);
+            _managerWindow.Activate();
         }
-
-        if (_window != null)
+        else
         {
+            targetFolder ??= Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            _window ??= new QuickPanelWindow(_imagePipeline, _folderCustomizer, _storageService);
             await _window.SetTargetFolderAsync(targetFolder);
             _window.ApplyVisualTestState(uiState, theme, lang);
+            _window.Activate();
         }
     }
 

@@ -1,0 +1,42 @@
+{
+  "Timestamp": "2026-09-25T04:30:05.7338658+03:00",
+  "HostEnvironment": "Windows 11 x64",
+  "Measurements": {
+    "LibraryFetch1000AssetsMs": 2,
+    "LibraryInsert900RemainingAssetsMs": 180,
+    "ManagerColdVisibleMs": {
+      "Runs": [
+        410,
+        416,
+        390
+      ],
+      "P50": 405.3333333333333,
+      "Min": 390.0,
+      "Max": 416.0
+    },
+    "LibraryFetch100AssetsMs": 3,
+    "QuickPanelColdVisibleMs": {
+      "Runs": [
+        392,
+        354,
+        339
+      ],
+      "P50": 361.6666666666667,
+      "Min": 339.0,
+      "Max": 392.0
+    },
+    "HealthScan100FoldersMs": 92,
+    "HealthScan1000FoldersEstimatedMs": 920.0,
+    "LibraryInsert100AssetsMs": 32,
+    "ManagerWarmActivationMs": {
+      "Runs": [
+        230,
+        230,
+        231
+      ],
+      "P50": 230.33333333333334,
+      "Min": 230.0,
+      "Max": 231.0
+    }
+  }
+}

@@ -10,23 +10,41 @@
         <!-- Main Container: Padding 24 left/right, 20 top, 20 bottom per Visual Reference Spec -->
         <Grid Margin="24,20,24,20" RowDefinitions="Auto,*,Auto">
             
-            <!-- 1. Header: Target Folder Identity -->
-            <StackPanel Grid.Row="0" Spacing="4">
-                <TextBlock
-                    x:Name="FolderNameText"
-                    Text="Folder Name"
-                    FontSize="18"
-                    FontWeight="SemiBold"
-                    TextTrimming="CharacterEllipsis"
-                    MaxLines="1" />
-                <TextBlock
-                    x:Name="FolderPathText"
-                    Text="C:\Path\To\Folder"
-                    FontSize="12"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    TextTrimming="CharacterEllipsis"
-                    MaxLines="1" />
-            </StackPanel>
+            <!-- 1. Header: Target Folder Identity + Subtle Manager Affordance -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock
+                        x:Name="FolderNameText"
+                        Text="Folder Name"
+                        FontSize="18"
+                        FontWeight="SemiBold"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1" />
+                    <TextBlock
+                        x:Name="FolderPathText"
+                        Text="C:\Path\To\Folder"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextTrimming="CharacterEllipsis"
+                        MaxLines="1" />
+                </StackPanel>
+                <Button
+                    x:Name="OpenManagerButton"
+                    Grid.Column="1"
+                    VerticalAlignment="Top"
+                    Padding="6"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    AutomationProperties.Name="Open Manager"
+                    ToolTipService.ToolTip="Open Manager"
+                    Click="OnOpenManagerClicked">
+                    <FontIcon Glyph="&#xE713;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Button>
+            </Grid>
 
             <!-- 2. Central Direct-Manipulation Region (Target ~150-170px) -->
             <Border
@@ -123,14 +141,40 @@
                 </Grid>
             </Border>
 
-            <!-- 3. Footer: Subtle Reset Action -->
+            <!-- 3. Footer: Subtle Recent Strip & Reset Action -->
             <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-                <TextBlock
-                    x:Name="StatusInfoText"
-                    Grid.Column="0"
-                    FontSize="11"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                    VerticalAlignment="Center" />
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock
+                        x:Name="StatusInfoText"
+                        FontSize="11"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        VerticalAlignment="Center" />
+                    <StackPanel x:Name="RecentStripPanel" Orientation="Horizontal" Spacing="6" Visibility="Collapsed" VerticalAlignment="Center">
+                        <TextBlock x:Name="RecentStripLabel" Text="Recent" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <ItemsControl x:Name="RecentStripItems">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button
+                                        Padding="2"
+                                        Width="28"
+                                        Height="28"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Tag="{Binding CanonicalIcoPath}"
+                                        Click="OnRecentStripItemClicked"
+                                        AutomationProperties.Name="Apply recent icon">
+                                        <Image Source="{Binding PreviewImage}" Width="24" Height="24" />
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
                 <Button
                     x:Name="ResetButton"
                     Grid.Column="1"

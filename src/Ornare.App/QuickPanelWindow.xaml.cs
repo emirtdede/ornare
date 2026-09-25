@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Ornare.Core;
 using Ornare.Imaging;
 using Ornare.Storage;
@@ -117,6 +118,8 @@ public sealed partial class QuickPanelWindow : Window
             ResetButton.Visibility = Visibility.Collapsed;
             StatusInfoText.Text = string.Empty;
         }
+
+        _ = LoadRecentStripAsync();
 
         ShowIdleState();
     }
@@ -301,6 +304,38 @@ public sealed partial class QuickPanelWindow : Window
             applyResult.Value,
             _currentBaseline);
 
+        // Register canonical asset in Library & History
+        try
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
+            Directory.CreateDirectory(libraryDir);
+            string canonicalIcoPath = Path.Combine(libraryDir, $"{processResult.Value.ContentHash}.ico");
+            if (!File.Exists(canonicalIcoPath))
+            {
+                File.Copy(tempIcoPath, canonicalIcoPath, overwrite: true);
+            }
+
+            await _storageService.AddOrUpdateAssetAsync(
+                processResult.Value.ContentHash,
+                canonicalIcoPath,
+                processResult.Value.SourceFormat);
+
+            await _storageService.RecordHistoryAsync(
+                _currentFolderPath,
+                operationId,
+                null,
+                processResult.Value.ContentHash,
+                "apply");
+
+            var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
+            await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
+        }
+        catch
+        {
+            // Non-critical library tracking failure
+        }
+
         await _storageService.UpdateJournalStateAsync(operationId, JournalState.Completed);
 
         // Clean up staged temp ICO
@@ -315,6 +350,8 @@ public sealed partial class QuickPanelWindow : Window
         {
             // Non-critical temp cleanup failure
         }
+
+        _ = LoadRecentStripAsync();
 
         ShowSuccessState();
         ResetButton.Visibility = Visibility.Visible;
@@ -470,4 +507,55 @@ public sealed partial class QuickPanelWindow : Window
             }
         }
     }
+
+    private async Task LoadRecentStripAsync()
+    {
+        try
+        {
+            var recents = await _storageService.GetRecentAssetsAsync(4);
+            if (recents.Count > 0)
+            {
+                var vms = recents.Select(r => new
+                {
+                    CanonicalIcoPath = r.CanonicalIcoPath,
+                    PreviewImage = File.Exists(r.CanonicalIcoPath) ? new BitmapImage(new Uri(r.CanonicalIcoPath)) : null
+                }).Where(x => x.PreviewImage != null).ToList();
+
+                if (vms.Count > 0)
+                {
+                    RecentStripItems.ItemsSource = vms;
+                    RecentStripPanel.Visibility = Visibility.Visible;
+                    return;
+                }
+            }
+            RecentStripPanel.Visibility = Visibility.Collapsed;
+        }
+        catch
+        {
+            RecentStripPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void OnRecentStripItemClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string icoPath && File.Exists(icoPath))
+        {
+            try
+            {
+                byte[] bytes = await File.ReadAllBytesAsync(icoPath);
+                await ApplyImageBytesAsync(bytes);
+            }
+            catch (Exception ex)
+            {
+                ShowErrorState("Recent icon error", ex.Message);
+            }
+        }
+    }
+
+    private void OnOpenManagerClicked(object sender, RoutedEventArgs e)
+    {
+        var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
+        managerWindow.Activate();
+    }
 }
+
