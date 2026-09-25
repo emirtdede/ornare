@@ -1,32 +1,39 @@
 # Ornare V1 Final Platform Qualification & Public Release Readiness Report — Gate 4
 
 - **Evaluation Date:** 2026-09-25
-- **Baseline Git Commit:** `7239e71` (Gate 3 Release Candidate Baseline)
+- **Baseline Git Commit:** `643772c` (Gate 4 Baseline)
 - **Candidate Package Version:** `1.0.0.0` (Marketing Version: `1.0.0-rc.1`)
-- **Primary Qualification Target:** Windows 11 Version 24H2 / 25H2 (Build 26200.0, x64)
+- **Primary Qualification Host:** Windows 11 Version 24H2 / 25H2 (Build 26200.0, x64 AMD64)
 - **Status Classification Model:** Strictly evaluated as **VERIFIED**, **NOT PROVEN**, **FAILED**, or **BLOCKED**.
-- **Scope Policy:** Zero feature creep; no unilateral scope reduction without explicit user approval.
+- **Scope & Governance Policy:** Zero feature creep; zero synthetic passes; no unilateral scope reduction without explicit user approval.
 
 ---
 
-## Executive Summary & Final Decisions
+## 1. Release Readiness Evaluation Matrix (Section 14)
 
-| Evaluation Domain | Final Gate 4 Decision | Key Operational Rationale |
+| Domain | Gate 4 Final Status | Operational Gerekçe & Kanıt Standardı |
 |---|---|---|
-| **X64 TECHNICAL** | **READY** | All 32 architecture invariants, 82 automated test suites (100% passing), MSIX lifecycle, and WACK certified on native x64 Windows 11. |
-| **ARM64 TECHNICAL** | **NOT READY** | Visual Studio C++ ARM64 build tools missing on host; physical ARM64 Windows 11 hardware execution unverified. |
-| **MICROSOFT STORE (Channel A)** | **BLOCKED** | Technical package is Store-ready; blocked by commercial prerequisites: Partner Center identity reservation, support/security contacts, brand legal review, and ARM64 qualification. |
-| **VELLIUM WEBSITE (Channel B)** | **BLOCKED** | Direct sideload distribution requires a commercial CA code-signing certificate (EV/OV / Azure Trusted Signing) with RFC 3161 timestamping. |
-| **BRAND CLEARANCE** | **REVIEW REQUIRED** | Low software collision risk in Nice Class 9; formal IP clearance in target jurisdictions required prior to public marketing. |
-| **OVERALL V1 PUBLIC RELEASE** | **BLOCKED** | Multi-architecture V1 specification requires certified ARM64 runtime and completed Store onboarding before public publication. |
+| **X64 TECHNICAL** | **READY** | 32 mimari invariant, 82 otomatik test (%100 PASS), MSIX yaşam döngüsü ve WACK x64 Windows 11 üzerinde tam doğrulandı. |
+| **REBOOT PERSISTENCE** | **NOT PROVEN** | Pre-reboot checkpoint oluşturuldu. Ancak OS son açılışı (2026-09-24 05:53:20), checkpoint zamanından (2026-09-25 05:19:20) öncedir. Makine henüz fiziksel olarak yeniden başlatılmadığı için **sahte PASS verilmemiştir**. |
+| **ARM64 NATIVE BUILD** | **BLOCKED** | `Microsoft.VisualStudio.Component.VC.Tools.ARM64` host üzerinde eksiktir. `vswhere` 0 sonuç verdi; ARM64 `cl.exe`, linker ve MSBuild platform dosyaları mevcut değildir. |
+| **ARM64 RUNTIME** | **NOT PROVEN** | Host makine fiziksel AMD64 (x64) mimarisindedir. Gerçek Windows 11 ARM64 cihaz testi yapılmamıştır; x64 emülasyonu runtime kanıtı kabul edilemez. |
+| **MULTI-ARCH BUNDLE** | **BLOCKED** | Native ARM64 paketi derlenemediği için gerçek dual-architecture `.msixbundle` üretilememiştir. Emüle/x64 binary içeren sahte ARM64 paketi yasaktır. |
+| **MICROSOFT STORE IDENTITY** | **BLOCKED — USER ACTION REQUIRED** | Partner Center üzerinde "Ornare" isim rezervasyonu, Product ID, Publisher ID ve resmi Package Identity henüz kullanıcı tarafından sağlanmamıştır. |
+| **SUPPORT / PRIVACY / SECURITY CONTACTS** | **BLOCKED — USER INPUT REQUIRED** | Gerçek müşteri destek URL/e-postası, gizlilik politikası URL'si ve güvenlik açığı bildirim adresi kullanıcı tarafından sağlanmamıştır; sahte iletişim bilgisi üretilmemiştir. |
+| **BRAND** | **LEGAL REVIEW REQUIRED** | Nice Class 9 (yazılım) kategorisinde doğrudan masaüstü yazılım çakışması tespit edilmemiştir; ancak arama motoru/veritabanı taraması hukuki mütalaa değildir. Marka tescil avukatı incelemesi zorunludur. |
+| **MICROSOFT STORE RELEASE (Kanal A)** | **BLOCKED** | Teknik MSIX Store gereksinimlerine uygundur; ancak Partner Center rezervasyonu, operasyonel iletişim kanalları, hukuki inceleme ve ARM64 çözümü beklenmektedir. *(Harici imzalama sertifikası Store için engel değildir)*. |
+| **WEBSITE DISTRIBUTION (Kanal B)** | **BLOCKED** | Doğrudan web dağıtımı için Azure Artifact Signing veya CA OV sertifikası ve RFC 3161 timestamping henüz temin edilmemiştir. |
+| **OVERALL V1 PUBLIC RELEASE** | **BLOCKED** | Multi-architecture V1 şartı, ARM64 fiziksel doğrulama, Store rezervasyonu ve operasyonel gereksinimler kapanmadan genel yayın yapılamaz. |
 
 ---
 
-## A. Gate 3 Baseline
+## 2. Ayrıntılı Değerlendirme Bölümleri (A'dan U'ya)
+
+### A. Gate 3 Baseline
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
   - Gate 3 Technical RC baseline was certified at commit `7239e71`.
-  - All 82 automated unit, integration, and stress tests pass with 0 failures and 0 warnings.
+  - All 82 automated unit, integration, and stress tests pass with 0 failures and 0 warnings in Release mode.
   - Clean reproducible build verified from clean `git archive` source tree (`production_artifacts/release/reproducible-build-report.md`).
   - Windows App Certification Kit (WACK) certified with 22 tests passing and 0 fatal blocking failures.
   - Zero P0 (data loss, Explorer crash, privilege violation) or P1 (workflow regression) bugs.
@@ -34,11 +41,11 @@
 
 ---
 
-## B. x64 Certification
-- **Status:** **VERIFIED** (Technical Readiness: **READY**)
+### B. x64 Certification
+- **Status:** **VERIFIED** (Readiness: **READY**)
 - **Evaluation Details:**
-  - Validated on native Windows 11 Version 24H2 / 25H2 (Build 26200.0, x64).
-  - Complete regression test suite re-executed in Release configuration (`dotnet test --configuration Release`): **82 / 82 tests passing**.
+  - Validated on native Windows 11 Version 24H2 / 25H2 (Build 26200.0, x64 AMD64).
+  - Complete regression test suite re-executed in Release configuration (`dotnet test --configuration Release`): **82 / 82 tests passing** (0 errors, 0 warnings).
   - Verified scenarios:
     1. **MSIX Fresh Install:** Clean installation via `Add-AppxPackage` as standard user (`production_artifacts/release/package-installation-report.md`).
     2. **Modern Context Menu:** Windows 11 modern context menu integration via native `IExplorerCommand` COM server in `Ornare.ShellExtension.dll`.
@@ -53,160 +60,155 @@
 
 ---
 
-## C. ARM64 Native Build
-- **Status:** **NOT PROVEN** (Technical Readiness: **NOT READY**)
+### C. ARM64 Native Build
+- **Status:** **BLOCKED**
 - **Evaluation Details:**
-  - **Managed ARM64 Build:** Successfully verified. The managed solution (`Ornare.slnx`) compiles cleanly for `win-arm64` under .NET 10.
-  - **Native C++ ARM64 Toolchain Audit:**
-    - Evaluated Visual Studio Build Tools via `vswhere.exe -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64`.
-    - Component `Microsoft.VisualStudio.Component.VC.Tools.ARM64` is **NOT INSTALLED** on the host system.
-    - Inspected MSVC toolset directory (`C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin`): Only `Hostx64\x64`, `Hostx64\x86`, `Hostx86\x64`, and `Hostx86\x86` compilers are present. ARM64 `cl.exe`, ARM64 `link.exe`, and ARM64 VC platform CRT libraries are absent.
-    - Attempting silent installation via `vs_installer.exe modify` exited with code `1` because modifying Visual Studio components requires administrative UAC elevation.
-  - **Rule Enforcement:** Per Section 3, managed compilation alone is insufficient; the native shell extension must be built for native ARM64 with full hardening (`/W4 /WX /GS /sdl /guard:cf`). Therefore, Native ARM64 Shell Build is strictly classified as **NOT PROVEN**.
+  - **Toolchain Verification:** Checked via `vswhere.exe -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64`. Result: **0 installations found**.
+  - **Compiler Audit:** Inspected `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin`. Only `Hostx64\x64`, `Hostx64\x86`, `Hostx86\x64`, `Hostx86\x86` exist. ARM64 `cl.exe` and ARM64 linker (`link.exe`) do not exist.
+  - **Library Audit:** `VC\Tools\MSVC\14.44.35207\lib` contains only `onecore`, `x64`, `x86`. ARM64 CRT/platform libraries are absent.
+  - **MSBuild Targets:** `MSBuild\Microsoft\VC\v170\Platforms` contains only `ARM`, `Win32`, `x64`. `ARM64` platform definition is missing.
+  - **Security & Privilege Policy:** Installing `Microsoft.VisualStudio.Component.VC.Tools.ARM64` requires administrative UAC elevation. In strict accordance with instructions, agent will not attempt to modify host security policies autonomously.
+  - **Conclusion:** Until administrative installation of `Microsoft.VisualStudio.Component.VC.Tools.ARM64` is performed, native C++ ARM64 build is **BLOCKED**.
 
 ---
 
-## D. ARM64 Runtime
-- **Status:** **NOT PROVEN** (Technical Readiness: **NOT READY**)
-- **Evaluation Details:**
-  - Host execution environment is a physical x64 AMD64 system (`PROCESSOR_ARCHITECTURE=AMD64`).
-  - No physical ARM64 Windows 11 hardware (e.g., Qualcomm Snapdragon X Elite / Copilot+ PC) or native ARM64 cloud test runner is currently connected.
-  - **Rule Enforcement:** Per Section 8, testing under x64 emulation does not constitute native ARM64 runtime verification. In accordance with project policy, claiming "ARM64 RUNTIME VERIFIED" without physical hardware proof is prohibited.
-
----
-
-## E. MSIX Bundle
+### D. ARM64 Runtime
 - **Status:** **NOT PROVEN**
 - **Evaluation Details:**
-  - An `.msixbundle` combines individual architecture packages (`Ornare_1.0.0.0_x64.msix` + `Ornare_1.0.0.0_arm64.msix`) allowing the Windows Store or App Installer to automatically deploy the correct native architecture.
-  - Because native ARM64 compilation is currently blocked by missing build tools, an ARM64 package cannot be produced.
-  - In strict compliance with Section 7, packaging emulated x64 binaries into an ARM64 package is strictly prohibited as a release blocker. Dual-architecture bundling is deferred until native ARM64 compilation succeeds.
+  - Host execution environment is physical AMD64 hardware (`PROCESSOR_ARCHITECTURE=AMD64`).
+  - No physical ARM64 Windows 11 hardware (e.g., Snapdragon X Elite / Copilot+ PC) or native ARM64 cloud test runner is currently connected.
+  - **Rule Enforcement:** Per Section 8, testing under x64 emulation does not constitute native runtime proof. Claiming "ARM64 RUNTIME VERIFIED" without physical hardware proof is strictly prohibited.
+  - Self-contained test handoff package created at `production_artifacts/release/arm64-validation/` containing the full 19-point verification protocol for remote execution on genuine ARM64 hardware.
 
 ---
 
-## F. Reboot Persistence
-- **Status:** **NOT PROVEN** (Pre-Reboot State Checkpointed)
+### E. MSIX Bundle
+- **Status:** **BLOCKED**
+- **Evaluation Details:**
+  - Creating a valid `.msixbundle` requires combining genuine x64 and ARM64 MSIX packages.
+  - Because native ARM64 compilation is blocked by the missing build toolchain, an authentic ARM64 package cannot be assembled.
+  - In strict compliance with Section 7, packaging emulated x64 binaries into an ARM64 package is prohibited as a release blocker. Multi-architecture bundling is **BLOCKED** pending ARM64 build resolution.
+
+---
+
+### F. Reboot Persistence
+- **Status:** **NOT PROVEN** (Pre-Reboot State Checkpointed; Awaiting Physical Reboot)
 - **Evaluation Details:**
   - Pre-reboot test fixture prepared via `scripts/prepare-reboot-verification.ps1` at `C:\Users\emir\Desktop\Ornare_Reboot_Verification_Test`.
-  - Fixture state checkpointed to `production_artifacts/release/reboot-verification-checkpoint.json`:
-    - Folder: `C:\Users\emir\Desktop\Ornare_Reboot_Verification_Test`
+  - Checkpoint recorded at `production_artifacts/release/reboot-verification-checkpoint.json`:
+    - Target: `C:\Users\emir\Desktop\Ornare_Reboot_Verification_Test`
+    - Checkpoint Creation Timestamp: `2026-09-25T02:19:20.7442022Z` (Local: 05:19:20)
     - Folder Attributes: `ReadOnly` (`+R`)
-    - `desktop.ini` SHA-256: `2F35FCA32A61061E898BC08C4D081F85A9F84B59F2C7430537A0D013241DE6D4`
-    - `desktop.ini` Attributes: `Hidden`, `System` (`+H+S`)
-    - `.ornare\folder.ico` SHA-256: `58C0FCD6D5262B0BA36569796D8454392E3B0AB09CC3476E3EF4468E9919DFB8`
-    - `.ornare\folder.ico` Attributes: `Hidden`, `System` (`+H+S`)
-    - Source image file deleted prior to checkpointing.
-  - Post-reboot automated validation script created and verified at `scripts/verify-post-reboot.ps1`.
-  - **Evidence Rule:** Because an autonomous agent session does not survive an OS reboot, a physical operating system reboot has not taken place during this session. In strict compliance with Section 14, **Fake PASS is strictly prohibited**. Status remains **NOT PROVEN** until manual post-reboot verification is run.
-
-### Manual Post-Reboot Verification Instructions
-1. Restart the Windows 11 machine: `shutdown /r /t 0`.
-2. Log back into Windows desktop.
-3. Open File Explorer and inspect `C:\Users\emir\Desktop\Ornare_Reboot_Verification_Test` without launching Ornare. Verify the custom icon renders immediately.
-4. Open PowerShell in the project directory and execute:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/verify-post-reboot.ps1
-   ```
-5. Confirm output displays `=== POST-REBOOT PERSISTENCE VERIFICATION PASSED ===`.
+    - `desktop.ini` SHA-256: `2F35FCA32A61061E898BC08C4D081F85A9F84B59F2C7430537A0D013241DE6D4` (`+H+S`)
+    - `.ornare\folder.ico` SHA-256: `58C0FCD6D5262B0BA36569796D8454392E3B0AB09CC3476E3EF4468E9919DFB8` (`+H+S`)
+  - **OS Reboot State Audit:**
+    - Querying `(Get-CimInstance Win32_OperatingSystem).LastBootUpTime` returned: `2026-09-24 05:53:20`.
+    - System uptime has been continuous for ~23.5 hours; **the OS has NOT rebooted since the checkpoint was established**.
+  - **Integrity Rule:** In strict compliance with Section 2 ("Reboot gerçekten gerçekleşmemişse PASS verme. Fake PASS yasaktır"), this criterion is honestly classified as **NOT PROVEN**.
+  - Verification script `scripts/verify-post-reboot.ps1` is validated and ready for execution following manual reboot.
 
 ---
 
-## G. Store Identity
-- **Status:** **BLOCKED**
+### G. Store Identity
+- **Status:** **BLOCKED — USER ACTION REQUIRED**
 - **Evaluation Details:**
-  - Microsoft Store package publication requires an active Microsoft Partner Center account with an app reservation and official identity attributes:
-    - `Identity Name` (assigned by Partner Center)
-    - `Publisher` (Publisher ID, e.g., `CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`)
+  - Microsoft Store publication requires an active Microsoft Partner Center account with an app reservation and official identity attributes:
+    - `Identity Name` (assigned by Partner Center upon reservation)
+    - `Publisher` (Partner Center Publisher ID, e.g., `CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`)
     - `PublisherDisplayName` (e.g., `Vellium`)
-  - Current candidate package uses development identity: `Name="Ornare"`, `Publisher="CN=OrnareDev"`.
-  - In strict compliance with Section 15, agent must not invent fake Partner Center credentials or fabricate Store identities.
-  - **Action Required:** Product Owner must register/reserve "Ornare" in Partner Center and provide official identity strings.
+  - Current candidate package uses local test identity (`Name="Ornare"`, `Publisher="CN=OrnareDev"`).
+  - In strict compliance with Section 10, agent must not invent fake Partner Center credentials or write fabricated identities into the manifest.
+  - **Action Required:** Product Owner must register and reserve "Ornare" in Partner Center and supply official identity strings.
 
 ---
 
-## H. Store Requirements
+### H. Store Requirements
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
-  - Evaluated against official Microsoft Learn MSIX Desktop App Store documentation:
-    - **Manifest Schema:** Complies with Microsoft Desktop App specification (`TargetDeviceFamily Windows.Desktop MinVersion="10.0.26100.0"`).
-    - **Capabilities:** Declares `runFullTrust` (standard requirement for WinUI 3 desktop applications integrating native Windows Explorer shell extensions).
-    - **Visual Assets:** All mandatory asset resolutions exist in `src/Ornare.App/Assets/` (`Square44x44Logo`, `Square150x150Logo`, `StoreLogo`, `SplashScreen`).
-    - **Certification:** Windows App Certification Kit passed with 22 passed tests and 0 fatal blocking errors.
-    - **Package Execution:** Clean standard-user execution with zero elevation requirements.
+  - Verified against Microsoft Learn MSIX Desktop App Store documentation:
+    - Target OS: Windows 11 Version 24H2 / 25H2 baseline (`TargetDeviceFamily Windows.Desktop MinVersion="10.0.26100.0"`).
+    - Capabilities: Declares `runFullTrust` (standard for WinUI 3 desktop apps integrating native Explorer shell extensions).
+    - Packaging: Conforms to AppxManifest schema 2018.
+    - Assets: All mandatory asset resolutions exist in `src/Ornare.App/Assets/` (`Square44x44Logo`, `Square150x150Logo`, `StoreLogo`, `SplashScreen`).
+    - WACK: Windows App Certification Kit PASS (22 passed, 0 fatal blocking failures).
+    - Clean standard-user execution with zero elevation requirement.
 
 ---
 
-## I. Store Signing Model
+### I. Store Signing Model
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
-  - Official Microsoft documentation verified via Microsoft Learn MCP (*App package requirements for MSIX apps*):
-  - **Store Ingestion Signature Rule:** Packages submitted to Microsoft Partner Center **do not require an external commercial CA-trusted certificate**.
-  - During the Store ingestion pipeline, Microsoft automatically replaces the developer's development signature with an official Microsoft-trusted Store signature.
-  - Development self-signed packages or unsigned candidate packages generated by MSBuild are accepted by Partner Center.
-  - **Crucial Clarification:** The absence of a third-party commercial code-signing certificate is **NOT** a release blocker for Channel A (Microsoft Store).
+  - Authoritative Microsoft Learn documentation verified:
+    - **MSIX Store Ingestion Re-Signing:** Packages submitted to Microsoft Partner Center **do not require an external commercial CA-trusted certificate**.
+    - During ingestion, Microsoft replaces the package signature with an official Microsoft Store certificate.
+    - Self-signed candidate packages or unsigned MSBuild packages are fully accepted by Partner Center.
+    - **Crucial Rule:** Lack of an external commercial code-signing certificate is **NOT** a Store release blocker.
 
 ---
 
-## J. Website Distribution (Channel B)
+### J. Website Distribution (Channel B)
 - **Status:** **BLOCKED**
 - **Evaluation Details:**
-  - Distributing `.msix` or `.appinstaller` files directly from `vellium.com` requires:
-    1. A commercial code-signing certificate (EV/OV) from a public CA, or an active Azure Trusted Signing identity.
+  - Direct web distribution from `vellium.com` requires:
+    1. A commercial code-signing certificate from a public CA in the Microsoft Trusted Root Program, or an active **Azure Artifact Signing** (formerly Trusted Signing) identity.
     2. RFC 3161 compliant timestamping.
-    3. Windows SmartScreen reputation building.
-    4. HTTPS download hosting with valid SHA-256 hashes and `.appinstaller` update feed.
-  - Because commercial code-signing credentials have not yet been provisioned, Channel B is classified as **BLOCKED**.
-  - **Independence:** This blocker is strictly isolated to Channel B and does not impede Microsoft Store submission.
+    3. HTTPS distribution hosting and `.appinstaller` manifest.
+  - **Official Microsoft Guidance on SmartScreen & EV Certificates:**
+    - Per Microsoft Learn (*Code signing options for Windows app developers*, updated 2024+): **EV certificates no longer grant instant or automatic SmartScreen bypass.** EV-signed files now go through the exact same reputation-building process as OV and Artifact Signing certificates.
+    - **Code-Signing Trust vs. SmartScreen Reputation:** Digital signing prevents installation blocks (`0x800B0109`) and displays the verified publisher name. However, SmartScreen reputation is a dynamic behavioral metric that accumulates over time based on download volume and telemetry. No certificate instantly eliminates warnings for a brand-new binary.
+    - Never claim that OV, EV, or Artifact Signing "definitely bypasses SmartScreen".
+  - Because commercial code-signing credentials have not been procured, Channel B is classified as **BLOCKED**. This does not block Channel A (Microsoft Store).
 
 ---
 
-## K. Brand Clearance
-- **Status:** **REVIEW REQUIRED** (Low Software Collision Risk; Legal Counsel Review Required)
+### K. Brand Clearance & Store Name Reservation
+- **Status:** **LEGAL REVIEW REQUIRED**
 - **Evaluation Details:**
-  - Comprehensive clearance research conducted across Microsoft Store, search engines, software directories, and international trademark databases:
-    - **Direct Software Collision:** Zero existing Windows software, desktop utilities, or developer tools exist with the name "Ornare".
-    - **Nice Class 9 (Software):** No active conflicting registrations identified for desktop customization software.
-    - **Non-Software Trademarks:** "Ornare" is an active international trademark held by a high-end luxury furniture/architectural cabinetry company (Nice Classes 19, 20, 37).
-    - **Etymology:** Classical Latin verb *ornare* ("to equip, adorn, embellish, furnish").
-    - **Risk Assessment:** Immediate risk of consumer confusion in the software category is **LOW**. However, formal trademark registration and clearance in target jurisdictions (USPTO, EUIPO, TÜRKPATENT) must be verified by intellectual property counsel.
-  - **Technical Architecture Decoupling:**
-    - Internal storage tables (`folder_assignments`, `journal_entries`), local metadata paths (`.ornare\folder.ico`), and COM class identifiers are decoupled from the marketing name.
-    - If a marketing rebrand is required, zero database migrations or user data resets are needed.
+  - **Trademark & Collision Investigation:**
+    - Comprehensive review conducted across search engines, Microsoft Store, GitHub, and trademark databases.
+    - Nice Class 9 (Software): Zero conflicting registrations or active desktop tools named "Ornare".
+    - Non-Software Trademark: "Ornare" is an active international trademark in luxury bespoke cabinetry/furniture (Nice Classes 19, 20, 37).
+    - Etymology: Classical Latin verb *ornare* ("to equip, adorn, embellish").
+  - **Crucial Clarification on Store Name Reservation (Section 11):**
+    - The fact that an application name does not appear in public Store search results **does not prove the name is available for registration**. A third party may have reserved the name in Partner Center without publishing an app.
+    - A trademark search is not legal clearance; Store availability is not trademark clearance.
+    - Formal clearance from intellectual property counsel is required prior to commercial launch.
+  - **Architecture Resilience:** Internal database tables (`folder_assignments`), local paths (`.ornare\folder.ico`), and COM IDs are decoupled from the marketing brand name. A rebrand would require zero database migrations or user data resets.
 
 ---
 
-## L. Privacy
+### L. Privacy
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
-  - Source code fully audited:
+  - Source code audited:
     - 100% offline, local on-device operation.
     - Zero network classes (`HttpClient`, `Sockets`, `WebRequest`), zero telemetry libraries, zero background analytics.
     - Zero user accounts, logins, or cloud synchronization.
-    - Diagnostic export explicitly masks user profile names (`<REDACTED_USER>`) and excludes image payloads.
+    - Diagnostic export explicitly sanitizes local user profile paths (`<REDACTED_USER>`) and excludes image payloads.
     - Zero user data or folder metadata leaves the local machine.
   - Fully conforms to Microsoft Store privacy questionnaire declarations.
 
 ---
 
-## M. Support Contact
-- **Status:** **BLOCKED**
+### M. Support Contact
+- **Status:** **BLOCKED — USER INPUT REQUIRED**
 - **Evaluation Details:**
   - Public Microsoft Store submission requires a functional, monitored customer support URL or email address (e.g., `https://vellium.com/support` or `support@vellium.com`).
-  - In strict compliance with Section 25, agent must not invent fake support domains or synthetic emails.
+  - In strict compliance with Section 13, agent must not invent fake support domains or synthetic emails.
   - **Action Required:** Product Owner must provide the official support endpoint.
 
 ---
 
-## N. Security Contact
-- **Status:** **BLOCKED**
+### N. Security Contact
+- **Status:** **BLOCKED — USER INPUT REQUIRED**
 - **Evaluation Details:**
   - Coordinated vulnerability disclosure policy (`SECURITY.md`) requires an official security reporting contact (e.g., `security@vellium.com` or security reporting portal).
-  - In strict compliance with Section 26, synthetic security contacts are forbidden.
+  - In strict compliance with Section 13, synthetic security contacts are forbidden.
   - **Action Required:** Product Owner must designate the official security disclosure inbox.
 
 ---
 
-## O. Final Package Contents
+### O. Final Package Contents
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
   - Audited `production_artifacts/release/candidate/Ornare_1.0.0.0_x64.msix`:
@@ -223,7 +225,7 @@
 
 ---
 
-## P. Final SBOM
+### P. Final SBOM
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
   - SPDX 2.3 machine-readable Software Bill of Materials generated at `production_artifacts/release/sbom.spdx.json`.
@@ -232,7 +234,7 @@
 
 ---
 
-## Q. Final Checksums
+### Q. Final Checksums
 - **Status:** **VERIFIED**
 - **Evaluation Details:**
   - Recorded in `production_artifacts/release/candidate/SHA256SUMS.txt`:
@@ -246,59 +248,62 @@
 
 ---
 
-## R. Remaining Risks
+### R. Remaining Risks
 
 | Risk ID | Severity | Category | Description | Mitigation Strategy |
 |---|---|---|---|---|
-| **RSK-001** | P1 (Release) | Hardware Qualification | ARM64 Native Shell build tools missing; physical ARM64 runtime unverified. | Obtain administrative elevation to install `VC.Tools.ARM64`; execute test matrix on physical ARM64 Windows 11 hardware or formally approve x64-only initial release. |
-| **RSK-002** | P1 (Release) | OS Verification | Physical OS reboot persistence is NOT PROVEN in continuous agent session. | Execute one-time manual reboot and run `scripts/verify-post-reboot.ps1`. |
-| **RSK-003** | P2 (Commercial) | Store Onboarding | Partner Center app reservation and Package Identity pending. | Product Owner must reserve "Ornare" in Partner Center and supply identity strings. |
-| **RSK-004** | P2 (Commercial) | Operational Contacts | Official support URL and security disclosure contact pending. | Product Owner must designate official `vellium.com` contact endpoints. |
-| **RSK-005** | P2 (Commercial) | Direct Distribution | Commercial code-signing certificate required for direct website sideloading. | Procure commercial code-signing certificate or Azure Trusted Signing prior to launching Channel B. |
-| **RSK-006** | P3 (Legal) | Intellectual Property | Trademark clearance requires formal counsel review in target jurisdictions. | Conduct formal IP review with trademark attorney prior to commercial launch. |
+| **RSK-001** | P1 (Release) | Build Tools | `Microsoft.VisualStudio.Component.VC.Tools.ARM64` missing on host. | Run Visual Studio Installer with administrative elevation to install component. |
+| **RSK-002** | P1 (Release) | Hardware Runtime | Physical ARM64 device qualification has not been executed. | Deploy self-contained test handoff package (`arm64-validation/`) to physical ARM64 Windows 11 hardware or approve x64-only initial scope. |
+| **RSK-003** | P1 (Release) | OS Verification | Physical OS reboot persistence is NOT PROVEN (machine has not rebooted). | Reboot machine and execute `scripts/verify-post-reboot.ps1`. |
+| **RSK-004** | P2 (Commercial) | Store Onboarding | Partner Center app reservation and Package Identity pending. | Product Owner must reserve "Ornare" in Partner Center and supply identity strings. |
+| **RSK-005** | P2 (Commercial) | Operational Contacts | Official support URL and security disclosure contact pending. | Product Owner must designate official `vellium.com` contact endpoints. |
+| **RSK-006** | P2 (Commercial) | Web Distribution | Public code-signing certificate required for direct website sideloading. | Procure Azure Artifact Signing or CA OV certificate prior to launching Channel B. |
+| **RSK-007** | P3 (Legal) | Intellectual Property | Trademark clearance requires formal counsel review in target jurisdictions. | Conduct formal IP review with trademark attorney prior to commercial launch. |
 
 ---
 
-## S. Release Blockers
+### S. Release Blockers
 
-### 1. Technical Release Blockers
-- **x64 Architecture:** **ZERO BLOCKERS** (Fully certified and ready).
+#### 1. Technical Release Blockers
+- **x64 Architecture:** **ZERO BLOCKERS** (Fully verified and production-ready).
 - **ARM64 Architecture:**
   - Build toolchain component `Microsoft.VisualStudio.Component.VC.Tools.ARM64` is missing on host.
   - Physical ARM64 device qualification has not been executed.
 
-### 2. Microsoft Store Release Blockers (Channel A)
-1. **Partner Center App Reservation & Identity:** Real Store identity required for manifest.
-2. **Official Public Endpoints:** Valid support URL/email and security contact required.
+#### 2. Microsoft Store Release Blockers (Channel A)
+1. **Partner Center App Reservation & Identity:** Real Store identity required for manifest (`STORE IDENTITY: BLOCKED — USER ACTION REQUIRED`).
+2. **Official Public Endpoints:** Valid support URL/email and security contact required (`SUPPORT/PRIVACY/SECURITY: BLOCKED — USER INPUT REQUIRED`).
 3. **ARM64 Scope Policy Decision:** Must either qualify ARM64 on physical hardware or obtain Product Owner's formal approval for an x64-only V1 release.
-4. **Brand Legal Review:** Formal trademark review recommended prior to public submission.
-*(Note: Code-signing certificate is NOT a Store blocker).*
+4. **Brand Legal Review:** Formal trademark review recommended prior to public submission (`BRAND: LEGAL REVIEW REQUIRED`).
+*(Note: Harici kod imzalama sertifikası Store için engel değildir)*.
 
-### 3. Direct Website Release Blockers (Channel B)
-1. **Commercial Code-Signing Certificate:** Public CA certificate with RFC 3161 timestamping required to avoid SmartScreen installation blocking (`0x800B0109`).
+#### 3. Direct Website Release Blockers (Channel B)
+1. **Commercial Code-Signing Certificate:** Public CA certificate (OV) or Azure Artifact Signing with RFC 3161 timestamping required to avoid SmartScreen installation blocking (`0x800B0109`).
 2. **Web Hosting & Infrastructure:** HTTPS distribution portal and `.appinstaller` manifest.
 
 ---
 
-## T. Technical Decision
+### T. Technical Decision
 
 ```text
 =====================================================
   X64 TECHNICAL READINESS:    READY
-  ARM64 TECHNICAL READINESS:  NOT READY
+  ARM64 NATIVE BUILD:         BLOCKED
+  ARM64 RUNTIME:              NOT PROVEN
+  REBOOT PERSISTENCE:         NOT PROVEN
 =====================================================
 ```
-- **Rationale:** The x64 build of Ornare V1 is fully verified, passes all 82 tests, satisfies all 32 architecture invariants, passes WACK, and provides complete folder customization functionality. ARM64 remains unverified due to missing C++ build tools and lack of physical ARM64 test hardware.
+- **Rationale:** The x64 build of Ornare V1 is fully verified, passes all 82 tests, satisfies all 32 architecture invariants, passes WACK, and provides complete folder customization functionality. ARM64 remains blocked by missing C++ build tools and lack of physical ARM64 test hardware. Physical reboot persistence remains unproven as the host OS has not rebooted since checkpoint creation.
 
 ---
 
-## U. Public Release Decision
+### U. Public Release Decision
 
 ```text
 =====================================================
   MICROSOFT STORE (Channel A):       BLOCKED
   VELLIUM WEBSITE (Channel B):       BLOCKED
-  BRAND CLEARANCE:                   REVIEW REQUIRED
+  BRAND CLEARANCE:                   LEGAL REVIEW REQUIRED
   OVERALL V1 PUBLIC RELEASE:         BLOCKED
 =====================================================
 ```
@@ -306,12 +311,12 @@
   1. The ARM64 status is resolved (either via physical ARM64 qualification or formal Product Owner scope amendment to x64-only V1).
   2. Microsoft Partner Center app reservation and official package identity are integrated.
   3. Official support and security contact URLs are designated.
-  4. One-time post-reboot verification is executed using `scripts/verify-post-reboot.ps1`.
+  4. Physical machine reboot is executed and verified with `scripts/verify-post-reboot.ps1`.
 
 ---
 
-## Publication Prohibition Notice (Section 39)
-In strict accordance with Section 39 of the Gate 4 specification:
+## Publication Prohibition Notice (Section 16)
+In strict accordance with Section 16 of the user specification:
 - **No Store submission has been initiated.**
 - **No GitHub release has been created.**
 - **No website upload has been performed.**
