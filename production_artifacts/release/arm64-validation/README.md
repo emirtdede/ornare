@@ -7,9 +7,15 @@ This directory provides the complete, self-contained handoff specification, buil
 ## 1. Context & Architecture Status
 
 On the primary CI/development host:
-- **Architecture:** AMD64 (x64) physical hardware.
-- **Visual Studio Toolchain Status:** `Microsoft.VisualStudio.Component.VC.Tools.ARM64` is missing and requires administrative UAC elevation to install.
-- **ARM64 Native Shell Extension:** Cannot be built without the native MSVC ARM64 toolset.
+- **Host Architecture:** AMD64 (x64) physical hardware.
+- **Visual Studio Toolchain Status:** `Microsoft.VisualStudio.Component.VC.Tools.ARM64` is missing on this machine.
+  - `vswhere.exe -all -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64` returns 0 installations.
+  - ARM64 `cl.exe`, linker (`link.exe`), and MSBuild `Platforms\ARM64` files are absent from MSVC directories.
+  - Installing this component requires administrative UAC elevation.
+- **Managed Solution Status (win-arm64):**
+  - **VERIFIED:** All 6 production managed projects (`Ornare.Core`, `Ornare.DesignSystem`, `Ornare.Imaging`, `Ornare.Storage`, `Ornare.Windows`, and `Ornare.App`) compile cleanly for `win-arm64` under .NET 10 with **0 errors and 0 warnings**.
+  - **Native AOT Publish Experiment:** Executed `dotnet publish -c Release -r win-arm64 /p:PublishAot=true`. The experiment demonstrated that Windows App SDK 2.x WinUI 3 dynamic WinRT projections and XAML reflection require standard JIT/R2R compilation rather than full Native AOT (`error IL2026` / `error IL3050` on `JsonSerializer` without source generators). Standard framework-dependent and self-contained JIT publish for `win-arm64` succeeds cleanly.
+- **ARM64 Native Shell Extension:** Cannot be compiled without the native MSVC ARM64 toolset (`Ornare.ShellExtension.vcxproj`).
 - **Rule Enforcement:** Under the Ornare engineering contract, emulation on an x64 host cannot be claimed as runtime verification. Full qualification requires execution on genuine ARM64 Windows 11 hardware.
 
 ---
@@ -94,9 +100,9 @@ The following 19 test scenarios must be executed sequentially on the physical AR
 | **13** | **Favorites Toggle** | Star/favorite an asset in Library. | Asset appears in Favorites tab; persisted across app restarts. | `[ ]` |
 | **14** | **Folder Health Scan** | Open "Customized Folders" view in Manager. | Scans active folders; accurately displays `Healthy`, `MissingIcon`, or `Conflict`. | `[ ]` |
 | **15** | **Repair Engine** | Simulate a damaged attribute (`attrib -R <folder>`); run "Repair". | Repair restores `+R` attribute and refreshes Explorer shell immediately. | `[ ]` |
-| **16** | **Uninstall Persistence** | Remove package via `Remove-AppxPackage`; inspect folder. | **Invariant Verified:** Custom icon, `.ornare\folder.ico`, and `desktop.ini` survive package removal. | `[ ]` |
-| **17** | **Clean Reinstall** | Re-run `Add-AppxPackage`; open Manager. | Manager reattaches to existing customizations without database corruption. | `[ ]` |
-| **18** | **WACK on ARM64** | Run `appcert.exe test -apptype desktop -packagefullname <PackageFullName>`. | All 22 tests pass; zero blocking failures. | `[ ]` |
+| **16** | **Reboot Persistence** | Reboot the physical ARM64 device; log in; inspect folder. | Explorer renders the custom icon passively without Ornare application running. | `[ ]` |
+| **17** | **Uninstall Persistence** | Remove package via `Remove-AppxPackage`; inspect folder. | **Invariant Verified:** Custom icon, `.ornare\folder.ico`, and `desktop.ini` survive package removal. | `[ ]` |
+| **18** | **Clean Reinstall** | Re-run `Add-AppxPackage`; open Manager. | Manager reattaches to existing customizations without database corruption. | `[ ]` |
 | **19** | **Memory & CPU Profiling** | Monitor Task Manager during 10-minute idle period. | Idle CPU: 0.0%; Quick Panel Working Set < 50 MB; Manager Working Set < 80 MB. | `[ ]` |
 
 ---
