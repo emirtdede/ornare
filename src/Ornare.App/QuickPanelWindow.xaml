@@ -1,0 +1,144 @@
+<Window
+    x:Class="Ornare.App.QuickPanelWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <!-- Main Container: Padding 24 left/right, 20 top, 20 bottom per Visual Reference Spec -->
+        <Grid Margin="24,20,24,20" RowDefinitions="Auto,*,Auto">
+            
+            <!-- 1. Header: Target Folder Identity -->
+            <StackPanel Grid.Row="0" Spacing="4">
+                <TextBlock
+                    x:Name="FolderNameText"
+                    Text="Folder Name"
+                    FontSize="18"
+                    FontWeight="SemiBold"
+                    TextTrimming="CharacterEllipsis"
+                    MaxLines="1" />
+                <TextBlock
+                    x:Name="FolderPathText"
+                    Text="C:\Path\To\Folder"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextTrimming="CharacterEllipsis"
+                    MaxLines="1" />
+            </StackPanel>
+
+            <!-- 2. Central Direct-Manipulation Region (Target ~150-170px) -->
+            <Border
+                x:Name="DropAreaBorder"
+                Grid.Row="1"
+                Margin="0,16,0,16"
+                CornerRadius="8"
+                BorderThickness="1"
+                BorderBrush="Transparent"
+                Background="Transparent"
+                AllowDrop="True"
+                DragOver="OnDropAreaDragOver"
+                DragLeave="OnDropAreaDragLeave"
+                Drop="OnDropAreaDrop"
+                Tapped="OnDropAreaTapped">
+                
+                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <!-- Idle / Prompt State -->
+                    <StackPanel x:Name="IdleStatePanel" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <FontIcon
+                            Glyph="&#xEB9F;"
+                            FontSize="38"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="DropPromptText"
+                            Text="Drop an image"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="ClickPromptText"
+                            Text="Click to choose or press Ctrl+V"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Processing State -->
+                    <StackPanel x:Name="ProcessingStatePanel" Spacing="12" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <ProgressRing IsActive="True" Width="32" Height="32" HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="ProcessingText"
+                            Text="Processing image..."
+                            FontSize="13"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Success State -->
+                    <StackPanel x:Name="SuccessStatePanel" Spacing="8" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <FontIcon
+                            Glyph="&#xE73E;"
+                            FontSize="36"
+                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                            HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="SuccessTitleText"
+                            Text="Icon applied"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center" />
+                        <Button
+                            x:Name="UndoButton"
+                            Content="Undo"
+                            FontSize="12"
+                            HorizontalAlignment="Center"
+                            Click="OnUndoClicked" />
+                    </StackPanel>
+
+                    <!-- Error State -->
+                    <StackPanel x:Name="ErrorStatePanel" Spacing="8" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <FontIcon
+                            Glyph="&#xE783;"
+                            FontSize="36"
+                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                            HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="ErrorTitleText"
+                            Text="Could not apply icon"
+                            FontSize="15"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center" />
+                        <TextBlock
+                            x:Name="ErrorMessageText"
+                            Text="Actionable description"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap"
+                            MaxWidth="320"
+                            TextAlignment="Center"
+                            HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 3. Footer: Subtle Reset Action -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+                <TextBlock
+                    x:Name="StatusInfoText"
+                    Grid.Column="0"
+                    FontSize="11"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    VerticalAlignment="Center" />
+                <Button
+                    x:Name="ResetButton"
+                    Grid.Column="1"
+                    Content="Reset"
+                    FontSize="12"
+                    Visibility="Collapsed"
+                    Click="OnResetClicked" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

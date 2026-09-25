@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible Ornare defect
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what happened without including private paths/images unless necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ornare version
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version / build / architecture
+      placeholder: "Windows 11 25H2 build ..., x64/ARM64"
+    validations:
+      required: true
+  - type: dropdown
+    id: data_integrity
+    attributes:
+      label: Did this affect or risk user files/folder customization?
+      options: ["No", "Yes", "Unsure"]
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Attach sanitized diagnostics if available. Never post secrets or private image content.

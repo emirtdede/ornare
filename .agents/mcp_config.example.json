@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "microsoft-learn": {
+      "serverUrl": "https://learn.microsoft.com/api/mcp"
+    },
+    "github-optional": {
+      "serverUrl": "https://api.githubcopilot.com/mcp/readonly",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_TOKEN}",
+        "X-MCP-Readonly": "true"
+      }
+    }
+  }
+}

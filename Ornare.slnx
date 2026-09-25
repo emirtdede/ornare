@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ornare.App/Ornare.App.csproj" />
+    <Project Path="src/Ornare.Core/Ornare.Core.csproj" />
+    <Project Path="src/Ornare.DesignSystem/Ornare.DesignSystem.csproj" />
+    <Project Path="src/Ornare.Imaging/Ornare.Imaging.csproj" />
+    <Project Path="src/Ornare.Storage/Ornare.Storage.csproj" />
+    <Project Path="src/Ornare.Windows/Ornare.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ornare.Core.Tests/Ornare.Core.Tests.csproj" />
+    <Project Path="tests/Ornare.Imaging.Tests/Ornare.Imaging.Tests.csproj" />
+    <Project Path="tests/Ornare.IntegrationTests/Ornare.IntegrationTests.csproj" />
+    <Project Path="tests/Ornare.Storage.Tests/Ornare.Storage.Tests.csproj" />
+    <Project Path="tests/Ornare.UiTests/Ornare.UiTests.csproj" />
+  </Folder>
+</Solution>

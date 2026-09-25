@@ -1,0 +1,49 @@
+# Build
+bin/
+obj/
+artifacts/
+AppPackages/
+x64/
+ARM64/
+*.VC.db
+Ornare.S.*/
+*.user
+*.suo
+.vs/
+
+# Runtime/local state
+*.db
+*.db-shm
+*.db-wal
+logs/
+crashdumps/
+
+# Secrets / local MCP overrides
+.agents/mcp_config.local.json
+.env
+.env.*
+!.env.example
+
+# Test captures
+TestResults/
+coverage/
+perf-results/
+ui-captures/
+
+# Packaging and binaries
+*.msix
+*.appx
+*.msixbundle
+*.appxbundle
+*.pfx
+production_artifacts/release/layout/
+
+# Test directories
+OrnareGate1Final/
+OrnareUninstallPersistenceTest/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+

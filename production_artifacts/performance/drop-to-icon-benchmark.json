@@ -1,0 +1,9 @@
+{
+  "Iterations": 20,
+  "Target": "Drop to Explorer-Visible Icon Pipeline",
+  "MinMs": 210.75,
+  "MaxMs": 384.3,
+  "P50Ms": 219.91,
+  "P95Ms": 310.98,
+  "Status": "PASS (< 500 ms budget)"
+}

@@ -1,0 +1,42 @@
+# V1 Requirements Traceability Matrix
+
+Every V1 requirement receives an immutable ID. Implementation reports and tests reference these IDs.
+
+| ID | Requirement | Authoritative spec | Verification |
+|---|---|---|---|
+| ORN-FUN-001 | Exactly one supported folder exposes `Set Folder Icon` in modern Windows 11 context menu | PRODUCT_SPEC, SHELL_EXTENSION | shell integration/UIA/manual |
+| ORN-FUN-002 | Drop local image and apply without Apply button | PRODUCT_SPEC, SCREEN_SPECIFICATIONS | UIA + integration |
+| ORN-FUN-003 | File picker input works | PRODUCT_SPEC | UIA/integration |
+| ORN-FUN-004 | Clipboard bitmap/local image file paste works | IMAGE_PIPELINE | integration/UIA |
+| ORN-FUN-005 | Source image may be removed after apply | FOLDER_CUSTOMIZATION | integration/golden path |
+| ORN-FUN-006 | Supported local rename/move preserves icon | FOLDER_CUSTOMIZATION | integration/manual Explorer |
+| ORN-FUN-007 | Reset restores pre-Ornare icon semantics without clobbering unrelated current settings | FOLDER_CUSTOMIZATION, MIGRATION_RECOVERY | integration/fault injection |
+| ORN-FUN-008 | Undo restores previous successful Ornare state | PRODUCT_SPEC | integration/UIA |
+| ORN-FUN-009 | Recent and Favorites reuse canonical assets | STORAGE_DATA_MODEL | unit/integration/UIA |
+| ORN-FUN-010 | Manager lists tracked folders and health | INFORMATION_ARCHITECTURE | integration/UIA |
+| ORN-REL-001 | Explorer is not restarted/killed in normal flow | ARCHITECTURE | code review/stress |
+| ORN-REL-002 | Existing unrelated desktop.ini semantics survive operations | FOLDER_CUSTOMIZATION | parser/merge integration |
+| ORN-REL-003 | Cross-store failure produces rollback or recoverable journal state | ARCHITECTURE, FAULT_INJECTION_TESTS | deterministic fault injection |
+| ORN-REL-004 | App uninstall keep-customizations leaves applied icons functional | RELEASE_DISTRIBUTION | clean VM install/uninstall |
+| ORN-REL-005 | Long paths are either proven-safe through the qualified implementation or rejected before mutation; no truncation/wrong-target write | LONG_PATH_COMPATIBILITY, PLATFORM_COMPATIBILITY | boundary/long-path qualification |
+| ORN-REL-006 | At most one mutation owns a folder identity at a time; duplicate activations are serialized/coalesced deterministically | ARCHITECTURE, STATE_MACHINES | concurrency/integration stress |
+| ORN-REL-007 | Unsupported target classes are rejected before mutation; V1 never silently follows a target reparse point or requests elevation | TARGET_ELIGIBILITY, SECURITY_PRIVACY | target eligibility/race integration tests |
+| ORN-REL-008 | External icon changes invalidate uncontested ownership; automatic Reset/Repair never overwrites them, and explicit reapply captures a fresh baseline | FOLDER_CUSTOMIZATION, STATE_MACHINES | conflict integration/UI tests |
+| ORN-SEC-001 | Standard-user operation; no hidden elevation | SECURITY_PRIVACY | integration/manual |
+| ORN-SEC-002 | Malicious/corrupt/oversized image inputs are bounded/rejected | IMAGE_PIPELINE, THREAT_MODEL | security corpus |
+| ORN-SEC-003 | SVG cannot access network/external resources | IMAGE_PIPELINE | security integration |
+| ORN-SEC-004 | Shell DLL loads no UI/DB/imaging/network stack | ARCHITECTURE | binary/dependency inspection |
+| ORN-SEC-005 | Reparse/path changes cannot redirect unsafe writes silently | SECURITY_PRIVACY, THREAT_MODEL | race/reparse tests |
+| ORN-PRV-001 | No analytics/telemetry/image upload/account in V1 | PRODUCT_SPEC, LOGGING_DIAGNOSTICS | binary/network review |
+| ORN-UX-001 | Quick Panel has one continuous surface and no nested cards | UX_UI_SPEC, VISUAL_REFERENCE_SPEC | screenshot rubric |
+| ORN-UX-002 | System theme default; Light/Dark/High Contrast supported | DESIGN_SYSTEM | visual/UIA |
+| ORN-UX-003 | en-US + tr-TR complete; system language default | LOCALIZATION | resource parity/manual |
+| ORN-UX-004 | Keyboard/UIA/Narrator golden path is usable | ACCESSIBILITY | UIA/manual |
+| ORN-PERF-001 | Shell callbacks meet measured latency budget without heavy work | PERFORMANCE, SHELL_EXTENSION | WPR/WPA |
+| ORN-PERF-002 | Quick-panel startup and apply baselines are measured P50/P95 | PERFORMANCE | benchmark report |
+| ORN-PKG-001 | x64 + ARM64 packaged Release builds and runtime qualification pass | RELEASE_DISTRIBUTION | clean machines/WACK |
+| ORN-SC-001 | Locked/pinned dependencies, vulnerability audit, SBOM and notices | DEPENDENCY_SUPPLY_CHAIN | CI/release artifacts |
+
+## Traceability rule
+
+No requirement may be marked complete with only an implementation file reference. It needs at least one verification artifact/test. New V1 behavior receives a new ID before implementation.
