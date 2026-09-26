@@ -110,3 +110,35 @@ Key architectural deliverables:
 ## 4. Conclusion
 
 Feature F24 is fully implemented, verified, and complete in accordance with `feature-expansion/features/F24_cli-json.md` and all parent architectural invariants.
+
+---
+
+## Post-Implementation Gap Closure
+
+During the mandatory GAP-CLOSURE audit (GAP_CLOSURE_F19_F24):
+- **Precision Correction**: Clarified that prior build evidence represented managed ARM64 compilation, not ARM64 Native AOT.
+- **Installed MSIX AppExecutionAlias Verification (Phase G)**:
+  - Rebuilt and signed fresh x64 package candidate `production_artifacts/release/candidate/Ornare_1.0.0.0_x64.msix` containing `Ornare.Cli.exe` with `AppExecutionAlias` `ornare.exe` (`desktop4:Subsystem="console"`).
+  - Installed locally via `Add-AppxPackage`.
+  - Executed full lifecycle from an ordinary terminal without source-tree PATH:
+    1. `ornare --help`: exit code 0, complete human documentation.
+    2. `ornare export-ico`: pure JSON stdout, 419,110 byte multi-resolution ICO generated.
+    3. `ornare export-png`: pure JSON stdout, 1024x1024 PNG generated.
+    4. Safe folder lifecycle: `inspect` -> `apply` -> `inspect` (verified `IconResource=.ornare\folder.ico,0`) -> `undo` -> `inspect` -> `apply-last` -> `reset` -> `inspect`.
+    5. Alias lifecycle: Verified `Remove-AppxPackage` cleanly removes alias from `%LOCALAPPDATA%\Microsoft\WindowsApps\ornare.exe`, and reinstall restores it.
+- **Package & Payload Audit (Phase H)**:
+  - Validated `production_artifacts/feature-gates/GAP_CLOSURE_F19_F24/package/PACKAGE_AUDIT.md`.
+  - Confirmed 0 PDBs, 0 source files, 0 test files, correct architecture PE headers across x64 and ARM64.
+- **WACK & DPI Awareness (Phase I)**:
+  - Executed Windows App Certification Kit (`appcert.exe`).
+  - Added `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` in `Ornare.Cli/Program.cs` ensuring full DPI compliance.
+- **Native AOT Verification**:
+  - x64 Native AOT: PASS (`Ornare.Cli.exe`). PE32+ AMD64 native executable verified.
+  - ARM64 Native AOT: PASS (`Ornare.Cli.exe`). PE32+ AA64 native executable verified.
+  - ARM64 Physical Runtime: NOT PROVEN / PENDING HARDWARE CERTIFICATION.
+- **Performance Evaluation**:
+  - CLI Startup (`ornare --help`): P50: 105.98 ms, P95: 117.12 ms (Budget: < 250 ms).
+  - CLI Inspect: P50: 171.73 ms, P95: 200.04 ms (Budget: < 300 ms).
+  - CLI Apply: P50: 253.13 ms, P95: 311.59 ms (Budget: < 1000 ms).
+- **Automated Regression Suite**: 415 passed, 0 failed across entire solution.
+- **Final Decision for F24**: PASS (Recertified).

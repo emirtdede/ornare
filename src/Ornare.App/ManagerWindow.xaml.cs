@@ -962,6 +962,8 @@ public sealed partial class ManagerWindow : Window, IDisposable
             ? "Disk üzerinde değişiklik yapmadan klasörleri incelemek veya hazırlamak için buraya sürükleyin."
             : "Drag and drop folders here to inspect or prepare them without modifying disk.";
         ClearStagingButton.Content = isTr ? "Tepsiyi Temizle" : "Clear Staging";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, isTr ? "Klasör Hazırlama Tepsisi" : "Folder Staging Tray");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, isTr ? "Hazırlanan klasörleri temizle" : "Clear staged folders");
 
         SettingsAppearanceHeader.Text = isTr ? "Görünüm" : "Appearance";
         SettingsThemeLabel.Text = isTr ? "Uygulama teması" : "App theme";

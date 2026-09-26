@@ -61,14 +61,14 @@ public sealed record RenderRecipe
 
     public string ComputeRenderKey() => CanonicalRecipeSerializer.ComputeRenderKey(this);
 
-    public string ToJson() => JsonSerializer.Serialize(this);
+    public string ToJson() => JsonSerializer.Serialize(this, FolderJsonContext.Default.RenderRecipe);
 
     public static RenderRecipe? FromJson(string json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
         try
         {
-            return JsonSerializer.Deserialize<RenderRecipe>(json);
+            return JsonSerializer.Deserialize(json, FolderJsonContext.Default.RenderRecipe);
         }
         catch
         {

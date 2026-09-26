@@ -149,3 +149,22 @@ Key architectural deliverables:
 - **Quality Gates:** Invariants `INV-APP-001`, `INV-CUSTOMIZE-001`, and `INV-STORAGE-002` fully met.
 
 Feature F21 is **COMPLETE** and verified ready for production integration.
+
+---
+
+## Post-Implementation Gap Closure
+
+During the mandatory GAP-CLOSURE audit (GAP_CLOSURE_F19_F24):
+- **Precision Correction**: Clarified that prior build evidence represented managed ARM64 compilation, not ARM64 Native AOT.
+- **Native C++ Shell Extension Audit & Build Parity**:
+  - Conducted line-by-line diff of `src/Ornare.ShellExtension/dllmain.cpp` against pre-F21 baseline (`22c7081`). Confirmed atomic ref-counting (`g_moduleRefCount`), memory allocation safety (`(std::nothrow)`), class factory, `IExplorerCommand` sub-command enumeration, exception containment, and strict Explorer process isolation (zero WinUI, SQLite, Magick.NET, or filesystem mutation inside Explorer).
+  - Built `Ornare.ShellExtension.vcxproj` with MSBuild:
+    - Release|x64: 0 errors, 0 warnings (/WX, /W4, /guard:cf, /GS, /sdl). AMD64 machine type, High Entropy VA, ASLR, DEP, CFG (`guardN=34`).
+    - Release|ARM64: 0 errors, 0 warnings (/WX, /W4, /guard:cf, /GS, /sdl). AA64 machine type, High Entropy VA, ASLR, DEP, CFG (`guardN=34`).
+  - Stress Tests: `ExplorerCommandStressTests` (1,000 iterations, 0 handle leaks) and `ShellExtensionFlyoutTests` passed.
+- **Native AOT Verification**:
+  - x64 Native AOT: PASS (`Ornare.App.exe` and `Ornare.Cli.exe`). PE32+ AMD64 native executables verified.
+  - ARM64 Native AOT: PASS (`Ornare.App.exe` and `Ornare.Cli.exe`). PE32+ AA64 native executables verified.
+  - ARM64 Physical Runtime: NOT PROVEN / PENDING HARDWARE CERTIFICATION.
+- **Automated Regression Suite**: 415 passed, 0 failed across entire solution.
+- **Final Decision for F21**: PASS (Recertified).

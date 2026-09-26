@@ -41,6 +41,20 @@ function Build-ArchPackage([string]$arch) {
     # Strip PDBs from production package
     Get-ChildItem -Path $layoutDir -Filter *.pdb -Recurse | Remove-Item -Force
 
+    # 1b. Ornare.Cli executable (F24)
+    $cliCandidates = if ($arch -eq "arm64") {
+        @( "src/Ornare.Cli/bin/Release/net10.0-windows10.0.26100.0/win-arm64/publish/Ornare.Cli.exe",
+           "src/Ornare.Cli/bin/ARM64/Release/net10.0-windows10.0.26100.0/win-arm64/publish/Ornare.Cli.exe" )
+    } else {
+        @( "src/Ornare.Cli/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/Ornare.Cli.exe",
+           "src/Ornare.Cli/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/publish/Ornare.Cli.exe" )
+    }
+    $cliExe = $cliCandidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+    if (!$cliExe -or !(Test-Path $cliExe)) {
+        throw "Ornare.Cli.exe publish binary not found for $arch"
+    }
+    Copy-Item $cliExe $layoutDir -Force
+
     # 2. Native Shell Extension DLL
     $shellDll = if ($arch -eq "arm64") {
         "src/Ornare.ShellExtension/ARM64/Release/Ornare.ShellExtension.dll"

@@ -416,6 +416,7 @@
                     <!-- Drop Target Banner / Drop Zone -->
                     <Border Grid.Row="0"
                             x:Name="TargetTrayDropZone"
+                            AutomationProperties.Name="Folder Staging Tray"
                             Margin="0,0,0,16"
                             Padding="16,14"
                             CornerRadius="8"

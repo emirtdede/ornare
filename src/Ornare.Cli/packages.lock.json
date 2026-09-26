@@ -77,6 +77,17 @@
           "SQLitePCLRaw.provider.winsqlite3": "2.1.11"
         }
       }
+    },
+    "net10.0-windows10.0.26100/win-arm64": {
+      "Magick.NET-Q16-AnyCPU": {
+        "type": "CentralTransitive",
+        "requested": "[14.17.1, )",
+        "resolved": "14.17.1",
+        "contentHash": "m7NksccmpXQiQoSsDyBpXkOFC3XV9/cM3chZp2bHPdi1QPTzSicljNwrKmGZiQnQUyOBznvzv+A3ROT3/eIqUg==",
+        "dependencies": {
+          "Magick.NET.Core": "14.17.1"
+        }
+      }
     }
   }
 }

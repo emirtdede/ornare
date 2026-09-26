@@ -68,7 +68,8 @@
     </Application>
     <Application Id="OrnareCli"
       Executable="Ornare.Cli.exe"
-      EntryPoint="Windows.FullTrustApplication">
+      EntryPoint="Windows.FullTrustApplication"
+      desktop4:SupportsMultipleInstances="true">
       <uap:VisualElements
         DisplayName="Ornare CLI"
         Description="Ornare CLI"
@@ -80,8 +81,8 @@
       </uap:VisualElements>
       <Extensions>
         <uap5:Extension Category="windows.appExecutionAlias">
-          <uap5:AppExecutionAlias>
-            <uap5:ExecutionAlias Executable="Ornare.Cli.exe" Alias="ornare.exe" />
+          <uap5:AppExecutionAlias desktop4:Subsystem="console">
+            <uap5:ExecutionAlias Alias="ornare.exe" />
           </uap5:AppExecutionAlias>
         </uap5:Extension>
       </Extensions>
