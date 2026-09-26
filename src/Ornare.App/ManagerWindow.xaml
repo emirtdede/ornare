@@ -398,17 +398,145 @@
                     </GridView>
                 </Grid>
 
-                <!-- 4. CUSTOMIZED FOLDERS VIEW -->
-                <Grid x:Name="FoldersView" Visibility="Collapsed">
-                    <StackPanel x:Name="FoldersEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
-                        <FontIcon Glyph="&#xE838;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="FoldersEmptyTitle" Text="No customized folders" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                    </StackPanel>
+                <!-- 4. CUSTOMIZED FOLDERS VIEW (F20 Target Tray + Folders) -->
+                <Grid x:Name="FoldersView"
+                      Visibility="Collapsed"
+                      AllowDrop="True"
+                      DragOver="OnFoldersViewDragOver"
+                      Drop="OnFoldersViewDrop">
+                    <Grid.RowDefinitions>
+                        <!-- Row 0: Target Tray / Drag-and-Drop Area -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 1: Staged Items Tray (visible when items staged) -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Row 2: Active / Customized Folders -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
 
-                    <!-- Flat list of folders with separators per Visual Reference Spec -->
-                    <ListView
-                        x:Name="FoldersListView"
-                        SelectionMode="None">
+                    <!-- Drop Target Banner / Drop Zone -->
+                    <Border Grid.Row="0"
+                            x:Name="TargetTrayDropZone"
+                            Margin="0,0,0,16"
+                            Padding="16,14"
+                            CornerRadius="8"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <FontIcon Grid.Column="0" Glyph="&#xE838;" FontSize="20" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock x:Name="TargetTrayTitle" Text="Folder Staging Tray" FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock x:Name="TargetTraySubtitle" Text="Drag and drop folders here to inspect or prepare them without modifying disk." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <!-- Limit / Status Warning -->
+                            <TextBlock Grid.Column="2" x:Name="TargetTrayLimitNotice" Text="" FontSize="11" Foreground="{ThemeResource SystemFillColorCautionBrush}" VerticalAlignment="Center" Visibility="Collapsed" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Staged Folders Tray Panel -->
+                    <Border Grid.Row="1"
+                            x:Name="TargetTrayStagedPanel"
+                            Margin="0,0,0,16"
+                            Padding="16,12"
+                            CornerRadius="8"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <!-- Staging Header & Actions -->
+                            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <TextBlock x:Name="StagedCountText" Text="Staged Folders (0)" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <!-- Progress Ring for in-flight validation -->
+                                    <ProgressRing x:Name="StagingProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
+                                    <!-- Rejection summary pill -->
+                                    <Button x:Name="ToggleRejectionsButton"
+                                            Padding="8,2"
+                                            CornerRadius="4"
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                            BorderThickness="0"
+                                            Click="OnToggleRejectionsClicked"
+                                            Visibility="Collapsed">
+                                        <TextBlock x:Name="RejectionSummaryText" Text="0 items rejected" FontSize="11" Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </Button>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="ClearStagingButton"
+                                            Content="Clear Staging"
+                                            Padding="10,4"
+                                            FontSize="12"
+                                            Click="OnClearStagingClicked"
+                                            AutomationProperties.Name="Clear staged folders" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Virtualized list of accepted staged folders -->
+                            <ListView x:Name="StagedFoldersListView"
+                                      MaxHeight="200"
+                                      SelectionMode="None"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:StagedFolderItemVm">
+                                        <Grid Margin="0,2" Padding="6,6" ColumnSpacing="10" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="28" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Grid.Column="0" Glyph="&#xE8B7;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                <TextBlock Text="{Binding FolderName}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding FolderPath}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="6,2" Visibility="{Binding ExistingBadgeVisibility}">
+                                                    <TextBlock Text="{Binding ExistingBadgeText}" FontSize="10" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                </Border>
+                                                <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="6,2" Visibility="{Binding PortabilityVisibility}">
+                                                    <TextBlock Text="{Binding PortabilityText}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+
+                            <!-- Expandable Rejections Panel -->
+                            <StackPanel x:Name="RejectionsListPanel" Spacing="6" Visibility="Collapsed">
+                                <TextBlock Text="Rejected Items:" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                <ListView x:Name="RejectedFoldersListView"
+                                          MaxHeight="120"
+                                          SelectionMode="None"
+                                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="local:RejectedFolderItemVm">
+                                            <Grid Margin="0,1" Padding="4,4" ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding FolderPath}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Reason}" FontSize="11" Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Row 2: Existing Customized Folders List & Empty Panel -->
+                    <Grid Grid.Row="2">
+                        <StackPanel x:Name="FoldersEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                            <FontIcon Glyph="&#xE838;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="FoldersEmptyTitle" Text="No customized folders" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <!-- Flat list of folders with separators per Visual Reference Spec -->
+                        <ListView
+                            x:Name="FoldersListView"
+                            SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:FolderItemVm">
                                 <Grid Margin="0,4,0,4" Padding="8,10,8,10" ColumnSpacing="12" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
@@ -477,8 +605,9 @@
                         </ListView.ItemTemplate>
                     </ListView>
                 </Grid>
+            </Grid>
 
-                <!-- COLLECTIONS VIEW (F16) -->
+            <!-- COLLECTIONS VIEW (F16) -->
                 <Grid x:Name="CollectionsView" Visibility="Collapsed">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="260" />

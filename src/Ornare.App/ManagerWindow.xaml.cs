@@ -33,6 +33,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
     private readonly ObservableCollection<LibraryItemVm> _favoriteItems = new();
     private readonly ObservableCollection<FolderItemVm> _folderItems = new();
     private readonly ObservableCollection<PresetItemVm> _presetItems = new();
+    private readonly ObservableCollection<StagedFolderItemVm> _stagedFolders = new();
+    private readonly ObservableCollection<RejectedFolderItemVm> _rejectedFolders = new();
+    private CancellationTokenSource? _stagingCts;
     private string _selectedPresetTemplateId = FolderTemplateCatalog.DefaultTemplateId;
     private string? _selectedFilterTagId;
 
@@ -51,6 +54,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         InitializeComponent();
         ConfigureWindow();
+
+        StagedFoldersListView.ItemsSource = _stagedFolders;
+        RejectedFoldersListView.ItemsSource = _rejectedFolders;
 
         Closed += (s, e) => Dispose();
 
@@ -321,6 +327,156 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         FoldersEmptyPanel.Visibility = _folderItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         FoldersListView.Visibility = _folderItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnFoldersViewDragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+            e.DragUIOverride.Caption = isTr ? "Klasörleri hazırla" : "Drop folders to stage";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+        else
+        {
+            e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+        }
+    }
+
+    private async void OnFoldersViewDrop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        var deferral = e.GetDeferral();
+        try
+        {
+            var items = await e.DataView.GetStorageItemsAsync();
+            if (items == null || items.Count == 0)
+            {
+                return;
+            }
+
+            var rawPaths = items.Select(i => i.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+            await ProcessDroppedFolderPathsAsync(rawPaths);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"OnFoldersViewDrop error: {ex.Message}");
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    public async Task ProcessDroppedFolderPathsAsync(IReadOnlyList<string> rawPaths)
+    {
+        if (rawPaths == null || rawPaths.Count == 0) return;
+
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+
+        // F20-DEC-05: Reject drop if raw count > 1000 before filesystem work
+        if (rawPaths.Count > FolderStagingService.MaxDropItems)
+        {
+            TargetTrayLimitNotice.Text = isTr
+                ? $"Sınır aşıldı: Tek seferde en fazla {FolderStagingService.MaxDropItems} klasör bırakılabilir (alınan: {rawPaths.Count})."
+                : $"Limit exceeded: Maximum {FolderStagingService.MaxDropItems} folders per drop (received: {rawPaths.Count}).";
+            TargetTrayLimitNotice.Visibility = Visibility.Visible;
+            return;
+        }
+
+        TargetTrayLimitNotice.Visibility = Visibility.Collapsed;
+        StagingProgressRing.IsActive = true;
+        StagingProgressRing.Visibility = Visibility.Visible;
+        TargetTrayStagedPanel.Visibility = Visibility.Visible;
+
+        _stagingCts?.Cancel();
+        _stagingCts?.Dispose();
+        _stagingCts = new CancellationTokenSource();
+
+        try
+        {
+            var result = await FolderStagingService.StageFoldersAsync(rawPaths, _storageService, _stagingCts.Token);
+
+            _stagedFolders.Clear();
+            _rejectedFolders.Clear();
+
+            string portText = isTr ? "Desteklenen NTFS üzerinde taşınabilir" : "Portable on supported NTFS";
+            string existText = isTr ? "Zaten Özelleştirilmiş" : "Already Customized";
+
+            foreach (var item in result.AcceptedItems)
+            {
+                string name = Path.GetFileName(item.CanonicalPath.TrimEnd('\\', '/'));
+                if (string.IsNullOrEmpty(name)) name = item.CanonicalPath;
+
+                bool isNtfs = item.Identity.HasValue && FolderIdentityService.IsSupportedFixedNtfsVolume(item.CanonicalPath);
+
+                _stagedFolders.Add(new StagedFolderItemVm
+                {
+                    FolderName = name,
+                    FolderPath = item.CanonicalPath,
+                    ExistingAssignmentId = item.ExistingAssignmentId,
+                    ExistingBadgeText = existText,
+                    PortabilityText = isNtfs ? portText : string.Empty
+                });
+            }
+
+            foreach (var rej in result.RejectedItems)
+            {
+                _rejectedFolders.Add(new RejectedFolderItemVm
+                {
+                    FolderPath = rej.RawInputPath,
+                    Reason = rej.RejectionReason ?? "Rejected"
+                });
+            }
+
+            string stagedTitle = isTr ? $"Hazırlanan Klasörler ({_stagedFolders.Count})" : $"Staged Folders ({_stagedFolders.Count})";
+            if (result.IsCancelled)
+            {
+                stagedTitle += isTr ? " (Kısmi - İptal Edildi)" : " (Partial - Cancelled)";
+            }
+            StagedCountText.Text = stagedTitle;
+
+            if (_rejectedFolders.Count > 0)
+            {
+                ToggleRejectionsButton.Visibility = Visibility.Visible;
+                RejectionSummaryText.Text = isTr
+                    ? $"{_rejectedFolders.Count} öğe reddedildi"
+                    : $"{_rejectedFolders.Count} items rejected";
+            }
+            else
+            {
+                ToggleRejectionsButton.Visibility = Visibility.Collapsed;
+                RejectionsListPanel.Visibility = Visibility.Collapsed;
+            }
+        }
+        finally
+        {
+            StagingProgressRing.IsActive = false;
+            StagingProgressRing.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OnClearStagingClicked(object sender, RoutedEventArgs e)
+    {
+        _stagingCts?.Cancel();
+        _stagedFolders.Clear();
+        _rejectedFolders.Clear();
+        TargetTrayStagedPanel.Visibility = Visibility.Collapsed;
+        RejectionsListPanel.Visibility = Visibility.Collapsed;
+        TargetTrayLimitNotice.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnToggleRejectionsClicked(object sender, RoutedEventArgs e)
+    {
+        RejectionsListPanel.Visibility = RejectionsListPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private LibraryItemVm CreateLibraryVm(LibraryAsset asset, bool isFavorite)
@@ -801,6 +957,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
             ? "Kitaplık'taki simgelerin üzerindeki yıldıza tıklayarak veya sağ tıklayıp 'Favorilere Ekle'yi seçerek ekleyebilirsiniz."
             : "Click the star on any icon in the Library or right-click and select 'Add to Favorites'.";
         FoldersEmptyTitle.Text = isTr ? "Özelleştirilmiş klasör yok" : "No customized folders";
+        TargetTrayTitle.Text = isTr ? "Klasör Hazırlama Tepsisi" : "Folder Staging Tray";
+        TargetTraySubtitle.Text = isTr
+            ? "Disk üzerinde değişiklik yapmadan klasörleri incelemek veya hazırlamak için buraya sürükleyin."
+            : "Drag and drop folders here to inspect or prepare them without modifying disk.";
+        ClearStagingButton.Content = isTr ? "Tepsiyi Temizle" : "Clear Staging";
 
         SettingsAppearanceHeader.Text = isTr ? "Görünüm" : "Appearance";
         SettingsThemeLabel.Text = isTr ? "Uygulama teması" : "App theme";
@@ -1984,11 +2145,32 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     public void Dispose()
     {
+        _stagingCts?.Cancel();
+        _stagingCts?.Dispose();
         _searchCts?.Cancel();
         _searchCts?.Dispose();
         _windowCts.Cancel();
         _windowCts.Dispose();
     }
+}
+
+[Microsoft.UI.Xaml.Data.Bindable]
+public class StagedFolderItemVm
+{
+    public string FolderPath { get; set; } = string.Empty;
+    public string FolderName { get; set; } = string.Empty;
+    public string? ExistingAssignmentId { get; set; }
+    public Visibility ExistingBadgeVisibility => ExistingAssignmentId != null ? Visibility.Visible : Visibility.Collapsed;
+    public string ExistingBadgeText { get; set; } = "Already Customized";
+    public string PortabilityText { get; set; } = string.Empty;
+    public Visibility PortabilityVisibility => !string.IsNullOrEmpty(PortabilityText) ? Visibility.Visible : Visibility.Collapsed;
+}
+
+[Microsoft.UI.Xaml.Data.Bindable]
+public class RejectedFolderItemVm
+{
+    public string FolderPath { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]

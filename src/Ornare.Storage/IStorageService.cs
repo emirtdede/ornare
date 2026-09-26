@@ -2,7 +2,7 @@ using Ornare.Core;
 
 namespace Ornare.Storage;
 
-public interface IStorageService
+public interface IStorageService : IFolderAssignmentLookup
 {
     bool IsInitialized { get; }
     Task InitializeAsync(string? dbPath = null);

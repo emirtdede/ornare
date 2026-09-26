@@ -711,6 +711,20 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
+    public async Task<FolderAssignment?> FindAssignmentAsync(NtfsFolderIdentity? identity, string canonicalPath, CancellationToken ct = default)
+    {
+        if (identity.HasValue)
+        {
+            var byIdentity = await GetAssignmentByIdentityAsync(identity.Value.VolumeSerialNumber, identity.Value.FileId64);
+            if (byIdentity != null)
+            {
+                return byIdentity;
+            }
+        }
+
+        return await GetAssignmentByPathAsync(canonicalPath);
+    }
+
     private static FolderAssignment MapFolderAssignment(SqliteDataReader reader)
     {
         string? volHex = reader.IsDBNull(2) ? null : reader.GetString(2);

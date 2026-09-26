@@ -22,7 +22,9 @@ public enum ErrorCode
     SvgNotThemeable,
     SvgSecurityViolation,
     IcoMalformed,
-    UnsupportedExportDestination
+    UnsupportedExportDestination,
+    DropLimitExceeded,
+    ItemIsFileNotFolder
 }
 
 public sealed class OperationResult

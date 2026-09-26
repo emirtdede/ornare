@@ -54,6 +54,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F16 | Custom collections with 1024-spaced sparse ordering, integer midpoint rebalance, referential cascade integrity, 80-scalar normalizer, and Manager collections view | F16_custom-collections, STORAGE_DATA_MODEL, INFORMATION_ARCHITECTURE | unit/integration/scale/benchmark tests |
 | ORN-EXP-F17 | Local prefix library search with entity-local token tables, indexed lexical range scan, transactional sync, background backfill, 120 ms UI debounce, and cancellation token support | F17_library-search, STORAGE_DATA_MODEL, INFORMATION_ARCHITECTURE | unit/integration/benchmark tests |
 | ORN-EXP-F19 | Portable folder mode with folder-owned relative icon semantics, stable NTFS identity (VolumeSerialNumber, FileId64), open-by-ID relocation reconciliation, migration V6, and zero universal portability claims | F19_portable-folder-mode, FOLDER_CUSTOMIZATION, STORAGE_DATA_MODEL, WINDOWS_SHELL | unit/integration/E2E tests |
+| ORN-EXP-F20 | Folder drag and drop into Manager with Target Tray staging, zero disk or database mutation on drop, 1000 item limit, bounded concurrency, alias/NTFS identity coalescence, and bilingual localization | F20_folder-drag-and-drop-into-manager, UX_UI_SPEC, WINDOWS_SHELL, STORAGE_DATA_MODEL | unit/integration/E2E tests |
 
 
 ## Traceability rule
