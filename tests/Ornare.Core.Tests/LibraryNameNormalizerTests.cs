@@ -146,4 +146,33 @@ public sealed class LibraryNameNormalizerTests
         Assert.NotNull(error);
         Assert.Contains("control", error, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void CollectionScalarLengthBoundariesExactly80Allowed81Rejected()
+    {
+        string exact80 = new string('c', 80);
+        bool success80 = LibraryNameNormalizer.TryValidateAndNormalize(
+            exact80,
+            out string display80,
+            out string norm80,
+            out string? error80,
+            maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection);
+
+        Assert.True(success80);
+        Assert.Null(error80);
+        Assert.Equal(80, display80.Length);
+        Assert.Equal(80, norm80.Length);
+
+        string length81 = new string('c', 81);
+        bool success81 = LibraryNameNormalizer.TryValidateAndNormalize(
+            length81,
+            out _,
+            out _,
+            out string? error81,
+            maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection);
+
+        Assert.False(success81);
+        Assert.NotNull(error81);
+        Assert.Contains("80", error81);
+    }
 }

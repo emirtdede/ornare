@@ -51,6 +51,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F13 | Atomic ICO export with exact 10-frame compliance, verified F18 render-cache copy reuse, sibling temp ReplaceFileW/MoveFileExW semantics, and zero cancel mutation | F13_ico-export, STORAGE_DATA_MODEL, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F14 | Atomic PNG export with exact 256/512/1024 sizing, native vector rasterization scaling, transparent & solid background compositing, cache reuse, sibling temp ReplaceFileW semantics, and zero UI lockup | F14_png-export, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F15 | Normalized many-to-many Library tags with deterministic Unicode NFKC identity, database-enforced foreign keys, transactional caps (32/asset, 5000 total), cascade integrity, and Manager-only flat tag editor/filter | F15_library-tags, STORAGE_DATA_MODEL, INFORMATION_ARCHITECTURE | unit/integration/benchmark tests |
+| ORN-EXP-F16 | Custom collections with 1024-spaced sparse ordering, integer midpoint rebalance, referential cascade integrity, 80-scalar normalizer, and Manager collections view | F16_custom-collections, STORAGE_DATA_MODEL, INFORMATION_ARCHITECTURE | unit/integration/scale/benchmark tests |
 
 ## Traceability rule
 

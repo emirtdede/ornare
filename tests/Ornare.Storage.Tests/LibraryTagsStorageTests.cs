@@ -137,7 +137,7 @@ public sealed class LibraryTagsStorageTests
             await storage.InitializeAsync(tempDb);
 
             int versionAfter = await storage.GetCurrentSchemaVersionAsync();
-            Assert.Equal(3, versionAfter);
+            Assert.True(versionAfter >= 3, $"Expected schema version >= 3, got {versionAfter}");
 
             // 3. Verify existing data preserved
             var asset = await storage.GetAssetByHashAsync(existingSha);

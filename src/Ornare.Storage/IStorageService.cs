@@ -63,4 +63,18 @@ public interface IStorageService
     Task<IReadOnlyList<LibraryAsset>> GetAssetsByTagAsync(string tagId);
     Task<Dictionary<string, List<LibraryTag>>> GetTagsForAssetsAsync(IEnumerable<string> assetHashes);
     Task<bool> VerifyForeignKeysEnabledAsync();
+
+    // F16: Custom Collections
+    Task<LibraryCollection> CreateCollectionAsync(string name);
+    Task<LibraryCollection?> GetCollectionByIdAsync(string collectionId);
+    Task<LibraryCollection?> GetCollectionByNormalizedNameAsync(string normalizedName);
+    Task<IReadOnlyList<LibraryCollection>> GetAllCollectionsAsync();
+    Task<bool> RenameCollectionAsync(string collectionId, string newName);
+    Task<bool> DeleteCollectionAsync(string collectionId);
+    Task<bool> AddAssetToCollectionAsync(string collectionId, string assetHash);
+    Task<bool> RemoveAssetFromCollectionAsync(string collectionId, string assetHash);
+    Task<IReadOnlyList<LibraryAsset>> GetAssetsInCollectionAsync(string collectionId, int limit = 100, int offset = 0);
+    Task<IReadOnlyList<LibraryCollection>> GetCollectionsForAssetAsync(string assetHash);
+    Task<bool> ReorderCollectionAsync(string collectionId, string? targetNeighborId, bool insertBefore);
+    Task RebalanceCollectionSortKeysAsync();
 }

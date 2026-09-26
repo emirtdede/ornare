@@ -105,6 +105,12 @@
                             <TextBlock x:Name="NavTextFavorites" Text="Favorites" VerticalAlignment="Center" FontSize="13" />
                         </StackPanel>
                     </ListViewItem>
+                    <ListViewItem x:Name="NavItemCollections" AutomationProperties.Name="Collections" Tag="Collections" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE8F1;" FontSize="16" />
+                            <TextBlock x:Name="NavTextCollections" Text="Collections" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
                     <ListViewItem x:Name="NavItemPresets" AutomationProperties.Name="Status Presets" Tag="Presets" Height="40">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon Glyph="&#xE73E;" FontSize="16" />
@@ -210,6 +216,11 @@
                                             <MenuFlyoutItem Text="{Binding ContextManageTagsText}" Tag="{Binding Sha256}" Click="OnManageTagsClicked">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="&#xE8EC;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextManageCollectionsText}" Tag="{Binding Sha256}" Click="OnManageCollectionsClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8F1;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="{Binding ContextExportIcoText}" Tag="{Binding CanonicalIcoPath}" Click="OnExportIcoClicked">
@@ -323,6 +334,16 @@
                                             <MenuFlyoutItem Text="{Binding ContextOpenExplorerText}" Tag="{Binding CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="&#xE8DA;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextManageTagsText}" Tag="{Binding Sha256}" Click="OnManageTagsClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8EC;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextManageCollectionsText}" Tag="{Binding Sha256}" Click="OnManageCollectionsClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8F1;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="{Binding ContextExportIcoText}" Tag="{Binding CanonicalIcoPath}" Click="OnExportIcoClicked">
@@ -454,6 +475,136 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+                </Grid>
+
+                <!-- COLLECTIONS VIEW (F16) -->
+                <Grid x:Name="CollectionsView" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="1" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: Collection List -->
+                    <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto">
+                        <Grid Grid.Row="0" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Name="CollectionsListHeader" Text="Collections" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" x:Name="NewCollectionButton" Padding="8,4" HorizontalAlignment="Right" Click="OnNewCollectionClicked" AutomationProperties.Name="New Collection">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE710;" FontSize="11" />
+                                    <TextBlock x:Name="NewCollectionButtonText" Text="New" FontSize="12" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <!-- Empty state when no collections -->
+                        <StackPanel Grid.Row="1" x:Name="CollectionsEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
+                            <FontIcon Glyph="&#xE8F1;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="CollectionsEmptyTitle" Text="No collections yet" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="CollectionsEmptySubtitle" Text="Create one to organize icons" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" TextAlignment="Center" />
+                        </StackPanel>
+
+                        <ListView
+                            Grid.Row="1"
+                            x:Name="CollectionsListView"
+                            SelectionMode="Single"
+                            SelectionChanged="OnCollectionsListViewSelectionChanged">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:CollectionItemVm">
+                                    <Grid Margin="0,2" Padding="6,8" ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding AssetCountText}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                            <Button Width="26" Height="26" Padding="0" Tag="{Binding Id}" Click="OnMoveCollectionUpClicked" ToolTipService.ToolTip="Move Up" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Move Up">
+                                                <FontIcon Glyph="&#xE74A;" FontSize="10" />
+                                            </Button>
+                                            <Button Width="26" Height="26" Padding="0" Tag="{Binding Id}" Click="OnMoveCollectionDownClicked" ToolTipService.ToolTip="Move Down" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Move Down">
+                                                <FontIcon Glyph="&#xE74B;" FontSize="10" />
+                                            </Button>
+                                            <Button Width="26" Height="26" Padding="0" Tag="{Binding Id}" Click="OnRenameCollectionClicked" ToolTipService.ToolTip="Rename" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Rename">
+                                                <FontIcon Glyph="&#xE70F;" FontSize="10" />
+                                            </Button>
+                                            <Button Width="26" Height="26" Padding="0" Tag="{Binding Id}" Click="OnDeleteCollectionClicked" ToolTipService.ToolTip="Delete" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="10" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+
+                    <!-- Divider -->
+                    <Border Grid.Column="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Margin="8,0" />
+
+                    <!-- Right: Selected Collection Assets Grid -->
+                    <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                        <StackPanel Grid.Row="0" Margin="12,0,0,12" Orientation="Horizontal" Spacing="8">
+                            <TextBlock x:Name="SelectedCollectionTitle" Text="" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock x:Name="SelectedCollectionCount" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <!-- Empty collection content state -->
+                        <StackPanel Grid.Row="1" x:Name="CollectionAssetsEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
+                            <FontIcon Glyph="&#xE8F1;" FontSize="40" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="CollectionAssetsEmptyTitle" Text="Collection is empty" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="CollectionAssetsEmptySubtitle" Text="Right-click any library icon to add it here" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <GridView
+                            Grid.Row="1"
+                            x:Name="CollectionAssetsGridView"
+                            SelectionMode="None"
+                            IsItemClickEnabled="True"
+                            ItemClick="OnLibraryItemClick">
+                            <GridView.ItemTemplate>
+                                <DataTemplate x:DataType="local:LibraryItemVm">
+                                    <Grid Width="96" Height="104" Margin="6" Padding="6" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="{Binding ContextToggleFavoriteText}" Tag="{Binding Sha256}" Click="OnToggleFavoriteClicked">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="{Binding FavoriteGlyph}" Foreground="{Binding FavoriteBrush}" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="{Binding ContextOpenExplorerText}" Tag="{Binding CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE8DA;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="Remove from Collection" Tag="{Binding Sha256}" Click="OnRemoveFromCurrentCollectionClicked">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE74D;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="{Binding ContextExportIcoText}" Tag="{Binding CanonicalIcoPath}" Click="OnExportIcoClicked">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xEDE1;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Image Source="{Binding PreviewImage}" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Text="{Binding SourceFormat}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </GridView.ItemTemplate>
+                        </GridView>
+                    </Grid>
                 </Grid>
 
                 <!-- 5. STATUS PRESETS VIEW (F04) -->

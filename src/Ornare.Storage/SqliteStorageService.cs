@@ -178,6 +178,11 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 await ApplyMigrationV3InternalAsync(connection, injectFailure: false);
             }
 
+            if (currentVersion < 4)
+            {
+                await ApplyMigrationV4InternalAsync(connection, injectFailure: false);
+            }
+
             _isInitialized = true;
         }
         finally
@@ -1355,6 +1360,10 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             {
                 await ApplyMigrationV3InternalAsync(connection, injectFailure);
             }
+            else if (targetVersion == 4)
+            {
+                await ApplyMigrationV4InternalAsync(connection, injectFailure);
+            }
         }
         finally
         {
@@ -1460,6 +1469,57 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             using var setVersionCmd = connection.CreateCommand();
             setVersionCmd.Transaction = tx;
             setVersionCmd.CommandText = "PRAGMA user_version = 3;";
+            await setVersionCmd.ExecuteNonQueryAsync();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private static async Task ApplyMigrationV4InternalAsync(SqliteConnection connection, bool injectFailure)
+    {
+        using var tx = connection.BeginTransaction();
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS collections (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL UNIQUE,
+                    sort_key INTEGER NOT NULL,
+                    created_utc INTEGER NOT NULL,
+                    updated_utc INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS collection_assets (
+                    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
+                    created_utc INTEGER NOT NULL,
+                    PRIMARY KEY (collection_id, asset_hash)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_collections_sort_key ON collections(sort_key ASC);
+                CREATE INDEX IF NOT EXISTS idx_collections_normalized_name ON collections(normalized_name);
+                CREATE INDEX IF NOT EXISTS idx_collection_assets_asset_hash ON collection_assets(asset_hash);
+                CREATE INDEX IF NOT EXISTS idx_collection_assets_collection_id ON collection_assets(collection_id);
+                CREATE INDEX IF NOT EXISTS idx_collection_assets_col_created ON collection_assets(collection_id, created_utc DESC);
+            ";
+            await cmd.ExecuteNonQueryAsync();
+
+            if (injectFailure)
+            {
+                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
+            }
+
+            using var setVersionCmd = connection.CreateCommand();
+            setVersionCmd.Transaction = tx;
+            setVersionCmd.CommandText = "PRAGMA user_version = 4;";
             await setVersionCmd.ExecuteNonQueryAsync();
 
             tx.Commit();
@@ -1846,6 +1906,651 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         finally
         {
             _dbLock.Release();
+        }
+    }
+
+    #endregion
+
+    #region F16: Custom Collections Implementation
+
+    public const long CollectionSortKeyStep = 1024L;
+    public const long CollectionSortKeyOverflowThreshold = long.MaxValue - 2048L;
+
+    public async Task<LibraryCollection> CreateCollectionAsync(string name)
+    {
+        EnsureInitialized();
+        if (!LibraryNameNormalizer.TryValidateAndNormalize(
+            name,
+            out string displayName,
+            out string normalizedName,
+            out string? error,
+            maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
+        {
+            throw new ArgumentException(error ?? "Invalid collection name.", nameof(name));
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.Transaction = tx;
+                countCmd.CommandText = "SELECT COUNT(*) FROM collections;";
+                long count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (count >= LibraryNameNormalizer.MaxTotalCollections)
+                {
+                    throw new InvalidOperationException($"Maximum limit of {LibraryNameNormalizer.MaxTotalCollections} collections reached.");
+                }
+            }
+
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.Transaction = tx;
+                checkCmd.CommandText = "SELECT COUNT(*) FROM collections WHERE normalized_name = @norm;";
+                checkCmd.Parameters.AddWithValue("@norm", normalizedName);
+                long dupCount = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (dupCount > 0)
+                {
+                    throw new InvalidOperationException($"A collection with the name '{displayName}' already exists.");
+                }
+            }
+
+            long sortKey = CollectionSortKeyStep;
+            using (var maxCmd = connection.CreateCommand())
+            {
+                maxCmd.Transaction = tx;
+                maxCmd.CommandText = "SELECT MAX(sort_key) FROM collections;";
+                object? maxVal = await maxCmd.ExecuteScalarAsync();
+                if (maxVal != null && maxVal != DBNull.Value)
+                {
+                    long currentMax = Convert.ToInt64(maxVal, CultureInfo.InvariantCulture);
+                    if (currentMax >= CollectionSortKeyOverflowThreshold)
+                    {
+                        await RebalanceInternalAsync(connection, tx, excludeId: null);
+                        using var remaxCmd = connection.CreateCommand();
+                        remaxCmd.Transaction = tx;
+                        remaxCmd.CommandText = "SELECT MAX(sort_key) FROM collections;";
+                        object? remaxVal = await remaxCmd.ExecuteScalarAsync();
+                        currentMax = (remaxVal != null && remaxVal != DBNull.Value)
+                            ? Convert.ToInt64(remaxVal, CultureInfo.InvariantCulture)
+                            : 0L;
+                    }
+                    sortKey = currentMax + CollectionSortKeyStep;
+                }
+            }
+
+            string id = Guid.NewGuid().ToString("N");
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            using (var insertCmd = connection.CreateCommand())
+            {
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = @"
+                    INSERT INTO collections (id, display_name, normalized_name, sort_key, created_utc, updated_utc)
+                    VALUES (@id, @displayName, @norm, @sortKey, @now, @now);
+                ";
+                insertCmd.Parameters.AddWithValue("@id", id);
+                insertCmd.Parameters.AddWithValue("@displayName", displayName);
+                insertCmd.Parameters.AddWithValue("@norm", normalizedName);
+                insertCmd.Parameters.AddWithValue("@sortKey", sortKey);
+                insertCmd.Parameters.AddWithValue("@now", now);
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return new LibraryCollection(id, displayName, normalizedName, sortKey, now, now);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<LibraryCollection?> GetCollectionByIdAsync(string collectionId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT id, display_name, normalized_name, sort_key, created_utc, updated_utc FROM collections WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@id", collectionId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new LibraryCollection(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3),
+                    reader.GetInt64(4),
+                    reader.GetInt64(5)
+                );
+            }
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<LibraryCollection?> GetCollectionByNormalizedNameAsync(string normalizedName)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(normalizedName);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT id, display_name, normalized_name, sort_key, created_utc, updated_utc FROM collections WHERE normalized_name = @norm;";
+            cmd.Parameters.AddWithValue("@norm", normalizedName);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new LibraryCollection(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3),
+                    reader.GetInt64(4),
+                    reader.GetInt64(5)
+                );
+            }
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryCollection>> GetAllCollectionsAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT id, display_name, normalized_name, sort_key, created_utc, updated_utc FROM collections ORDER BY sort_key ASC, display_name COLLATE NOCASE ASC;";
+            var list = new List<LibraryCollection>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryCollection(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3),
+                    reader.GetInt64(4),
+                    reader.GetInt64(5)
+                ));
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> RenameCollectionAsync(string collectionId, string newName)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+        if (!LibraryNameNormalizer.TryValidateAndNormalize(
+            newName,
+            out string displayName,
+            out string normalizedName,
+            out string? error,
+            maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
+        {
+            throw new ArgumentException(error ?? "Invalid collection name.", nameof(newName));
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.Transaction = tx;
+                checkCmd.CommandText = "SELECT COUNT(*) FROM collections WHERE normalized_name = @norm AND id != @id;";
+                checkCmd.Parameters.AddWithValue("@norm", normalizedName);
+                checkCmd.Parameters.AddWithValue("@id", collectionId);
+                long dupCount = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (dupCount > 0)
+                {
+                    throw new InvalidOperationException($"A collection with the name '{displayName}' already exists.");
+                }
+            }
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            int rows;
+            using (var updateCmd = connection.CreateCommand())
+            {
+                updateCmd.Transaction = tx;
+                updateCmd.CommandText = @"
+                    UPDATE collections
+                    SET display_name = @displayName, normalized_name = @norm, updated_utc = @now
+                    WHERE id = @id;
+                ";
+                updateCmd.Parameters.AddWithValue("@displayName", displayName);
+                updateCmd.Parameters.AddWithValue("@norm", normalizedName);
+                updateCmd.Parameters.AddWithValue("@now", now);
+                updateCmd.Parameters.AddWithValue("@id", collectionId);
+                rows = await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> DeleteCollectionAsync(string collectionId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM collections WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@id", collectionId);
+            int rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> AddAssetToCollectionAsync(string collectionId, string assetHash)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = "SELECT 1 FROM collection_assets WHERE collection_id = @cid AND asset_hash = @hash;";
+            checkCmd.Parameters.AddWithValue("@cid", collectionId);
+            checkCmd.Parameters.AddWithValue("@hash", assetHash);
+            if (await checkCmd.ExecuteScalarAsync() != null)
+            {
+                return true;
+            }
+
+            using var insertCmd = connection.CreateCommand();
+            insertCmd.CommandText = @"
+                INSERT INTO collection_assets (collection_id, asset_hash, created_utc)
+                VALUES (@cid, @hash, @now);
+            ";
+            insertCmd.Parameters.AddWithValue("@cid", collectionId);
+            insertCmd.Parameters.AddWithValue("@hash", assetHash);
+            insertCmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            int rows = await insertCmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> RemoveAssetFromCollectionAsync(string collectionId, string assetHash)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM collection_assets WHERE collection_id = @cid AND asset_hash = @hash;";
+            cmd.Parameters.AddWithValue("@cid", collectionId);
+            cmd.Parameters.AddWithValue("@hash", assetHash);
+            int rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryAsset>> GetAssetsInCollectionAsync(string collectionId, int limit = 100, int offset = 0)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT a.id, a.sha256, a.canonical_ico_path, a.source_format, a.created_at, a.last_used_at,
+                       (CASE WHEN f.asset_id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+                FROM assets a
+                INNER JOIN collection_assets ca ON a.sha256 = ca.asset_hash
+                LEFT JOIN favorites f ON a.id = f.asset_id
+                WHERE ca.collection_id = @cid
+                ORDER BY ca.created_utc DESC, a.last_used_at DESC
+                LIMIT @limit OFFSET @offset;
+            ";
+            cmd.Parameters.AddWithValue("@cid", collectionId);
+            cmd.Parameters.AddWithValue("@limit", limit);
+            cmd.Parameters.AddWithValue("@offset", offset);
+
+            var list = new List<LibraryAsset>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryAsset
+                {
+                    Id = reader.GetString(0),
+                    Sha256 = reader.GetString(1),
+                    CanonicalIcoPath = reader.GetString(2),
+                    SourceFormat = reader.GetString(3),
+                    CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+                    IsFavorite = reader.GetInt32(6) == 1
+                });
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryCollection>> GetCollectionsForAssetAsync(string assetHash)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT c.id, c.display_name, c.normalized_name, c.sort_key, c.created_utc, c.updated_utc
+                FROM collections c
+                INNER JOIN collection_assets ca ON c.id = ca.collection_id
+                WHERE ca.asset_hash = @hash
+                ORDER BY c.sort_key ASC;
+            ";
+            cmd.Parameters.AddWithValue("@hash", assetHash);
+            var list = new List<LibraryCollection>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryCollection(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3),
+                    reader.GetInt64(4),
+                    reader.GetInt64(5)
+                ));
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> ReorderCollectionAsync(string collectionId, string? targetNeighborId, bool insertBefore)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+        if (targetNeighborId == collectionId)
+        {
+            return true;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var verifyCmd = connection.CreateCommand())
+            {
+                verifyCmd.Transaction = tx;
+                verifyCmd.CommandText = "SELECT 1 FROM collections WHERE id = @id;";
+                verifyCmd.Parameters.AddWithValue("@id", collectionId);
+                if (await verifyCmd.ExecuteScalarAsync() == null)
+                {
+                    return false;
+                }
+            }
+
+            long newKey;
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            if (targetNeighborId == null)
+            {
+                var other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                if (other.Count == 0)
+                {
+                    newKey = CollectionSortKeyStep;
+                }
+                else if (insertBefore)
+                {
+                    long firstKey = other[0].SortKey;
+                    if (firstKey > 1)
+                    {
+                        newKey = firstKey / 2;
+                    }
+                    else
+                    {
+                        await RebalanceInternalAsync(connection, tx, excludeId: collectionId);
+                        newKey = 512L;
+                    }
+                }
+                else
+                {
+                    long lastKey = other[^1].SortKey;
+                    if (lastKey >= CollectionSortKeyOverflowThreshold)
+                    {
+                        await RebalanceInternalAsync(connection, tx, excludeId: collectionId);
+                        other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                        lastKey = other[^1].SortKey;
+                    }
+                    newKey = lastKey + CollectionSortKeyStep;
+                }
+            }
+            else
+            {
+                var other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                int targetIdx = other.FindIndex(c => c.Id == targetNeighborId);
+                if (targetIdx < 0)
+                {
+                    return false;
+                }
+
+                if (insertBefore)
+                {
+                    long prevKey = targetIdx > 0 ? other[targetIdx - 1].SortKey : 0L;
+                    long nextKey = other[targetIdx].SortKey;
+                    long gap = nextKey - prevKey;
+                    if (gap >= 2)
+                    {
+                        newKey = prevKey + (gap / 2);
+                    }
+                    else
+                    {
+                        await RebalanceInternalAsync(connection, tx, excludeId: collectionId);
+                        other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                        prevKey = targetIdx > 0 ? other[targetIdx - 1].SortKey : 0L;
+                        nextKey = other[targetIdx].SortKey;
+                        newKey = prevKey + ((nextKey - prevKey) / 2);
+                    }
+                }
+                else
+                {
+                    long prevKey = other[targetIdx].SortKey;
+                    if (targetIdx < other.Count - 1)
+                    {
+                        long nextKey = other[targetIdx + 1].SortKey;
+                        long gap = nextKey - prevKey;
+                        if (gap >= 2)
+                        {
+                            newKey = prevKey + (gap / 2);
+                        }
+                        else
+                        {
+                            await RebalanceInternalAsync(connection, tx, excludeId: collectionId);
+                            other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                            prevKey = other[targetIdx].SortKey;
+                            nextKey = other[targetIdx + 1].SortKey;
+                            newKey = prevKey + ((nextKey - prevKey) / 2);
+                        }
+                    }
+                    else
+                    {
+                        if (prevKey >= CollectionSortKeyOverflowThreshold)
+                        {
+                            await RebalanceInternalAsync(connection, tx, excludeId: collectionId);
+                            other = await LoadCollectionsInternalAsync(connection, tx, excludeId: collectionId);
+                            prevKey = other[targetIdx].SortKey;
+                        }
+                        newKey = prevKey + CollectionSortKeyStep;
+                    }
+                }
+            }
+
+            using (var updateCmd = connection.CreateCommand())
+            {
+                updateCmd.Transaction = tx;
+                updateCmd.CommandText = "UPDATE collections SET sort_key = @key, updated_utc = @now WHERE id = @id;";
+                updateCmd.Parameters.AddWithValue("@key", newKey);
+                updateCmd.Parameters.AddWithValue("@now", now);
+                updateCmd.Parameters.AddWithValue("@id", collectionId);
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return true;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task RebalanceCollectionSortKeysAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+            await RebalanceInternalAsync(connection, tx, excludeId: null);
+            tx.Commit();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    private static async Task<List<LibraryCollection>> LoadCollectionsInternalAsync(SqliteConnection connection, SqliteTransaction tx, string? excludeId = null)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        if (excludeId != null)
+        {
+            cmd.CommandText = "SELECT id, display_name, normalized_name, sort_key, created_utc, updated_utc FROM collections WHERE id != @exId ORDER BY sort_key ASC, id ASC;";
+            cmd.Parameters.AddWithValue("@exId", excludeId);
+        }
+        else
+        {
+            cmd.CommandText = "SELECT id, display_name, normalized_name, sort_key, created_utc, updated_utc FROM collections ORDER BY sort_key ASC, id ASC;";
+        }
+
+        var list = new List<LibraryCollection>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            list.Add(new LibraryCollection(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt64(3),
+                reader.GetInt64(4),
+                reader.GetInt64(5)
+            ));
+        }
+        return list;
+    }
+
+    private static async Task RebalanceInternalAsync(SqliteConnection connection, SqliteTransaction tx, string? excludeId = null)
+    {
+        var ids = new List<string>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            if (excludeId != null)
+            {
+                cmd.CommandText = "SELECT id FROM collections WHERE id != @exId ORDER BY sort_key ASC, id ASC;";
+                cmd.Parameters.AddWithValue("@exId", excludeId);
+            }
+            else
+            {
+                cmd.CommandText = "SELECT id FROM collections ORDER BY sort_key ASC, id ASC;";
+            }
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                ids.Add(reader.GetString(0));
+            }
+        }
+
+        long key = CollectionSortKeyStep;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        foreach (var id in ids)
+        {
+            using var updateCmd = connection.CreateCommand();
+            updateCmd.Transaction = tx;
+            updateCmd.CommandText = "UPDATE collections SET sort_key = @key, updated_utc = @now WHERE id = @id;";
+            updateCmd.Parameters.AddWithValue("@key", key);
+            updateCmd.Parameters.AddWithValue("@now", now);
+            updateCmd.Parameters.AddWithValue("@id", id);
+            await updateCmd.ExecuteNonQueryAsync();
+            key += CollectionSortKeyStep;
         }
     }
 

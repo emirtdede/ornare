@@ -462,4 +462,52 @@
   <data name="ManageTags_LimitReached" xml:space="preserve">
     <value>Maximum 32 tags per asset allowed.</value>
   </data>
+  <data name="Nav_Collections" xml:space="preserve">
+    <value>Collections</value>
+  </data>
+  <data name="ManageCollections" xml:space="preserve">
+    <value>Manage Collections...</value>
+  </data>
+  <data name="ManageCollections_Title" xml:space="preserve">
+    <value>Manage Asset Collections</value>
+  </data>
+  <data name="Collections_NewCollection" xml:space="preserve">
+    <value>New Collection</value>
+  </data>
+  <data name="Collections_NewCollectionTitle" xml:space="preserve">
+    <value>Create Collection</value>
+  </data>
+  <data name="Collections_NamePlaceholder" xml:space="preserve">
+    <value>Collection name (1-80 characters)...</value>
+  </data>
+  <data name="Collections_RenameTitle" xml:space="preserve">
+    <value>Rename Collection</value>
+  </data>
+  <data name="Collections_DeleteTitle" xml:space="preserve">
+    <value>Delete Collection</value>
+  </data>
+  <data name="Collections_DeleteConfirm" xml:space="preserve">
+    <value>Are you sure you want to delete this collection? Its icons will remain in your library.</value>
+  </data>
+  <data name="Collections_MoveUp" xml:space="preserve">
+    <value>Move Up</value>
+  </data>
+  <data name="Collections_MoveDown" xml:space="preserve">
+    <value>Move Down</value>
+  </data>
+  <data name="Collections_EmptyTitle" xml:space="preserve">
+    <value>No collections yet</value>
+  </data>
+  <data name="Collections_EmptySubtitle" xml:space="preserve">
+    <value>Create collections to organize your icon library.</value>
+  </data>
+  <data name="Collections_NoAssetsTitle" xml:space="preserve">
+    <value>Collection is empty</value>
+  </data>
+  <data name="Collections_NoAssetsSubtitle" xml:space="preserve">
+    <value>Right-click any icon in your library to add it here.</value>
+  </data>
+  <data name="Collections_RemoveAsset" xml:space="preserve">
+    <value>Remove from Collection</value>
+  </data>
 </root>

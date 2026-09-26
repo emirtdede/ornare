@@ -6,10 +6,13 @@ namespace Ornare.Core;
 
 public static class LibraryNameNormalizer
 {
-    public const int MaxScalarsPerName = 40;
+    public const int MaxScalarsPerTag = 40;
+    public const int MaxScalarsPerCollection = 80;
+    public const int MaxScalarsPerName = MaxScalarsPerTag;
     public const int MinScalarsPerName = 1;
     public const int MaxTagsPerAsset = 32;
     public const int MaxTotalTags = 5000;
+    public const int MaxTotalCollections = 500;
 
     /// <summary>
     /// Validates and normalizes a candidate tag or collection name according to Ornare's invariant rules.
@@ -20,7 +23,8 @@ public static class LibraryNameNormalizer
         string? input,
         out string displayName,
         out string normalizedName,
-        out string? errorMessage)
+        out string? errorMessage,
+        int maxScalars = MaxScalarsPerTag)
     {
         displayName = string.Empty;
         normalizedName = string.Empty;
@@ -28,7 +32,7 @@ public static class LibraryNameNormalizer
 
         if (string.IsNullOrWhiteSpace(input))
         {
-            errorMessage = "Tag name cannot be empty or only whitespace.";
+            errorMessage = "Name cannot be empty or only whitespace.";
             return false;
         }
 
@@ -36,7 +40,7 @@ public static class LibraryNameNormalizer
         string trimmed = TrimUnicodeWhitespace(input);
         if (string.IsNullOrEmpty(trimmed))
         {
-            errorMessage = "Tag name cannot be empty or only whitespace.";
+            errorMessage = "Name cannot be empty or only whitespace.";
             return false;
         }
 
@@ -46,15 +50,15 @@ public static class LibraryNameNormalizer
         {
             if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Control)
             {
-                errorMessage = "Tag name cannot contain Unicode control characters.";
+                errorMessage = "Name cannot contain Unicode control characters.";
                 return false;
             }
             scalarCount++;
         }
 
-        if (scalarCount < MinScalarsPerName || scalarCount > MaxScalarsPerName)
+        if (scalarCount < MinScalarsPerName || scalarCount > maxScalars)
         {
-            errorMessage = $"Tag name must be between {MinScalarsPerName} and {MaxScalarsPerName} Unicode scalar values (got {scalarCount}).";
+            errorMessage = $"Name must be between {MinScalarsPerName} and {maxScalars} Unicode scalar values (got {scalarCount}).";
             return false;
         }
 
