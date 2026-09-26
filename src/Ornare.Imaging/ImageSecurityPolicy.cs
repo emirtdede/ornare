@@ -20,7 +20,8 @@ public static class ImageSecurityPolicy
         MagickFormat.Icon,
         MagickFormat.Tiff,
         MagickFormat.Tif,
-        MagickFormat.Gif
+        MagickFormat.Gif,
+        MagickFormat.Svg
     };
 
     private static bool _initialized;

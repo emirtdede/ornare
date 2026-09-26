@@ -68,8 +68,8 @@ public class MalformedImageCorpusTests
         var result = _pipeline.ProcessImageBytes(svgBytes, tempIco);
 
         Assert.False(result.IsSuccess);
-        // SVG is not in AllowedFormats, so it must be rejected as UnsupportedImageFormat
-        Assert.Equal(ErrorCode.UnsupportedImageFormat, result.ErrorCode);
+        // Under F09 SVG support, malicious SVG is rejected with SvgSecurityViolation (or UnsupportedImageFormat)
+        Assert.True(result.ErrorCode == ErrorCode.SvgSecurityViolation || result.ErrorCode == ErrorCode.UnsupportedImageFormat);
     }
 
     [Theory]

@@ -245,7 +245,45 @@ public sealed class ImagePipeline : IImagePipeline
                 ErrorCode.InvalidTarget, "Cannot render recipe without source bytes on cache miss.");
         }
 
-        var renderResult = RenderImageBytesCore(sourceBytes, outputIcoPath, renderKey);
+        byte[] bytesToRender = sourceBytes;
+        string originalHash = !string.IsNullOrEmpty(recipe.SourceAssetHash)
+            ? recipe.SourceAssetHash
+            : ComputeSourceHash(sourceBytes);
+
+        if (recipe.SvgRecolorMode != 0)
+        {
+            var secCheck = SvgSecurityValidator.Validate(sourceBytes);
+            if (!secCheck.IsSuccess)
+            {
+                return OperationResult.Failure<NormalizedImageResult>(
+                    secCheck.ErrorCode, secCheck.ErrorMessage ?? "SVG security check failed.");
+            }
+
+            string svgStr = System.Text.Encoding.UTF8.GetString(sourceBytes);
+            if (recipe.SvgRecolorMode == 1) // SemanticTemplate
+            {
+                var palette = SemanticColorPalette.FromBaseColor(recipe.SvgRecolorValue);
+                var recolorResult = SvgRecolorService.RecolorSemanticTemplate(svgStr, palette);
+                if (!recolorResult.IsSuccess)
+                {
+                    return OperationResult.Failure<NormalizedImageResult>(
+                        recolorResult.ErrorCode, recolorResult.ErrorMessage ?? "Failed to recolor semantic SVG template.");
+                }
+                bytesToRender = System.Text.Encoding.UTF8.GetBytes(recolorResult.Value!);
+            }
+            else if (recipe.SvgRecolorMode == 2) // SingleColor
+            {
+                var recolorResult = SvgRecolorService.RecolorUserSingleColorSvg(svgStr, recipe.SvgRecolorValue);
+                if (!recolorResult.IsSuccess)
+                {
+                    return OperationResult.Failure<NormalizedImageResult>(
+                        recolorResult.ErrorCode, recolorResult.ErrorMessage ?? "Failed to recolor single-color SVG.");
+                }
+                bytesToRender = System.Text.Encoding.UTF8.GetBytes(recolorResult.Value!);
+            }
+        }
+
+        var renderResult = RenderImageBytesCore(bytesToRender, outputIcoPath, renderKey, originalHash);
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
             return renderResult;
@@ -316,15 +354,63 @@ public sealed class ImagePipeline : IImagePipeline
         return OperationResult.Success(result);
     }
 
-    private OperationResult<NormalizedImageResult> RenderImageBytesCore(byte[] imageBytes, string outputIcoPath, string renderKey)
+    private static bool IsPotentialSvg(byte[] bytes)
+    {
+        if (bytes == null || bytes.Length < 4) return false;
+        int i = 0;
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            i = 3;
+        }
+
+        while (i < bytes.Length && (bytes[i] == ' ' || bytes[i] == '\t' || bytes[i] == '\r' || bytes[i] == '\n'))
+        {
+            i++;
+        }
+
+        if (i >= bytes.Length || bytes[i] != '<')
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> span = bytes.AsSpan(i);
+        return span.StartsWith("<?xml"u8) || span.StartsWith("<svg"u8) || span.StartsWith("<!DOCTYPE svg"u8);
+    }
+
+    private OperationResult<NormalizedImageResult> RenderImageBytesCore(
+        byte[] imageBytes,
+        string outputIcoPath,
+        string renderKey,
+        string? overrideContentHash = null)
     {
         bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
+        bool isSvg = IsPotentialSvg(imageBytes);
+
+        if (isSvg)
+        {
+            var secCheck = SvgSecurityValidator.Validate(imageBytes);
+            if (!secCheck.IsSuccess)
+            {
+                return OperationResult.Failure<NormalizedImageResult>(
+                    secCheck.ErrorCode, secCheck.ErrorMessage ?? "SVG security check failed.");
+            }
+        }
+
         MagickImageInfo info;
         try
         {
-            info = isIco
-                ? new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Ico })
-                : new MagickImageInfo(imageBytes);
+            if (isIco)
+            {
+                info = new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Ico });
+            }
+            else if (isSvg)
+            {
+                info = new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Svg });
+            }
+            else
+            {
+                info = new MagickImageInfo(imageBytes);
+            }
         }
         catch (Exception ex)
         {
@@ -332,7 +418,7 @@ public sealed class ImagePipeline : IImagePipeline
                 ErrorCode.ImageCorrupted, $"Malformed image header: {ex.Message}");
         }
 
-        if (!ImageSecurityPolicy.IsFormatAllowed(info.Format))
+        if (!isSvg && !ImageSecurityPolicy.IsFormatAllowed(info.Format))
         {
             return OperationResult.Failure<NormalizedImageResult>(
                 ErrorCode.UnsupportedImageFormat, $"Image format '{info.Format}' is not allowed.");
@@ -346,16 +432,23 @@ public sealed class ImagePipeline : IImagePipeline
 
         try
         {
-            using MagickImage sourceImage = isIco
-                ? new(imageBytes, new MagickReadSettings { Format = MagickFormat.Ico })
+            MagickReadSettings? readSettings = isIco
+                ? new MagickReadSettings { Format = MagickFormat.Ico }
+                : info.Format == MagickFormat.Svg
+                    ? new MagickReadSettings { Format = MagickFormat.Svg, Width = 256, Height = 256 }
+                    : null;
+
+            using MagickImage sourceImage = readSettings != null
+                ? new(imageBytes, readSettings)
                 : new(imageBytes);
 
             sourceImage.AutoOrient();
             sourceImage.ColorSpace = ColorSpace.sRGB;
 
-            string contentHash = ComputeSourceHash(imageBytes);
+            string contentHash = overrideContentHash ?? ComputeSourceHash(imageBytes);
 
             uint maxDim = Math.Max(sourceImage.Width, sourceImage.Height);
+            if (maxDim == 0) maxDim = 256;
             using MagickImage squareMaster = new(MagickColors.Transparent, maxDim, maxDim);
             squareMaster.Format = MagickFormat.Png;
             squareMaster.ColorSpace = ColorSpace.sRGB;

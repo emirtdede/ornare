@@ -18,7 +18,9 @@ public enum ErrorCode
     ExternalConflict,
     JournalStateInvalid,
     ReconciliationFailed,
-    ConcurrencyConflict
+    ConcurrencyConflict,
+    SvgNotThemeable,
+    SvgSecurityViolation
 }
 
 public sealed class OperationResult
