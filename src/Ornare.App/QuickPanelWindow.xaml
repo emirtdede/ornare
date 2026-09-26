@@ -56,7 +56,7 @@
                         CornerRadius="4"
                         Visibility="Collapsed"
                         AutomationProperties.Name="Reset"
-                        ToolTipService.ToolTip="Reset"
+                        ToolTipService.ToolTip="Reset folder icon (Ctrl+Z)"
                         Click="OnResetClicked">
                         <FontIcon Glyph="&#xE777;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </Button>
@@ -72,7 +72,7 @@
                         BorderThickness="0"
                         CornerRadius="4"
                         AutomationProperties.Name="Settings"
-                        ToolTipService.ToolTip="Settings"
+                        ToolTipService.ToolTip="Open Manager (Ctrl+M)"
                         Click="OnOpenManagerClicked">
                         <FontIcon Glyph="&#xE713;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </Button>
@@ -89,10 +89,15 @@
                 BorderBrush="Transparent"
                 Background="Transparent"
                 AllowDrop="True"
+                IsTabStop="True"
+                UseSystemFocusVisuals="True"
                 DragOver="OnDropAreaDragOver"
                 DragLeave="OnDropAreaDragLeave"
                 Drop="OnDropAreaDrop"
-                Tapped="OnDropAreaTapped">
+                Tapped="OnDropAreaTapped"
+                KeyDown="OnDropAreaKeyDown"
+                AutomationProperties.Name="Drop an image or press Enter to choose file"
+                ToolTipService.ToolTip="Select image or paste from clipboard (Enter, Space, Ctrl+V)">
                 
                 <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                     <!-- Idle / Prompt State -->
@@ -305,6 +310,7 @@
                                 Height="32"
                                 Padding="18,0"
                                 CornerRadius="6"
+                                ToolTipService.ToolTip="Apply icon (Enter, Space)"
                                 Click="OnApplyConfirmClicked" />
                             <Button
                                 x:Name="PlacementOptionsButton"
@@ -480,6 +486,7 @@
                                 Height="32"
                                 Padding="18,0"
                                 CornerRadius="6"
+                                ToolTipService.ToolTip="Close (Esc)"
                                 Click="OnCloseSuccessClicked" />
                             <Button
                                 x:Name="UndoButton"
@@ -488,6 +495,7 @@
                                 Height="32"
                                 Padding="16,0"
                                 CornerRadius="6"
+                                ToolTipService.ToolTip="Undo customization (Ctrl+Z)"
                                 Click="OnUndoClicked" />
                         </StackPanel>
                     </StackPanel>

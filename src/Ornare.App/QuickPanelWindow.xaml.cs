@@ -183,7 +183,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         InitializeComponent();
 
         ConfigureWindow();
-        SetupKeyboardShortcuts();
+        SetupKeyboardAccelerators();
         InitializeColorPalette();
         Closed += (_, _) => Dispose();
     }
@@ -334,26 +334,221 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
-    private void SetupKeyboardShortcuts()
+    private void SetupKeyboardAccelerators()
     {
-        if (Content is FrameworkElement root)
+        if (Content is not FrameworkElement root)
         {
-            root.KeyDown += async (_, e) =>
+            return;
+        }
+
+        // 1. Ctrl+O -> Opens image picker when Quick Panel owns focus
+        var ctrlO = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.O,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlO.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            if (!_isProcessing && _currentStage == ProcessingStage.Idle)
             {
-                if (_isProcessing)
+                _ = OpenFilePickerAsync();
+            }
+        };
+        root.KeyboardAccelerators.Add(ctrlO);
+
+        // 2. Ctrl+V -> Invokes Ornare paste only when focus is not inside an editable text control
+        var ctrlV = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.V,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlV.Invoked += async (s, args) =>
+        {
+            if (IsFocusInEditableControl())
+            {
+                return; // Retain native text paste in TextBox
+            }
+
+            args.Handled = true;
+            if (!_isProcessing && _currentStage == ProcessingStage.Idle)
+            {
+                await HandlePasteAsync();
+            }
+        };
+        root.KeyboardAccelerators.Add(ctrlV);
+
+        // 3. Ctrl+Z -> Invokes Ornare Undo only when focus is not inside an editable text control
+        var ctrlZ = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.Z,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlZ.Invoked += async (s, args) =>
+        {
+            if (IsFocusInEditableControl())
+            {
+                return; // Retain native text-undo in TextBox
+            }
+
+            args.Handled = true;
+            if (!_isProcessing)
+            {
+                await HandleUndoAcceleratorAsync();
+            }
+        };
+        root.KeyboardAccelerators.Add(ctrlZ);
+
+        // 4. Esc -> Closes topmost transient flyout/dialog or cancels a pre-commit editor operation
+        var esc = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.Escape
+        };
+        esc.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            HandleEscapeKey();
+        };
+        root.KeyboardAccelerators.Add(esc);
+    }
+
+    private bool IsFocusInEditableControl()
+    {
+        if (Content is FrameworkElement root && root.XamlRoot != null)
+        {
+            var focused = FocusManager.GetFocusedElement(root.XamlRoot);
+            if (focused is TextBox or RichEditBox or AutoSuggestBox)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsElementInteractable(FrameworkElement? element)
+    {
+        if (element == null || element.Visibility != Visibility.Visible)
+        {
+            return false;
+        }
+        if (element is Control control && !control.IsEnabled)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private async Task HandleUndoAcceleratorAsync()
+    {
+        if (_currentStage == ProcessingStage.PreviewReady || _currentStage == ProcessingStage.PreparingImage)
+        {
+            await SetProcessingStageAsync(ProcessingStage.Idle);
+            CleanupStagedFiles();
+            RestoreFocusAfterTransition(ProcessingStage.Idle);
+            return;
+        }
+
+        if (_currentStage == ProcessingStage.Done && UndoButton.Visibility == Visibility.Visible)
+        {
+            OnUndoClicked(this, new RoutedEventArgs());
+            return;
+        }
+
+        if (_currentStage == ProcessingStage.Idle && _currentBaseline != null && ResetButton.Visibility == Visibility.Visible)
+        {
+            OnResetClicked(this, new RoutedEventArgs());
+        }
+    }
+
+    private void HandleEscapeKey()
+    {
+        if (CustomColorFlyout != null && CustomColorFlyout.IsOpen)
+        {
+            CustomColorFlyout.Hide();
+            CustomColorButton.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (_currentStage == ProcessingStage.PreviewReady || _currentStage == ProcessingStage.PreparingImage)
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.Idle);
+            CleanupStagedFiles();
+            RestoreFocusAfterTransition(ProcessingStage.Idle);
+            return;
+        }
+
+        if (_currentStage == ProcessingStage.Idle)
+        {
+            Close();
+        }
+    }
+
+    private void RestoreFocusAfterTransition(ProcessingStage stage)
+    {
+        try
+        {
+            if (Content is not FrameworkElement root || root.XamlRoot == null)
+            {
+                return;
+            }
+
+            var currentFocused = FocusManager.GetFocusedElement(root.XamlRoot) as FrameworkElement;
+            if (IsElementInteractable(currentFocused))
+            {
+                return;
+            }
+
+            // Fixed fallback order:
+            // 1. Operation error/success action if one exists
+            if (stage == ProcessingStage.Error && IsElementInteractable(TryAgainButton))
+            {
+                TryAgainButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            if (stage == ProcessingStage.Done)
+            {
+                if (IsElementInteractable(UndoButton))
                 {
+                    UndoButton.Focus(FocusState.Programmatic);
                     return;
                 }
-
-                var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Control);
-                bool isCtrlDown = (ctrlState & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-
-                if (isCtrlDown && e.Key == global::Windows.System.VirtualKey.V)
+                if (IsElementInteractable(CloseSuccessButton))
                 {
-                    e.Handled = true;
-                    await HandlePasteAsync();
+                    CloseSuccessButton.Focus(FocusState.Programmatic);
+                    return;
                 }
-            };
+            }
+
+            if (stage == ProcessingStage.PreviewReady && IsElementInteractable(ApplyConfirmButton))
+            {
+                ApplyConfirmButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            // 2. Primary input / drop-zone action
+            if (stage == ProcessingStage.Idle && IsElementInteractable(DropAreaBorder))
+            {
+                DropAreaBorder.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            // 3. First enabled control in logical XAML order
+            if (IsElementInteractable(ResetButton))
+            {
+                ResetButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            if (IsElementInteractable(OpenManagerButton))
+            {
+                OpenManagerButton.Focus(FocusState.Programmatic);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"RestoreFocusAfterTransition failed: {ex}");
         }
     }
 
@@ -446,7 +641,24 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
-    private async void OnDropAreaTapped(object sender, TappedRoutedEventArgs e)
+    private void OnDropAreaTapped(object sender, TappedRoutedEventArgs e)
+    {
+        _ = OpenFilePickerAsync();
+    }
+
+    private void OnDropAreaKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == global::Windows.System.VirtualKey.Enter || e.Key == global::Windows.System.VirtualKey.Space)
+        {
+            e.Handled = true;
+            if (!_isProcessing && _currentStage == ProcessingStage.Idle)
+            {
+                _ = OpenFilePickerAsync();
+            }
+        }
+    }
+
+    private async Task OpenFilePickerAsync()
     {
         if (_isProcessing || _currentStage != ProcessingStage.Idle)
         {
@@ -465,6 +677,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         picker.FileTypeFilter.Add(".webp");
         picker.FileTypeFilter.Add(".bmp");
         picker.FileTypeFilter.Add(".ico");
+        picker.FileTypeFilter.Add(".svg");
 
         var file = await picker.PickSingleFileAsync();
         if (file != null)
@@ -1693,6 +1906,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
 
         await Task.Delay(30);
+        RestoreFocusAfterTransition(stage);
     }
 
     private void ShowCategorizedError(QuickPanelErrorType errorType, string? detail = null)
@@ -1746,6 +1960,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         ErrorTitleText.Text = title;
         ErrorMessageText.Text = message;
         TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
+        RestoreFocusAfterTransition(ProcessingStage.Error);
     }
 
     public void ApplyVisualTestState(string? uiState, string? theme, string? lang)

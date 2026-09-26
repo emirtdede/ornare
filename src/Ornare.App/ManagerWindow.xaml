@@ -152,6 +152,7 @@
                             x:Name="ImportIconButton"
                             Content="Import Icon..."
                             AutomationProperties.Name="Import Icon"
+                            ToolTipService.ToolTip="Import icon or image (Ctrl+O)"
                             Visibility="Visible"
                             Click="OnImportIconClicked" />
                         <TextBox
@@ -159,6 +160,7 @@
                             Width="220"
                             PlaceholderText="Search library..."
                             AutomationProperties.Name="Search library"
+                            ToolTipService.ToolTip="Search library (Ctrl+F)"
                             Visibility="Collapsed"
                             TextChanged="OnSearchTextChanged" />
                         <Button
@@ -416,13 +418,18 @@
                     <!-- Drop Target Banner / Drop Zone -->
                     <Border Grid.Row="0"
                             x:Name="TargetTrayDropZone"
-                            AutomationProperties.Name="Folder Staging Tray"
+                            AutomationProperties.Name="Folder Staging Tray, click or press Enter to add folders"
+                            ToolTipService.ToolTip="Add folders to customize (Enter, Space, Ctrl+V)"
                             Margin="0,0,0,16"
                             Padding="16,14"
                             CornerRadius="8"
                             BorderThickness="1"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            IsTabStop="True"
+                            UseSystemFocusVisuals="True"
+                            Tapped="OnTargetTrayDropZoneTapped"
+                            KeyDown="OnTargetTrayDropZoneKeyDown">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                             <FontIcon Grid.Column="0" Glyph="&#xE838;" FontSize="20" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
@@ -468,7 +475,8 @@
                                             Padding="10,4"
                                             FontSize="12"
                                             Click="OnClearStagingClicked"
-                                            AutomationProperties.Name="Clear staged folders" />
+                                            AutomationProperties.Name="Clear staged folders"
+                                            ToolTipService.ToolTip="Clear staged folders (Ctrl+Z / Esc)" />
                                 </StackPanel>
                             </Grid>
 

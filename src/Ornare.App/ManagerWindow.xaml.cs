@@ -13,6 +13,8 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Ornare.Core;
@@ -54,6 +56,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         InitializeComponent();
         ConfigureWindow();
+        SetupKeyboardAccelerators();
 
         StagedFoldersListView.ItemsSource = _stagedFolders;
         RejectedFoldersListView.ItemsSource = _rejectedFolders;
@@ -71,6 +74,339 @@ public sealed partial class ManagerWindow : Window, IDisposable
         foreach (var item in items)
         {
             control.Items.Add(item);
+        }
+    }
+
+    private void SetupKeyboardAccelerators()
+    {
+        if (Content is not FrameworkElement root)
+        {
+            return;
+        }
+
+        // 1. Ctrl+F -> Focuses/selects the Library search box only while Manager is active
+        var ctrlF = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.F,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlF.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            FocusSearchBox();
+        };
+        root.KeyboardAccelerators.Add(ctrlF);
+
+        // 2. Ctrl+O -> Opens icon/image picker when manager owns focus
+        var ctrlO = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.O,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlO.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            OnImportIconClicked(this, new RoutedEventArgs());
+        };
+        root.KeyboardAccelerators.Add(ctrlO);
+
+        // 3. Ctrl+V -> Invokes Ornare paste only when focus is not inside an editable text control
+        var ctrlV = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.V,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlV.Invoked += async (s, args) =>
+        {
+            if (IsFocusInEditableControl())
+            {
+                return; // Retain native text paste in SearchTextBox or dialog textboxes
+            }
+
+            args.Handled = true;
+            await HandleManagerPasteAsync();
+        };
+        root.KeyboardAccelerators.Add(ctrlV);
+
+        // 4. Ctrl+Z -> Invokes Ornare Undo only when focus is not inside an editable text control
+        var ctrlZ = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.Z,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlZ.Invoked += async (s, args) =>
+        {
+            if (IsFocusInEditableControl())
+            {
+                return; // Retain native text-undo in TextBox
+            }
+
+            args.Handled = true;
+            await HandleManagerUndoAsync();
+        };
+        root.KeyboardAccelerators.Add(ctrlZ);
+
+        // 5. Esc -> Closes topmost transient flyout/dialog or cancels a pre-commit editor operation
+        var esc = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.Escape
+        };
+        esc.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            HandleManagerEscape();
+        };
+        root.KeyboardAccelerators.Add(esc);
+    }
+
+    private void FocusSearchBox()
+    {
+        SwitchSection("Library");
+        if (SearchTextBox != null)
+        {
+            SearchTextBox.Visibility = Visibility.Visible;
+            SearchTextBox.Focus(FocusState.Programmatic);
+            SearchTextBox.SelectAll();
+        }
+    }
+
+    private bool IsFocusInEditableControl()
+    {
+        if (Content is FrameworkElement root && root.XamlRoot != null)
+        {
+            var focused = FocusManager.GetFocusedElement(root.XamlRoot);
+            if (focused is TextBox or RichEditBox or AutoSuggestBox)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private async void OnTargetTrayDropZoneTapped(object sender, TappedRoutedEventArgs e)
+    {
+        await OpenFolderPickerForStagingAsync();
+    }
+
+    private async void OnTargetTrayDropZoneKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == global::Windows.System.VirtualKey.Enter || e.Key == global::Windows.System.VirtualKey.Space)
+        {
+            e.Handled = true;
+            await OpenFolderPickerForStagingAsync();
+        }
+    }
+
+    private async Task OpenFolderPickerForStagingAsync()
+    {
+        try
+        {
+            var picker = new global::Windows.Storage.Pickers.FolderPicker();
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+            picker.FileTypeFilter.Add("*");
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder != null)
+            {
+                await ProcessDroppedFolderPathsAsync(new List<string> { folder.Path });
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"OpenFolderPickerForStagingAsync failed: {ex.Message}");
+        }
+    }
+
+    private async Task HandleManagerPasteAsync()
+    {
+        try
+        {
+            var package = global::Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            if (package == null)
+            {
+                return;
+            }
+
+            if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await package.GetStorageItemsAsync();
+                if (items != null && items.Count > 0)
+                {
+                    var folderPaths = new List<string>();
+                    var filePaths = new List<string>();
+
+                    foreach (var item in items)
+                    {
+                        if (item is global::Windows.Storage.StorageFolder || Directory.Exists(item.Path))
+                        {
+                            folderPaths.Add(item.Path);
+                        }
+                        else if (item is global::Windows.Storage.StorageFile || File.Exists(item.Path))
+                        {
+                            filePaths.Add(item.Path);
+                        }
+                    }
+
+                    if (folderPaths.Count > 0)
+                    {
+                        SwitchSection("Folders");
+                        await ProcessDroppedFolderPathsAsync(folderPaths);
+                        return;
+                    }
+
+                    if (filePaths.Count > 0)
+                    {
+                        SwitchSection("Library");
+                        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                        string iconsDir = Path.Combine(appData, "Ornare", "icons");
+                        Directory.CreateDirectory(iconsDir);
+
+                        foreach (var filePath in filePaths)
+                        {
+                            string ext = Path.GetExtension(filePath).ToLowerInvariant();
+                            if (ext is ".ico" or ".png" or ".jpg" or ".jpeg" or ".bmp" or ".webp")
+                            {
+                                try
+                                {
+                                    byte[] fileBytes = await File.ReadAllBytesAsync(filePath);
+                                    if (ext == ".ico" || (fileBytes.Length >= 4 && fileBytes[0] == 0 && fileBytes[1] == 0 && fileBytes[2] == 1 && fileBytes[3] == 0))
+                                    {
+                                        string sha256 = IcoImportService.ComputeSourceHash(fileBytes);
+                                        string canonicalIco = Path.Combine(iconsDir, $"{sha256}.ico");
+                                        var importResult = _imagePipeline.ImportIco(fileBytes, canonicalIco);
+                                        if (importResult.IsSuccess && importResult.Value != null)
+                                        {
+                                            await _storageService.AddOrUpdateAssetAsync(
+                                                importResult.Value.CanonicalHash,
+                                                importResult.Value.CanonicalPath,
+                                                "ico");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        string sha256 = _imagePipeline.ComputeSourceHash(fileBytes);
+                                        string canonicalIco = Path.Combine(iconsDir, $"{sha256}.ico");
+                                        var result = _imagePipeline.ProcessImageBytes(fileBytes, canonicalIco);
+                                        if (result.IsSuccess && result.Value != null)
+                                        {
+                                            await _storageService.AddOrUpdateAssetAsync(
+                                                result.Value.ContentHash,
+                                                result.Value.GeneratedIcoPath,
+                                                result.Value.SourceFormat);
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                        await LoadLibraryAsync();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"HandleManagerPasteAsync error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleManagerUndoAsync()
+    {
+        if (_stagedFolders.Count > 0)
+        {
+            _stagedFolders.RemoveAt(_stagedFolders.Count - 1);
+            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+            StagedCountText.Text = isTr ? $"Hazırlanan Klasörler ({_stagedFolders.Count})" : $"Staged Folders ({_stagedFolders.Count})";
+            if (_stagedFolders.Count == 0)
+            {
+                TargetTrayStagedPanel.Visibility = Visibility.Collapsed;
+            }
+            return;
+        }
+
+        if (FoldersListView?.SelectedItem is FolderItemVm selected && !string.IsNullOrEmpty(selected.FolderPath))
+        {
+            var res = await UndoService.UndoAsync(selected.FolderPath, _storageService, _folderCustomizer);
+            if (res.IsSuccess)
+            {
+                await LoadFoldersAsync();
+            }
+        }
+    }
+
+    private void HandleManagerEscape()
+    {
+        if (SearchTextBox != null && !string.IsNullOrEmpty(SearchTextBox.Text))
+        {
+            SearchTextBox.Text = string.Empty;
+            return;
+        }
+
+        if (Content is FrameworkElement root && root.XamlRoot != null)
+        {
+            var focused = FocusManager.GetFocusedElement(root.XamlRoot) as FrameworkElement;
+            if (focused is TextBox)
+            {
+                NavListView?.Focus(FocusState.Programmatic);
+            }
+        }
+    }
+
+    private static bool IsElementInteractable(FrameworkElement? element)
+    {
+        if (element == null || element.Visibility != Visibility.Visible)
+        {
+            return false;
+        }
+        if (element is Control control && !control.IsEnabled)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private void RestoreManagerFocusAfterTransition()
+    {
+        try
+        {
+            if (Content is not FrameworkElement root || root.XamlRoot == null)
+            {
+                return;
+            }
+
+            var focused = FocusManager.GetFocusedElement(root.XamlRoot) as FrameworkElement;
+            if (IsElementInteractable(focused))
+            {
+                return;
+            }
+
+            // Fixed order:
+            // 1. Operation error/success action if one exists
+            if (TargetTrayStagedPanel.Visibility == Visibility.Visible && IsElementInteractable(ClearStagingButton))
+            {
+                ClearStagingButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            // 2. Primary input / drop-zone action
+            if (FoldersView.Visibility == Visibility.Visible && IsElementInteractable(TargetTrayDropZone))
+            {
+                TargetTrayDropZone.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            if (LibraryView.Visibility == Visibility.Visible && IsElementInteractable(ImportIconButton))
+            {
+                ImportIconButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            // 3. First enabled control in logical XAML order
+            NavListView?.Focus(FocusState.Programmatic);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"RestoreManagerFocusAfterTransition error: {ex.Message}");
         }
     }
 
