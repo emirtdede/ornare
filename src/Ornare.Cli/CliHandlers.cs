@@ -28,16 +28,53 @@ public sealed class CliHandlers : IAsyncDisposable
         _pipeline = new ImagePipeline();
     }
 
-    private async Task EnsureStorageInitializedAsync()
+    private async Task EnsureStorageInitializedAsync(bool readOnly = false)
     {
         if (!_initialized)
         {
-            await _storage.InitializeAsync();
+            if (readOnly)
+            {
+                await _storage.InitializeReadOnlyAsync();
+            }
+            else
+            {
+                await _storage.InitializeAsync();
+            }
             _initialized = true;
         }
     }
 
-    public async Task<int> HandleApplyAsync(string folderPath, RenderInput renderInput, bool isJson)
+    private static int OutputPlanResponse(bool isJson, OperationPlan plan)
+    {
+        bool isSuccess = plan.Status != PlanStatus.WouldFail;
+        string code = isSuccess ? "Success" : (plan.Blockers.Count > 0 ? plan.Blockers[0].Code : "PlanFailed");
+        string messageKey = isSuccess ? plan.Status.ToString() : (plan.Blockers.Count > 0 ? plan.Blockers[0].Message : "Operation would fail");
+
+        var env = isSuccess
+            ? CliEnvelope.CreateSuccess(plan.Command, plan)
+            : CliEnvelope.CreateFailure(plan.Command, code, messageKey, operationId: null, data: plan);
+
+        CliResponseFormatter.WritePlan(isJson, env);
+
+        if (isSuccess)
+        {
+            return CliExitCodes.Success;
+        }
+
+        if (Enum.TryParse<ErrorCode>(code, out var ec))
+        {
+            return CliExitCodes.FromErrorCode(ec);
+        }
+
+        if (string.Equals(code, "InvalidArguments", StringComparison.OrdinalIgnoreCase))
+        {
+            return CliExitCodes.InvalidArguments;
+        }
+
+        return CliExitCodes.OperationFailed;
+    }
+
+    public async Task<int> HandleApplyAsync(string folderPath, RenderInput renderInput, bool isJson, bool isDryRun = false)
     {
         var validation = RenderInputValidator.Validate(renderInput);
         if (!validation.IsSuccess)
@@ -49,11 +86,162 @@ public sealed class CliHandlers : IAsyncDisposable
         var folderValidation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!folderValidation.IsSuccess)
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "apply",
+                    Target: folderPath ?? string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate target folder eligibility and permissions"],
+                    Blockers: [new PlanBlocker(folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "apply", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
-        await EnsureStorageInitializedAsync();
+        if (isDryRun)
+        {
+            await EnsureStorageInitializedAsync(readOnly: true);
+
+            var validated = validation.Value!;
+            RenderRecipe recipe;
+            string sourceFormat = "ico";
+            string? sourceMetadata = null;
+            string? contentHash = null;
+
+            if (validated.Kind == RenderInputKind.Color)
+            {
+                sourceFormat = "color";
+                sourceMetadata = $"Color: {validated.ColorHex}, Template: {validated.TemplateId}";
+                recipe = FolderTemplateRenderer.CreateRecipe(validated.ColorHex!, validated.TemplateId, 1);
+            }
+            else if (validated.Kind == RenderInputKind.Preset)
+            {
+                sourceFormat = "preset";
+                sourceMetadata = $"Preset: {validated.Preset}";
+                recipe = FolderTemplateRenderer.CreatePresetRecipe(validated.Preset!, FolderTemplateCatalog.DefaultTemplateId, 1);
+            }
+            else
+            {
+                sourceFormat = Path.GetExtension(validated.SourcePath!).TrimStart('.').ToLowerInvariant();
+                sourceMetadata = $"Source: {validated.SourcePath}";
+                bool isSvg = string.Equals(Path.GetExtension(validated.SourcePath), ".svg", StringComparison.OrdinalIgnoreCase);
+
+                if (!File.Exists(validated.SourcePath))
+                {
+                    var missingPlan = new OperationPlan(
+                        Command: "apply",
+                        Target: folderPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Validate target folder and source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.TargetNotFound.ToString(), $"Source image file does not exist: '{validated.SourcePath}'.")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, missingPlan);
+                }
+
+                byte[] sourceBytes;
+                try
+                {
+                    sourceBytes = await File.ReadAllBytesAsync(validated.SourcePath!);
+                    contentHash = _pipeline.ComputeSourceHash(sourceBytes);
+
+                    if (isSvg)
+                    {
+                        var sec = SvgSecurityValidator.Validate(sourceBytes);
+                        if (!sec.IsSuccess)
+                        {
+                            var secPlan = new OperationPlan(
+                                Command: "apply",
+                                Target: folderPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate target folder and source image security"],
+                                Blockers: [new PlanBlocker(sec.ErrorCode.ToString(), sec.ErrorMessage ?? "SVG security check failed.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, secPlan);
+                        }
+
+                        if (!string.IsNullOrEmpty(validated.RecolorHex))
+                        {
+                            string svgStr = System.Text.Encoding.UTF8.GetString(sourceBytes);
+                            var recolorCheck = SvgThemeabilityAnalyzer.AnalyzeSingleColorThemeability(svgStr);
+                            if (!recolorCheck.IsSuccess)
+                            {
+                                var recolorPlan = new OperationPlan(
+                                    Command: "apply",
+                                    Target: folderPath ?? string.Empty,
+                                    Status: PlanStatus.WouldFail,
+                                    PlannedActions: ["Validate target folder and SVG recolor themeability"],
+                                    Blockers: [new PlanBlocker(recolorCheck.ErrorCode.ToString(), recolorCheck.ErrorMessage ?? "SVG is not single-color themeable.")],
+                                    IndeterminateConditions: []
+                                );
+                                return OutputPlanResponse(isJson, recolorPlan);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (!_pipeline.ValidateImageFormat(validated.SourcePath))
+                        {
+                            var formatPlan = new OperationPlan(
+                                Command: "apply",
+                                Target: folderPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate source image format"],
+                                Blockers: [new PlanBlocker(ErrorCode.UnsupportedImageFormat.ToString(), $"Image format '{Path.GetExtension(validated.SourcePath)}' is not supported.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, formatPlan);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var readPlan = new OperationPlan(
+                        Command: "apply",
+                        Target: folderPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Read source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.ImageCorrupted.ToString(), $"Failed to read source image: {ex.Message}")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, readPlan);
+                }
+
+                recipe = new RenderRecipe
+                {
+                    SourceAssetHash = contentHash,
+                    PlacementMode = (int)validated.Mode,
+                    PaddingPercent = validated.Padding,
+                    BackgroundMode = (int)validated.BackgroundMode,
+                    BackgroundColor = validated.BackgroundMode == BackgroundMode.SolidColor && !string.IsNullOrEmpty(validated.BackgroundColorHex)
+                        ? BackgroundSpec.NormalizeHex(validated.BackgroundColorHex)
+                        : string.Empty,
+                    SvgRecolorMode = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? 2 : 0,
+                    SvgRecolorValue = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? validated.RecolorHex : string.Empty,
+                    TargetFormat = "ico",
+                    TargetFrameSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+                };
+            }
+
+            var plan = await OperationPlanningService.PlanApplyAsync(
+                folderPath,
+                sourceFormat,
+                contentHash,
+                sourceMetadata,
+                recipe,
+                _storage,
+                _customizer);
+
+            return OutputPlanResponse(isJson, plan);
+        }
+
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         string tempDir = Path.Combine(Path.GetTempPath(), "Ornare", "CliStaging");
         Directory.CreateDirectory(tempDir);
@@ -175,16 +363,36 @@ public sealed class CliHandlers : IAsyncDisposable
         }
     }
 
-    public async Task<int> HandleApplyLastAsync(string folderPath, bool isJson)
+    public async Task<int> HandleApplyLastAsync(string folderPath, bool isJson, bool isDryRun = false)
     {
         var folderValidation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!folderValidation.IsSuccess)
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "apply-last",
+                    Target: folderPath ?? string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate target folder eligibility and permissions"],
+                    Blockers: [new PlanBlocker(folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "apply-last", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
-        await EnsureStorageInitializedAsync();
+        if (isDryRun)
+        {
+            await EnsureStorageInitializedAsync(readOnly: true);
+            var plan = await OperationPlanningService.PlanApplyLastAsync(folderPath, _storage, _customizer);
+            return OutputPlanResponse(isJson, plan);
+        }
+
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         try
         {
@@ -218,16 +426,36 @@ public sealed class CliHandlers : IAsyncDisposable
         }
     }
 
-    public async Task<int> HandleResetAsync(string folderPath, bool isJson)
+    public async Task<int> HandleResetAsync(string folderPath, bool isJson, bool isDryRun = false)
     {
         var folderValidation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!folderValidation.IsSuccess)
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "reset",
+                    Target: folderPath ?? string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate target folder eligibility and permissions"],
+                    Blockers: [new PlanBlocker(folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "reset", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
-        await EnsureStorageInitializedAsync();
+        if (isDryRun)
+        {
+            await EnsureStorageInitializedAsync(readOnly: true);
+            var plan = await OperationPlanningService.PlanResetAsync(folderPath, _storage, _customizer);
+            return OutputPlanResponse(isJson, plan);
+        }
+
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         try
         {
@@ -256,16 +484,36 @@ public sealed class CliHandlers : IAsyncDisposable
         }
     }
 
-    public async Task<int> HandleUndoAsync(string folderPath, bool isJson)
+    public async Task<int> HandleUndoAsync(string folderPath, bool isJson, bool isDryRun = false)
     {
         var folderValidation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!folderValidation.IsSuccess)
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "undo",
+                    Target: folderPath ?? string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate target folder eligibility and permissions"],
+                    Blockers: [new PlanBlocker(folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "undo", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
-        await EnsureStorageInitializedAsync();
+        if (isDryRun)
+        {
+            await EnsureStorageInitializedAsync(readOnly: true);
+            var plan = await OperationPlanningService.PlanUndoAsync(folderPath, _storage, _customizer);
+            return OutputPlanResponse(isJson, plan);
+        }
+
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         try
         {
@@ -303,7 +551,7 @@ public sealed class CliHandlers : IAsyncDisposable
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
-        await EnsureStorageInitializedAsync();
+        await EnsureStorageInitializedAsync(readOnly: true);
 
         try
         {
@@ -343,10 +591,23 @@ public sealed class CliHandlers : IAsyncDisposable
         }
     }
 
-    public async Task<int> HandleExportIcoAsync(string outputPath, RenderInput renderInput, bool isJson)
+    public async Task<int> HandleExportIcoAsync(string outputPath, RenderInput renderInput, bool isJson, bool isDryRun = false)
     {
         if (string.IsNullOrWhiteSpace(outputPath))
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "export-ico",
+                    Target: string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate export output path and source image"],
+                    Blockers: [new PlanBlocker("InvalidArguments", "Output path cannot be empty.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "export-ico", "InvalidArguments", "Output path cannot be empty.");
             return CliExitCodes.InvalidArguments;
         }
@@ -356,6 +617,113 @@ public sealed class CliHandlers : IAsyncDisposable
         {
             CliResponseFormatter.WriteGeneralError(isJson, "export-ico", validation.Code, validation.ErrorMessage);
             return validation.ExitCode;
+        }
+
+        if (isDryRun)
+        {
+            await EnsureStorageInitializedAsync(readOnly: true);
+
+            var validated = validation.Value!;
+            RenderRecipe recipe;
+            string sourceDesc;
+
+            if (validated.Kind == RenderInputKind.Color)
+            {
+                sourceDesc = $"Color: {validated.ColorHex}, Template: {validated.TemplateId}";
+                recipe = FolderTemplateRenderer.CreateRecipe(validated.ColorHex!, validated.TemplateId, 1);
+            }
+            else if (validated.Kind == RenderInputKind.Preset)
+            {
+                sourceDesc = $"Preset: {validated.Preset}";
+                recipe = FolderTemplateRenderer.CreatePresetRecipe(validated.Preset!, FolderTemplateCatalog.DefaultTemplateId, 1);
+            }
+            else
+            {
+                sourceDesc = $"Source: {validated.SourcePath}";
+                bool isSvg = string.Equals(Path.GetExtension(validated.SourcePath), ".svg", StringComparison.OrdinalIgnoreCase);
+
+                if (!File.Exists(validated.SourcePath))
+                {
+                    var missingPlan = new OperationPlan(
+                        Command: "export-ico",
+                        Target: outputPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Validate export output path and source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.TargetNotFound.ToString(), $"Source image file does not exist: '{validated.SourcePath}'.")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, missingPlan);
+                }
+
+                byte[] sourceBytes;
+                try
+                {
+                    sourceBytes = await File.ReadAllBytesAsync(validated.SourcePath!);
+                    string contentHash = _pipeline.ComputeSourceHash(sourceBytes);
+
+                    if (isSvg)
+                    {
+                        var sec = SvgSecurityValidator.Validate(sourceBytes);
+                        if (!sec.IsSuccess)
+                        {
+                            var secPlan = new OperationPlan(
+                                Command: "export-ico",
+                                Target: outputPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate SVG security"],
+                                Blockers: [new PlanBlocker(sec.ErrorCode.ToString(), sec.ErrorMessage ?? "SVG security check failed.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, secPlan);
+                        }
+                    }
+                    else
+                    {
+                        if (!_pipeline.ValidateImageFormat(validated.SourcePath))
+                        {
+                            var formatPlan = new OperationPlan(
+                                Command: "export-ico",
+                                Target: outputPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate source image format"],
+                                Blockers: [new PlanBlocker(ErrorCode.UnsupportedImageFormat.ToString(), $"Image format '{Path.GetExtension(validated.SourcePath)}' is not supported.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, formatPlan);
+                        }
+                    }
+
+                    recipe = new RenderRecipe
+                    {
+                        SourceAssetHash = contentHash,
+                        PlacementMode = (int)validated.Mode,
+                        PaddingPercent = validated.Padding,
+                        BackgroundMode = (int)validated.BackgroundMode,
+                        BackgroundColor = validated.BackgroundMode == BackgroundMode.SolidColor && !string.IsNullOrEmpty(validated.BackgroundColorHex)
+                            ? BackgroundSpec.NormalizeHex(validated.BackgroundColorHex)
+                            : string.Empty,
+                        SvgRecolorMode = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? 2 : 0,
+                        SvgRecolorValue = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? validated.RecolorHex : string.Empty,
+                        TargetFormat = "ico",
+                        TargetFrameSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+                    };
+                }
+                catch (Exception ex)
+                {
+                    var readPlan = new OperationPlan(
+                        Command: "export-ico",
+                        Target: outputPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Read source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.ImageCorrupted.ToString(), $"Failed to read source image: {ex.Message}")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, readPlan);
+                }
+            }
+
+            var plan = await OperationPlanningService.PlanExportIcoAsync(outputPath, sourceDesc, recipe, _storage);
+            return OutputPlanResponse(isJson, plan);
         }
 
         string fullOutputPath;
@@ -371,7 +739,7 @@ public sealed class CliHandlers : IAsyncDisposable
             return CliExitCodes.StorageError;
         }
 
-        await EnsureStorageInitializedAsync();
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         try
         {
@@ -457,16 +825,42 @@ public sealed class CliHandlers : IAsyncDisposable
         }
     }
 
-    public async Task<int> HandleExportPngAsync(string outputPath, int size, RenderInput renderInput, bool isJson)
+    public async Task<int> HandleExportPngAsync(string outputPath, int size, RenderInput renderInput, bool isJson, bool isDryRun = false)
     {
         if (string.IsNullOrWhiteSpace(outputPath))
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "export-png",
+                    Target: string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate export output path and source image"],
+                    Blockers: [new PlanBlocker("InvalidArguments", "Output path cannot be empty.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "export-png", "InvalidArguments", "Output path cannot be empty.");
             return CliExitCodes.InvalidArguments;
         }
 
         if (size != 256 && size != 512 && size != 1024)
         {
+            if (isDryRun)
+            {
+                var failPlan = new OperationPlan(
+                    Command: "export-png",
+                    Target: outputPath ?? string.Empty,
+                    Status: PlanStatus.WouldFail,
+                    PlannedActions: ["Validate export dimensions"],
+                    Blockers: [new PlanBlocker("InvalidArguments", $"Invalid PNG export size '{size}'. Allowed sizes are 256, 512, 1024.")],
+                    IndeterminateConditions: []
+                );
+                return OutputPlanResponse(isJson, failPlan);
+            }
+
             CliResponseFormatter.WriteGeneralError(isJson, "export-png", "InvalidArguments", $"Invalid PNG export size '{size}'. Allowed sizes are 256, 512, 1024.");
             return CliExitCodes.InvalidArguments;
         }
@@ -476,6 +870,111 @@ public sealed class CliHandlers : IAsyncDisposable
         {
             CliResponseFormatter.WriteGeneralError(isJson, "export-png", validation.Code, validation.ErrorMessage);
             return validation.ExitCode;
+        }
+
+        if (isDryRun)
+        {
+            var validated = validation.Value!;
+            RenderRecipe recipe;
+            string sourceDesc;
+
+            if (validated.Kind == RenderInputKind.Color)
+            {
+                sourceDesc = $"Color: {validated.ColorHex}, Template: {validated.TemplateId}";
+                recipe = FolderTemplateRenderer.CreateRecipe(validated.ColorHex!, validated.TemplateId, 1);
+            }
+            else if (validated.Kind == RenderInputKind.Preset)
+            {
+                sourceDesc = $"Preset: {validated.Preset}";
+                recipe = FolderTemplateRenderer.CreatePresetRecipe(validated.Preset!, FolderTemplateCatalog.DefaultTemplateId, 1);
+            }
+            else
+            {
+                sourceDesc = $"Source: {validated.SourcePath}";
+                bool isSvg = string.Equals(Path.GetExtension(validated.SourcePath), ".svg", StringComparison.OrdinalIgnoreCase);
+
+                if (!File.Exists(validated.SourcePath))
+                {
+                    var missingPlan = new OperationPlan(
+                        Command: "export-png",
+                        Target: outputPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Validate export output path and source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.TargetNotFound.ToString(), $"Source image file does not exist: '{validated.SourcePath}'.")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, missingPlan);
+                }
+
+                byte[] sourceBytes;
+                try
+                {
+                    sourceBytes = await File.ReadAllBytesAsync(validated.SourcePath!);
+                    string contentHash = _pipeline.ComputeSourceHash(sourceBytes);
+
+                    if (isSvg)
+                    {
+                        var sec = SvgSecurityValidator.Validate(sourceBytes);
+                        if (!sec.IsSuccess)
+                        {
+                            var secPlan = new OperationPlan(
+                                Command: "export-png",
+                                Target: outputPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate SVG security"],
+                                Blockers: [new PlanBlocker(sec.ErrorCode.ToString(), sec.ErrorMessage ?? "SVG security check failed.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, secPlan);
+                        }
+                    }
+                    else
+                    {
+                        if (!_pipeline.ValidateImageFormat(validated.SourcePath))
+                        {
+                            var formatPlan = new OperationPlan(
+                                Command: "export-png",
+                                Target: outputPath ?? string.Empty,
+                                Status: PlanStatus.WouldFail,
+                                PlannedActions: ["Validate source image format"],
+                                Blockers: [new PlanBlocker(ErrorCode.UnsupportedImageFormat.ToString(), $"Image format '{Path.GetExtension(validated.SourcePath)}' is not supported.")],
+                                IndeterminateConditions: []
+                            );
+                            return OutputPlanResponse(isJson, formatPlan);
+                        }
+                    }
+
+                    recipe = new RenderRecipe
+                    {
+                        SourceAssetHash = contentHash,
+                        PlacementMode = (int)validated.Mode,
+                        PaddingPercent = validated.Padding,
+                        BackgroundMode = (int)validated.BackgroundMode,
+                        BackgroundColor = validated.BackgroundMode == BackgroundMode.SolidColor && !string.IsNullOrEmpty(validated.BackgroundColorHex)
+                            ? BackgroundSpec.NormalizeHex(validated.BackgroundColorHex)
+                            : string.Empty,
+                        SvgRecolorMode = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? 2 : 0,
+                        SvgRecolorValue = (isSvg && !string.IsNullOrEmpty(validated.RecolorHex)) ? validated.RecolorHex : string.Empty,
+                        TargetFormat = "png",
+                        TargetFrameSizes = [size]
+                    };
+                }
+                catch (Exception ex)
+                {
+                    var readPlan = new OperationPlan(
+                        Command: "export-png",
+                        Target: outputPath ?? string.Empty,
+                        Status: PlanStatus.WouldFail,
+                        PlannedActions: ["Read source image"],
+                        Blockers: [new PlanBlocker(ErrorCode.ImageCorrupted.ToString(), $"Failed to read source image: {ex.Message}")],
+                        IndeterminateConditions: []
+                    );
+                    return OutputPlanResponse(isJson, readPlan);
+                }
+            }
+
+            var plan = await OperationPlanningService.PlanExportPngAsync(outputPath, size, sourceDesc, recipe);
+            return OutputPlanResponse(isJson, plan);
         }
 
         string fullOutputPath;
@@ -491,7 +990,7 @@ public sealed class CliHandlers : IAsyncDisposable
             return CliExitCodes.StorageError;
         }
 
-        await EnsureStorageInitializedAsync();
+        await EnsureStorageInitializedAsync(readOnly: false);
 
         try
         {

@@ -87,6 +87,11 @@ public static class Program
         return root;
     }
 
+    private static Option<bool> CreateDryRunOption() => new Option<bool>("--dry-run")
+    {
+        Description = "Perform zero-mutation operation planning and validation (F25)"
+    };
+
     private static Command BuildApplyCommand(Option<bool> jsonOption)
     {
         var cmd = new Command("apply", "Apply custom icon to target folder using render input");
@@ -94,15 +99,18 @@ public static class Program
         cmd.Add(folderArg);
 
         var (sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt) = AddRenderInputOptions(cmd);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string folder = result.GetValue(folderArg) ?? "";
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleApplyAsync(folder, renderInput, isJson);
+            return await handlers.HandleApplyAsync(folder, renderInput, isJson, isDryRun);
         });
 
         return cmd;
@@ -113,14 +121,17 @@ public static class Program
         var cmd = new Command("apply-last", "Apply the most recently applied icon recipe to target folder");
         var folderArg = new Argument<string>("folder") { Description = "Path to target folder" };
         cmd.Add(folderArg);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string folder = result.GetValue(folderArg) ?? "";
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleApplyLastAsync(folder, isJson);
+            return await handlers.HandleApplyLastAsync(folder, isJson, isDryRun);
         });
 
         return cmd;
@@ -131,14 +142,17 @@ public static class Program
         var cmd = new Command("reset", "Reset folder customization to clean uncustomized state");
         var folderArg = new Argument<string>("folder") { Description = "Path to target folder" };
         cmd.Add(folderArg);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string folder = result.GetValue(folderArg) ?? "";
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleResetAsync(folder, isJson);
+            return await handlers.HandleResetAsync(folder, isJson, isDryRun);
         });
 
         return cmd;
@@ -149,14 +163,17 @@ public static class Program
         var cmd = new Command("undo", "Undo folder customization restoring prior icon semantics");
         var folderArg = new Argument<string>("folder") { Description = "Path to target folder" };
         cmd.Add(folderArg);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string folder = result.GetValue(folderArg) ?? "";
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleUndoAsync(folder, isJson);
+            return await handlers.HandleUndoAsync(folder, isJson, isDryRun);
         });
 
         return cmd;
@@ -167,10 +184,18 @@ public static class Program
         var cmd = new Command("inspect", "Inspect folder customization state, desktop.ini, and assignment");
         var folderArg = new Argument<string>("folder") { Description = "Path to target folder" };
         cmd.Add(folderArg);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            if (result.GetValue(dryRunOpt))
+            {
+                CliResponseFormatter.WriteGeneralError(isJson, "inspect", "InvalidArguments", "'inspect' is intrinsically read-only and does not accept '--dry-run'.");
+                return CliExitCodes.InvalidArguments;
+            }
+
             string folder = result.GetValue(folderArg) ?? "";
 
             await using var handlers = new CliHandlers();
@@ -191,15 +216,18 @@ public static class Program
             Required = true
         };
         cmd.Add(outputOpt);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string outputPath = result.GetValue(outputOpt) ?? "";
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleExportIcoAsync(outputPath, renderInput, isJson);
+            return await handlers.HandleExportIcoAsync(outputPath, renderInput, isJson, isDryRun);
         });
 
         return cmd;
@@ -223,16 +251,19 @@ public static class Program
             DefaultValueFactory = _ => 1024
         };
         cmd.Add(sizeOpt);
+        var dryRunOpt = CreateDryRunOption();
+        cmd.Add(dryRunOpt);
 
         cmd.SetAction(async (ParseResult result, CancellationToken ct) =>
         {
             bool isJson = result.GetValue(jsonOption);
+            bool isDryRun = result.GetValue(dryRunOpt);
             string outputPath = result.GetValue(outputOpt) ?? "";
             int size = result.GetValue(sizeOpt);
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
 
             await using var handlers = new CliHandlers();
-            return await handlers.HandleExportPngAsync(outputPath, size, renderInput, isJson);
+            return await handlers.HandleExportPngAsync(outputPath, size, renderInput, isJson, isDryRun);
         });
 
         return cmd;

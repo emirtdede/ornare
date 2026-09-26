@@ -5,7 +5,9 @@ namespace Ornare.Storage;
 public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage, IApplyStorage, IInspectStorage, IUndoStorage, IResetStorage
 {
     bool IsInitialized { get; }
+    bool IsReadOnly { get; }
     Task InitializeAsync(string? dbPath = null);
+    Task InitializeReadOnlyAsync(string? dbPath = null);
 
     // Journal (additional methods; RecordJournalEntryAsync and UpdateJournalStateAsync inherited from IApplyLastStorage)
     Task<IReadOnlyList<JournalEntry>> GetPendingJournalEntriesAsync();

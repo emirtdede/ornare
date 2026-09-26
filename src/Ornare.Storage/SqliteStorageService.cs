@@ -9,9 +9,65 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 {
     private string _connectionString = string.Empty;
     private bool _isInitialized;
+    private bool _isReadOnly;
     private readonly SemaphoreSlim _dbLock = new(1, 1);
 
     public bool IsInitialized => _isInitialized;
+    public bool IsReadOnly => _isReadOnly;
+
+    private void EnsureWritable()
+    {
+        if (_isReadOnly)
+        {
+            throw new InvalidOperationException("Cannot perform write operations on storage in read-only / DryRun mode.");
+        }
+    }
+
+    public async Task InitializeReadOnlyAsync(string? dbPath = null)
+    {
+        if (_isInitialized)
+        {
+            return;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
+            SQLitePCL.Batteries_V2.Init();
+
+            string databasePath = dbPath ?? GetDefaultDbPath();
+            if (!File.Exists(databasePath))
+            {
+                _connectionString = new SqliteConnectionStringBuilder
+                {
+                    DataSource = ":memory:",
+                    Mode = SqliteOpenMode.Memory,
+                    ForeignKeys = true
+                }.ToString();
+            }
+            else
+            {
+                _connectionString = new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath,
+                    Mode = SqliteOpenMode.ReadOnly,
+                    ForeignKeys = true
+                }.ToString();
+            }
+
+            _isReadOnly = true;
+            _isInitialized = true;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
 
     public async Task InitializeAsync(string? dbPath = null)
     {
@@ -206,6 +262,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task RecordJournalEntryAsync(JournalEntry entry)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -246,6 +303,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task UpdateJournalStateAsync(Guid operationId, JournalState state, string? errorDetails = null)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -326,6 +384,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         FolderBaseline baseline)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -466,6 +525,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task RemoveFolderAssignmentAsync(string folderPath)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -485,6 +545,8 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task<int> ReconcileStartupAsync(Func<JournalEntry, Task<bool>>? customReconciler = null)
     {
+        EnsureInitialized();
+        EnsureWritable();
         var pending = await GetPendingJournalEntriesAsync();
         int reconciledCount = 0;
 
@@ -568,6 +630,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task UpdateAssignmentHealthAsync(string folderPath, FolderCustomizationState status, string? conflictState = null)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -628,6 +691,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -736,6 +800,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task UpdateAssignmentPathAsync(string oldFolderPath, string newFolderPath)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(oldFolderPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(newFolderPath);
 
@@ -820,6 +885,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<LibraryAsset> AddOrUpdateAssetAsync(string sha256, string canonicalIcoPath, string sourceFormat, DateTimeOffset? now = null)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -987,6 +1053,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> DeleteAssetAsync(string sha256)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1018,6 +1085,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task SetFavoriteAsync(string sha256, bool isFavorite)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1092,6 +1160,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task RecordHistoryAsync(string folderPath, Guid operationId, string? prevHash, string newHash, string operationType)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1179,6 +1248,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task ClearRecentHistoryAsync()
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1220,6 +1290,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task SetSettingAsync(string key, string value)
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1268,6 +1339,8 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task SaveUserSettingsAsync(UserSettings settings)
     {
+        EnsureInitialized();
+        EnsureWritable();
         await SetSettingAsync("Theme", settings.Theme);
         await SetSettingAsync("Language", settings.Language);
         string recentColorsRaw = string.Join(";", settings.RecentCustomColors.Take(UserSettings.MaxRecentCustomColors));
@@ -1327,11 +1400,14 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                     LastUsedAt = DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture)
                 };
 
-                using var touchCmd = connection.CreateCommand();
-                touchCmd.CommandText = "UPDATE render_cache SET last_used_at = @now WHERE render_key = @key;";
-                touchCmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
-                touchCmd.Parameters.AddWithValue("@key", renderKey);
-                await touchCmd.ExecuteNonQueryAsync();
+                if (!_isReadOnly)
+                {
+                    using var touchCmd = connection.CreateCommand();
+                    touchCmd.CommandText = "UPDATE render_cache SET last_used_at = @now WHERE render_key = @key;";
+                    touchCmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                    touchCmd.Parameters.AddWithValue("@key", renderKey);
+                    await touchCmd.ExecuteNonQueryAsync();
+                }
 
                 return entry;
             }
@@ -1347,6 +1423,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task SaveRenderCacheEntryAsync(RenderCacheEntry entry)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentNullException.ThrowIfNull(entry);
 
         await _dbLock.WaitAsync();
@@ -1390,6 +1467,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task InvalidateRenderCacheAsync(string renderKey)
     {
         EnsureInitialized();
+        EnsureWritable();
         if (string.IsNullOrWhiteSpace(renderKey))
         {
             return;
@@ -1420,6 +1498,8 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task SetLastAppliedRenderKeyAsync(string renderKey)
     {
+        EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(renderKey);
         await SetSettingAsync("LastAppliedRenderKey", renderKey);
     }
@@ -1427,6 +1507,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task ClearLastAppliedRenderKeyAsync()
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -1538,6 +1619,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<int> CleanupUnreferencedAssetsAsync()
     {
         EnsureInitialized();
+        EnsureWritable();
         var unreferencedHashes = await GetUnreferencedAssetsAsync();
         if (unreferencedHashes.Count == 0)
         {
@@ -2072,6 +2154,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<LibraryTag> CreateOrGetTagAsync(string tagName)
     {
         EnsureInitialized();
+        EnsureWritable();
         if (!LibraryNameNormalizer.TryValidateAndNormalize(tagName, out string displayName, out string normalizedName, out string? error))
         {
             throw new ArgumentException(error ?? "Invalid tag name.", nameof(tagName));
@@ -2157,6 +2240,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> AttachTagToAssetAsync(string assetHash, string tagId)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
         ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
 
@@ -2217,6 +2301,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> DetachTagFromAssetAsync(string assetHash, string tagId)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
         ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
 
@@ -2240,6 +2325,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> DeleteTagAsync(string tagId)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
 
         await _dbLock.WaitAsync();
@@ -2445,6 +2531,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<LibraryCollection> CreateCollectionAsync(string name)
     {
         EnsureInitialized();
+        EnsureWritable();
         if (!LibraryNameNormalizer.TryValidateAndNormalize(
             name,
             out string displayName,
@@ -2650,6 +2737,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> RenameCollectionAsync(string collectionId, string newName)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
         if (!LibraryNameNormalizer.TryValidateAndNormalize(
             newName,
@@ -2733,6 +2821,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> DeleteCollectionAsync(string collectionId)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
 
         await _dbLock.WaitAsync();
@@ -2754,6 +2843,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> AddAssetToCollectionAsync(string collectionId, string assetHash)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
 
@@ -2790,6 +2880,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> RemoveAssetFromCollectionAsync(string collectionId, string assetHash)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
 
@@ -2899,6 +2990,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> ReorderCollectionAsync(string collectionId, string? targetNeighborId, bool insertBefore)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
 
         if (targetNeighborId == collectionId)
@@ -3040,6 +3132,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task RebalanceCollectionSortKeysAsync()
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -3158,6 +3251,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> StepSearchIndexBuildAsync(int batchSize = 500)
     {
         EnsureInitialized();
+        EnsureWritable();
         if (batchSize <= 0) batchSize = 500;
 
         await _dbLock.WaitAsync();
@@ -3421,6 +3515,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task RebuildSearchIndexAsync()
     {
         EnsureInitialized();
+        EnsureWritable();
         await _dbLock.WaitAsync();
         try
         {
@@ -3453,6 +3548,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> UpdateAssetDisplayNameAsync(string assetHash, string displayName)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
         ArgumentNullException.ThrowIfNull(displayName);
 
@@ -3503,6 +3599,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     public async Task<bool> RenameTagAsync(string tagId, string newName)
     {
         EnsureInitialized();
+        EnsureWritable();
         ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
         if (!LibraryNameNormalizer.TryValidateAndNormalize(newName, out string displayName, out string normalizedName, out string? error))
         {

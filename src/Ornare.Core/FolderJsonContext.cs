@@ -20,6 +20,10 @@ namespace Ornare.Core;
 [JsonSerializable(typeof(BackgroundSpec))]
 [JsonSerializable(typeof(FolderCustomizationState))]
 [JsonSerializable(typeof(RenderRecipe))]
+[JsonSerializable(typeof(ExecutionMode))]
+[JsonSerializable(typeof(PlanStatus))]
+[JsonSerializable(typeof(PlanBlocker))]
+[JsonSerializable(typeof(OperationPlan))]
 public sealed partial class FolderJsonContext : JsonSerializerContext
 {
 }

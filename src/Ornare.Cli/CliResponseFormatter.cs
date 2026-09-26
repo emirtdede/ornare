@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using Ornare.Core;
 
 namespace Ornare.Cli;
 
@@ -153,6 +154,78 @@ public static class CliResponseFormatter
             else
             {
                 Console.Error.WriteLine($"Error [{envelope.Code}]: {envelope.MessageKey}");
+            }
+        }
+    }
+
+    public static void WritePlan(bool isJson, CliEnvelope<OperationPlan> envelope)
+    {
+        if (isJson)
+        {
+            Console.Out.WriteLine(JsonSerializer.Serialize(envelope, CliJsonContext.Default.CliEnvelopeOperationPlan));
+        }
+        else
+        {
+            var plan = envelope.Data;
+            if (plan == null)
+            {
+                Console.Error.WriteLine($"Error [{envelope.Code}]: {envelope.MessageKey}");
+                return;
+            }
+
+            var writer = envelope.Success ? Console.Out : Console.Error;
+            writer.WriteLine($"[DRY-RUN] Operation Plan for '{envelope.Command}'");
+            writer.WriteLine($"Status: {plan.Status}");
+            writer.WriteLine($"Target: {plan.Target}");
+            if (!string.IsNullOrEmpty(plan.TargetIdentity))
+            {
+                writer.WriteLine($"Target Identity: {plan.TargetIdentity}");
+            }
+            if (!string.IsNullOrEmpty(plan.SourceMetadata))
+            {
+                writer.WriteLine($"Source Metadata: {plan.SourceMetadata}");
+            }
+            if (!string.IsNullOrEmpty(plan.CacheExpectation))
+            {
+                writer.WriteLine($"Cache Expectation: {plan.CacheExpectation}");
+            }
+            if (!string.IsNullOrEmpty(plan.ExpectedArtifact))
+            {
+                writer.WriteLine($"Expected Artifact: {plan.ExpectedArtifact}");
+            }
+            if (plan.ExpectedArtifactSizeBytes.HasValue)
+            {
+                writer.WriteLine($"Expected Size: {plan.ExpectedArtifactSizeBytes.Value} bytes");
+            }
+
+            if (plan.PlannedActions.Count > 0)
+            {
+                writer.WriteLine();
+                writer.WriteLine("Planned Actions:");
+                for (int i = 0; i < plan.PlannedActions.Count; i++)
+                {
+                    writer.WriteLine($"  [{i + 1}] {plan.PlannedActions[i]}");
+                }
+            }
+
+            if (plan.Blockers.Count > 0)
+            {
+                writer.WriteLine();
+                writer.WriteLine("Blockers:");
+                for (int i = 0; i < plan.Blockers.Count; i++)
+                {
+                    writer.WriteLine($"  [{i + 1}] {plan.Blockers[i].Code}: {plan.Blockers[i].Message}");
+                }
+            }
+
+            if (plan.IndeterminateConditions.Count > 0)
+            {
+                writer.WriteLine();
+                writer.WriteLine("Indeterminate Conditions:");
+                foreach (var condition in plan.IndeterminateConditions)
+                {
+                    writer.WriteLine($"  - {condition}");
+                }
             }
         }
     }
