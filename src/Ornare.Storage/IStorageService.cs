@@ -2,23 +2,18 @@ using Ornare.Core;
 
 namespace Ornare.Storage;
 
-public interface IStorageService : IFolderAssignmentLookup
+public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage
 {
     bool IsInitialized { get; }
     Task InitializeAsync(string? dbPath = null);
 
-    // Journal
-    Task RecordJournalEntryAsync(JournalEntry entry);
-    Task UpdateJournalStateAsync(Guid operationId, JournalState state, string? errorDetails = null);
+    // Journal (additional methods; RecordJournalEntryAsync and UpdateJournalStateAsync inherited from IApplyLastStorage)
     Task<IReadOnlyList<JournalEntry>> GetPendingJournalEntriesAsync();
 
-    // Assignment & Baselines
-    Task SaveFolderAssignmentAsync(string folderPath, Guid epochId, FolderIconSemantics semantics, FolderBaseline baseline);
-    Task<FolderBaseline?> GetLatestBaselineAsync(string folderPath);
+    // Assignment & Baselines (SaveFolderAssignmentAsync, GetLatestBaselineAsync, and UpdateAssignmentIdentityAsync(string, string, string) inherited from IApplyLastStorage)
     Task RemoveFolderAssignmentAsync(string folderPath);
     Task<IReadOnlyList<FolderAssignment>> GetAllFolderAssignmentsAsync();
     Task UpdateAssignmentHealthAsync(string folderPath, FolderCustomizationState status, string? conflictState = null);
-    Task UpdateAssignmentIdentityAsync(string folderPath, string? volumeSerial, string? fileId);
     Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64);
     Task<FolderAssignment?> GetAssignmentByIdentityAsync(uint volumeSerialNumber, ulong fileId64);
     Task<FolderAssignment?> GetAssignmentByPathAsync(string folderPath);
@@ -27,9 +22,8 @@ public interface IStorageService : IFolderAssignmentLookup
     // Startup reconciliation
     Task<int> ReconcileStartupAsync(Func<JournalEntry, Task<bool>>? customReconciler = null);
 
-    // Assets & Library
+    // Assets & Library (GetAssetByHashAsync inherited from IApplyLastStorage)
     Task<LibraryAsset> AddOrUpdateAssetAsync(string sha256, string canonicalIcoPath, string sourceFormat, DateTimeOffset? now = null);
-    Task<LibraryAsset?> GetAssetByHashAsync(string sha256);
     Task<IReadOnlyList<LibraryAsset>> GetAllAssetsAsync();
     Task<bool> DeleteAssetAsync(string sha256);
 
@@ -37,8 +31,7 @@ public interface IStorageService : IFolderAssignmentLookup
     Task SetFavoriteAsync(string sha256, bool isFavorite);
     Task<IReadOnlyList<LibraryAsset>> GetFavoritesAsync();
 
-    // Recent & History
-    Task RecordHistoryAsync(string folderPath, Guid operationId, string? prevHash, string newHash, string operationType);
+    // Recent & History (RecordHistoryAsync inherited from IApplyLastStorage)
     Task<IReadOnlyList<LibraryAsset>> GetRecentAssetsAsync(int limit = 20);
     Task ClearRecentHistoryAsync();
 
@@ -48,9 +41,7 @@ public interface IStorageService : IFolderAssignmentLookup
     Task<UserSettings> GetUserSettingsAsync();
     Task SaveUserSettingsAsync(UserSettings settings);
 
-    // F18: Render Cache & Reference-Safe Cleanup
-    Task<RenderCacheEntry?> GetRenderCacheEntryAsync(string renderKey);
-    Task SaveRenderCacheEntryAsync(RenderCacheEntry entry);
+    // F18: Render Cache & Reference-Safe Cleanup (GetRenderCacheEntryAsync and SaveRenderCacheEntryAsync inherited from IApplyLastStorage)
     Task InvalidateRenderCacheAsync(string renderKey);
     Task<bool> IsAssetOrRenderReferencedAsync(string hashOrKey);
     Task<IReadOnlyList<string>> GetUnreferencedAssetsAsync();

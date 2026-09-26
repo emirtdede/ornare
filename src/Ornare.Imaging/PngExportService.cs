@@ -244,7 +244,7 @@ public static class PngExportService
                         {
                             RenderKey = renderKey,
                             RecipeVersion = normalizedRecipe.RecipeVersion,
-                            RecipeJson = string.Empty,
+                            RecipeJson = normalizedRecipe.ToJson(),
                             SourceAssetHash = sourceHash,
                             CanonicalIcoPath = canonicalCacheFile,
                             FrameSizes = targetSize.ToString(System.Globalization.CultureInfo.InvariantCulture),

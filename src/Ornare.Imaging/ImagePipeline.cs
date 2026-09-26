@@ -383,7 +383,7 @@ public sealed class ImagePipeline : IImagePipeline
                         {
                             RenderKey = renderKey,
                             RecipeVersion = recipe.RecipeVersion,
-                            RecipeJson = string.Empty,
+                            RecipeJson = recipe.ToJson(),
                             SourceAssetHash = result.ContentHash,
                             CanonicalIcoPath = canonicalCacheFile,
                             FrameSizes = string.Join(",", result.FrameSizes),

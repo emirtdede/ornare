@@ -1361,6 +1361,36 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
+    public async Task<string?> GetLastAppliedRenderKeyAsync()
+    {
+        return await GetSettingAsync("LastAppliedRenderKey");
+    }
+
+    public async Task SetLastAppliedRenderKeyAsync(string renderKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(renderKey);
+        await SetSettingAsync("LastAppliedRenderKey", renderKey);
+    }
+
+    public async Task ClearLastAppliedRenderKeyAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM settings WHERE key = 'LastAppliedRenderKey';";
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
     public async Task<bool> IsAssetOrRenderReferencedAsync(string hashOrKey)
     {
         EnsureInitialized();

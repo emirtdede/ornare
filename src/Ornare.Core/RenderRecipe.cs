@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Ornare.Core;
 
@@ -22,6 +24,7 @@ public sealed record RenderRecipe
     public string SvgRecolorValue { get; init; } = string.Empty;
     public int SvgRecolorVersion { get; init; } = 1;
     public int PlacementMode { get; init; }
+    [JsonIgnore]
     public ImagePlacementMode ImagePlacement => (ImagePlacementMode)PlacementMode;
 
     private readonly int _paddingPercent;
@@ -39,6 +42,7 @@ public sealed record RenderRecipe
     }
 
     public int BackgroundMode { get; init; }
+    [JsonIgnore]
     public BackgroundMode Background => (BackgroundMode)BackgroundMode;
     public string BackgroundColor { get; init; } = string.Empty;
     public string PresetId { get; init; } = string.Empty;
@@ -56,6 +60,21 @@ public sealed record RenderRecipe
     public byte[] ToCanonicalBytes() => CanonicalRecipeSerializer.Serialize(this);
 
     public string ComputeRenderKey() => CanonicalRecipeSerializer.ComputeRenderKey(this);
+
+    public string ToJson() => JsonSerializer.Serialize(this);
+
+    public static RenderRecipe? FromJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<RenderRecipe>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 public static class CanonicalRecipeSerializer

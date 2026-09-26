@@ -24,7 +24,8 @@ public enum ErrorCode
     IcoMalformed,
     UnsupportedExportDestination,
     DropLimitExceeded,
-    ItemIsFileNotFolder
+    ItemIsFileNotFolder,
+    NoLastAppliedRecipe
 }
 
 public sealed class OperationResult

@@ -2127,6 +2127,37 @@ public sealed partial class ManagerWindow : Window, IDisposable
                     renderResult.Value.ContentHash,
                     "apply");
 
+                // Ensure render_cache entry exists and update LastAppliedRenderKey (F18/F21)
+                if (!string.IsNullOrWhiteSpace(renderResult.Value.RenderKey))
+                {
+                    try
+                    {
+                        var existingCache = await _storageService.GetRenderCacheEntryAsync(renderResult.Value.RenderKey);
+                        if (existingCache == null)
+                        {
+                            var fi = new FileInfo(canonicalIco);
+                            await _storageService.SaveRenderCacheEntryAsync(new RenderCacheEntry
+                            {
+                                RenderKey = renderResult.Value.RenderKey,
+                                RecipeVersion = 1,
+                                RecipeJson = string.Empty,
+                                SourceAssetHash = renderResult.Value.ContentHash,
+                                CanonicalIcoPath = canonicalIco,
+                                FrameSizes = string.Join(",", renderResult.Value.FrameSizes),
+                                FileSizeBytes = fi.Length,
+                                CreatedAt = DateTimeOffset.UtcNow,
+                                LastUsedAt = DateTimeOffset.UtcNow
+                            });
+                        }
+
+                        await _storageService.SetLastAppliedRenderKeyAsync(renderResult.Value.RenderKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        App.Log($"Non-critical LastAppliedRenderKey save failure: {ex.Message}");
+                    }
+                }
+
                 await RefreshAllDataAsync();
             }
         }

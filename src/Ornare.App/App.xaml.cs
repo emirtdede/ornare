@@ -3,7 +3,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
+using Ornare.Core;
 using Ornare.Imaging;
+using Ornare.Imaging.Templates;
 using Ornare.Storage;
 using Ornare.Windows;
 using WinRT.Interop;
@@ -78,6 +80,7 @@ public partial class App : Application, IDisposable
         public int? CursorX { get; set; }
         public int? CursorY { get; set; }
         public bool IsManager { get; set; }
+        public bool IsApplyLast { get; set; }
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -149,6 +152,11 @@ public partial class App : Application, IDisposable
                     if (string.Equals(cmdLineArgs[i], "--manager", StringComparison.OrdinalIgnoreCase))
                     {
                         request.IsManager = true;
+                    }
+                    else if (string.Equals(cmdLineArgs[i], "--apply-last", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
+                    {
+                        request.IsApplyLast = true;
+                        request.TargetFolder = cmdLineArgs[i + 1];
                     }
                     else if (string.Equals(cmdLineArgs[i], "--set-folder", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
                     {
@@ -241,6 +249,10 @@ public partial class App : Application, IDisposable
                     {
                         request.IsManager = true;
                     }
+                    else if (uriString.StartsWith("ornare://apply-last", StringComparison.OrdinalIgnoreCase))
+                    {
+                        request.IsApplyLast = true;
+                    }
 
                     if (string.IsNullOrWhiteSpace(request.TargetFolder))
                     {
@@ -265,7 +277,19 @@ public partial class App : Application, IDisposable
 
     private async Task ApplyLaunchRequestAsync(ParsedLaunchRequest request)
     {
-        Log($"ApplyLaunchRequestAsync: isManager={request.IsManager}, targetFolder='{request.TargetFolder}', uiState='{request.UiState}', cursor=({request.CursorX},{request.CursorY})");
+        Log($"ApplyLaunchRequestAsync: isApplyLast={request.IsApplyLast}, isManager={request.IsManager}, targetFolder='{request.TargetFolder}', uiState='{request.UiState}', cursor=({request.CursorX},{request.CursorY})");
+        if (request.IsApplyLast && !string.IsNullOrWhiteSpace(request.TargetFolder))
+        {
+            Log($"Executing ApplyLastAsync for '{request.TargetFolder}'...");
+            var result = await ApplyLastService.ApplyLastAsync(
+                request.TargetFolder,
+                _storageService,
+                _folderCustomizer,
+                rebuildIcoFunc: async entry => await RebuildIcoFromRecipeAsync(entry));
+            Log($"ApplyLast result: IsSuccess={result.IsSuccess}, ErrorCode={result.ErrorCode}, Message={result.ErrorMessage}");
+            return;
+        }
+
         if (request.IsManager || (string.IsNullOrWhiteSpace(request.TargetFolder) && string.IsNullOrEmpty(request.UiState)))
         {
             if (_managerWindow == null)
@@ -304,6 +328,84 @@ public partial class App : Application, IDisposable
             BringToFront(_window);
             Log("QuickPanelWindow brought to front.");
         }
+    }
+
+    private async Task<string?> RebuildIcoFromRecipeAsync(RenderCacheEntry entry)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(entry.RecipeJson))
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{entry.SourceAssetHash}.ico");
+                if (File.Exists(libraryIco))
+                {
+                    string? outDir = Path.GetDirectoryName(entry.CanonicalIcoPath);
+                    if (!string.IsNullOrEmpty(outDir)) Directory.CreateDirectory(outDir);
+                    File.Copy(libraryIco, entry.CanonicalIcoPath, overwrite: true);
+                    return entry.CanonicalIcoPath;
+                }
+                return null;
+            }
+
+            var recipe = RenderRecipe.FromJson(entry.RecipeJson);
+            if (recipe == null)
+            {
+                return null;
+            }
+
+            byte[]? sourceBytes = null;
+            if (!string.IsNullOrEmpty(recipe.TemplateId))
+            {
+                var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
+                sourceBytes = descriptor.GetBytes();
+            }
+            else if (!string.IsNullOrEmpty(recipe.SourceAssetHash))
+            {
+                var asset = await _storageService.GetAssetByHashAsync(recipe.SourceAssetHash);
+                if (asset != null && File.Exists(asset.CanonicalIcoPath))
+                {
+                    sourceBytes = await File.ReadAllBytesAsync(asset.CanonicalIcoPath);
+                }
+                else
+                {
+                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{recipe.SourceAssetHash}.ico");
+                    if (File.Exists(libraryIco))
+                    {
+                        sourceBytes = await File.ReadAllBytesAsync(libraryIco);
+                    }
+                }
+            }
+
+            if (sourceBytes == null || sourceBytes.Length == 0)
+            {
+                return null;
+            }
+
+            string? dir = Path.GetDirectoryName(entry.CanonicalIcoPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            var renderResult = _imagePipeline.ProcessRecipe(
+                recipe,
+                sourceBytes,
+                entry.CanonicalIcoPath,
+                cacheLookup: key => _storageService.GetRenderCacheEntryAsync(key).GetAwaiter().GetResult(),
+                cacheStore: cacheEntry => _storageService.SaveRenderCacheEntryAsync(cacheEntry).GetAwaiter().GetResult());
+
+            if (renderResult.IsSuccess && File.Exists(entry.CanonicalIcoPath))
+            {
+                return entry.CanonicalIcoPath;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"RebuildIcoFromRecipeAsync failed: {ex.Message}");
+        }
+        return null;
     }
 
     public void Dispose()

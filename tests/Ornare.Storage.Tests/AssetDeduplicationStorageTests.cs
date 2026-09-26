@@ -131,6 +131,78 @@ public class AssetDeduplicationStorageTests
     }
 
     [Fact]
+    public async Task LastAppliedRenderKeyRoundtripAndCleanupRetention()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_lastkey_{Guid.NewGuid():N}.db");
+        using var storage = new SqliteStorageService();
+
+        try
+        {
+            await storage.InitializeAsync(tempDb);
+
+            // Initially null
+            var initialKey = await storage.GetLastAppliedRenderKeyAsync();
+            Assert.Null(initialKey);
+
+            const string renderKey = "7f8e9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f";
+            const string sourceHash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+            // Save render cache entry
+            string icoPath = Path.Combine(Path.GetTempPath(), $"canonical_{Guid.NewGuid():N}.ico");
+            await File.WriteAllBytesAsync(icoPath, [0, 0, 1, 0]);
+
+            await storage.AddOrUpdateAssetAsync(sourceHash, icoPath, "png");
+            await storage.SaveRenderCacheEntryAsync(new RenderCacheEntry
+            {
+                RenderKey = renderKey,
+                RecipeVersion = 1,
+                RecipeJson = "{}",
+                SourceAssetHash = sourceHash,
+                CanonicalIcoPath = icoPath,
+                FrameSizes = "256",
+                FileSizeBytes = 4,
+                CreatedAt = DateTimeOffset.UtcNow,
+                LastUsedAt = DateTimeOffset.UtcNow
+            });
+
+            // Set LastAppliedRenderKey
+            await storage.SetLastAppliedRenderKeyAsync(renderKey);
+            var retrievedKey = await storage.GetLastAppliedRenderKeyAsync();
+            Assert.Equal(renderKey, retrievedKey);
+
+            // Verify both renderKey and underlying source asset are protected from cleanup
+            bool isRenderReferenced = await storage.IsAssetOrRenderReferencedAsync(renderKey);
+            Assert.True(isRenderReferenced);
+
+            bool isSourceReferenced = await storage.IsAssetOrRenderReferencedAsync(sourceHash);
+            Assert.True(isSourceReferenced);
+
+            // Cleanup attempt preserves both
+            int cleaned = await storage.CleanupUnreferencedAssetsAsync();
+            Assert.Equal(0, cleaned);
+            Assert.NotNull(await storage.GetAssetByHashAsync(sourceHash));
+            Assert.NotNull(await storage.GetRenderCacheEntryAsync(renderKey));
+
+            // Clear LastAppliedRenderKey
+            await storage.ClearLastAppliedRenderKeyAsync();
+            Assert.Null(await storage.GetLastAppliedRenderKeyAsync());
+
+            // Now references are eligible for cleanup
+            bool isSourceReferencedAfter = await storage.IsAssetOrRenderReferencedAsync(sourceHash);
+            Assert.False(isSourceReferencedAfter);
+
+            if (File.Exists(icoPath)) File.Delete(icoPath);
+        }
+        finally
+        {
+            if (File.Exists(tempDb))
+            {
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
+    }
+
+    [Fact]
     public async Task ForwardMigrationFailureRollsBackTransactionCleanly()
     {
         string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_mig_{Guid.NewGuid():N}.db");

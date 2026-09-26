@@ -1304,6 +1304,28 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                     canonicalIcoPath,
                     stagedResult.SourceFormat);
 
+                // Ensure render_cache entry exists for deduplication and Apply Last (F18/F21)
+                if (!string.IsNullOrWhiteSpace(stagedResult.RenderKey))
+                {
+                    var existingCache = await _storageService.GetRenderCacheEntryAsync(stagedResult.RenderKey);
+                    if (existingCache == null)
+                    {
+                        var fi = new FileInfo(canonicalIcoPath);
+                        await _storageService.SaveRenderCacheEntryAsync(new RenderCacheEntry
+                        {
+                            RenderKey = stagedResult.RenderKey,
+                            RecipeVersion = 1,
+                            RecipeJson = string.Empty,
+                            SourceAssetHash = stagedResult.ContentHash,
+                            CanonicalIcoPath = canonicalIcoPath,
+                            FrameSizes = string.Join(",", stagedResult.FrameSizes),
+                            FileSizeBytes = fi.Length,
+                            CreatedAt = DateTimeOffset.UtcNow,
+                            LastUsedAt = DateTimeOffset.UtcNow
+                        });
+                    }
+                }
+
                 await _storageService.RecordHistoryAsync(
                     _currentFolderPath,
                     operationId,
@@ -1328,6 +1350,19 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
 
             await _storageService.UpdateJournalStateAsync(operationId, JournalState.Completed);
+
+            // F21: Update LastAppliedRenderKey pointer only after successful durable apply commit
+            if (!string.IsNullOrWhiteSpace(stagedResult.RenderKey))
+            {
+                try
+                {
+                    await _storageService.SetLastAppliedRenderKeyAsync(stagedResult.RenderKey);
+                }
+                catch (Exception ex)
+                {
+                    App.Log($"Non-critical LastAppliedRenderKey save failure: {ex.Message}");
+                }
+            }
 
             // Set final success icon preview from canonical path or staged path
             SuccessIconImage.Source = !string.IsNullOrEmpty(canonicalIcoPath) && File.Exists(canonicalIcoPath)
