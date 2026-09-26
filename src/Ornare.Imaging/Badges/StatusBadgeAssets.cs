@@ -17,12 +17,20 @@ public static class StatusBadgeAssets
 
     private const string ImportantPath = "M12.0004 2.00195C9.86006 2.00195 8.125 3.73701 8.125 5.87732C8.125 8.79606 9.33243 12.4289 9.93776 14.0759C10.2606 14.9542 11.097 15.4995 12.0025 15.4995C12.9057 15.4995 13.7409 14.957 14.0646 14.0809C14.6705 12.4412 15.8757 8.827 15.8757 5.87732C15.8757 3.73701 14.1407 2.00195 12.0004 2.00195ZM9.625 5.87732C9.625 4.56544 10.6885 3.50195 12.0004 3.50195C13.3122 3.50195 14.3757 4.56544 14.3757 5.87732C14.3757 8.53153 13.2639 11.9202 12.6576 13.561C12.5621 13.8194 12.3089 13.9995 12.0025 13.9995C11.6954 13.9995 11.4412 13.8184 11.3457 13.5585C10.7387 11.9069 9.625 8.50056 9.625 5.87732ZM12.0011 17.001C10.6198 17.001 9.5 18.1208 9.5 19.5021C9.5 20.8834 10.6198 22.0032 12.0011 22.0032C13.3825 22.0032 14.5022 20.8834 14.5022 19.5021C14.5022 18.1208 13.3825 17.001 12.0011 17.001ZM11 19.5021C11 18.9492 11.4482 18.501 12.0011 18.501C12.554 18.501 13.0022 18.9492 13.0022 19.5021C13.0022 20.055 12.554 20.5032 12.0011 20.5032C11.4482 20.5032 11 20.055 11 19.5021Z";
 
+    // F05 Priority Badges: 100% Ornare-authored geometric monochrome vector paths (v1)
+    private const string PriorityHighPath = "M4 16L8 16L12 10L16 16L20 16L12 4Z";
+    private const string PriorityMediumPath = "M6 10H18A2 2 0 0 1 20 12A2 2 0 0 1 18 14H6A2 2 0 0 1 4 12A2 2 0 0 1 6 10Z";
+    private const string PriorityLowPath = "M4 8L8 8L12 14L16 8L20 8L12 20Z";
+
     private static readonly Dictionary<string, string> PathsByAssetId = new(StringComparer.OrdinalIgnoreCase)
     {
         { "ic_fluent_clock_24_regular", ClockPath },
         { "ic_fluent_checkmark_circle_24_regular", CheckmarkCirclePath },
         { "ic_fluent_archive_24_regular", ArchivePath },
-        { "ic_fluent_important_24_regular", ImportantPath }
+        { "ic_fluent_important_24_regular", ImportantPath },
+        { "ornare_priority_high_24", PriorityHighPath },
+        { "ornare_priority_medium_24", PriorityMediumPath },
+        { "ornare_priority_low_24", PriorityLowPath }
     };
 
     public static string GenerateBadgeSvg(string badgeAssetId, string fillHex = "#212121")

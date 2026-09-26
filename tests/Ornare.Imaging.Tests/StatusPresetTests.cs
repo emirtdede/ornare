@@ -43,10 +43,10 @@ public sealed class StatusPresetTests : IDisposable
     }
 
     [Fact]
-    public void CatalogContainsExactFourPresetsWithVersionOne()
+    public void CatalogContainsExactFourStatusPresetsWithVersionOne()
     {
-        var all = StatusPresetCatalog.All;
-        Assert.Equal(4, all.Count);
+        var status = StatusPresetCatalog.StatusPresets;
+        Assert.Equal(4, status.Count);
 
         var inProgress = StatusPresetCatalog.GetPreset("status.in-progress");
         var done = StatusPresetCatalog.GetPreset("status.done");
@@ -63,7 +63,7 @@ public sealed class StatusPresetTests : IDisposable
         Assert.Equal(1, archive.Version);
         Assert.Equal(1, important.Version);
 
-        foreach (var p in all)
+        foreach (var p in status)
         {
             Assert.True(ColorConversion.TryParseHex(p.BaseHex, out _, out _, out _), $"BaseHex '{p.BaseHex}' must be valid hex.");
             Assert.True(StatusBadgeAssets.TryGetPathData(p.BadgeAssetId, out string? pathData) && !string.IsNullOrEmpty(pathData),

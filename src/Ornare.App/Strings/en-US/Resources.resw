@@ -405,4 +405,31 @@
   <data name="Preset_Important_Desc" xml:space="preserve">
     <value>Highlights urgent or critical folders</value>
   </data>
+  <data name="Preset_PriorityHigh" xml:space="preserve">
+    <value>High Priority</value>
+  </data>
+  <data name="Preset_PriorityHigh_Desc" xml:space="preserve">
+    <value>Marks high urgency items (visual organization only)</value>
+  </data>
+  <data name="Preset_PriorityMedium" xml:space="preserve">
+    <value>Medium Priority</value>
+  </data>
+  <data name="Preset_PriorityMedium_Desc" xml:space="preserve">
+    <value>Marks normal priority items (visual organization only)</value>
+  </data>
+  <data name="Preset_PriorityLow" xml:space="preserve">
+    <value>Low Priority</value>
+  </data>
+  <data name="Preset_PriorityLow_Desc" xml:space="preserve">
+    <value>Marks low urgency items (visual organization only)</value>
+  </data>
+  <data name="Presets_PriorityDisclaimer" xml:space="preserve">
+    <value>Priority presets provide visual folder badges for organization and do not alter Windows filesystem priority or shell sorting.</value>
+  </data>
+  <data name="Presets_StatusHeader" xml:space="preserve">
+    <value>Workflow Status</value>
+  </data>
+  <data name="Presets_PriorityHeader" xml:space="preserve">
+    <value>Visual Priority</value>
+  </data>
 </root>

@@ -405,4 +405,31 @@
   <data name="Preset_Important_Desc" xml:space="preserve">
     <value>Acil veya kritik klasörleri vurgular</value>
   </data>
+  <data name="Preset_PriorityHigh" xml:space="preserve">
+    <value>Yüksek Öncelik</value>
+  </data>
+  <data name="Preset_PriorityHigh_Desc" xml:space="preserve">
+    <value>Yüksek öncelikli ögeleri belirtir (yalnızca görsel düzen)</value>
+  </data>
+  <data name="Preset_PriorityMedium" xml:space="preserve">
+    <value>Orta Öncelik</value>
+  </data>
+  <data name="Preset_PriorityMedium_Desc" xml:space="preserve">
+    <value>Normal öncelikli ögeleri belirtir (yalnızca görsel düzen)</value>
+  </data>
+  <data name="Preset_PriorityLow" xml:space="preserve">
+    <value>Düşük Öncelik</value>
+  </data>
+  <data name="Preset_PriorityLow_Desc" xml:space="preserve">
+    <value>Düşük öncelikli ögeleri belirtir (yalnızca görsel düzen)</value>
+  </data>
+  <data name="Presets_PriorityDisclaimer" xml:space="preserve">
+    <value>Öncelik şablonları klasörleri görsel olarak düzenlemek içindir; Windows dosya sistemi önceliğini veya Gezgin sıralamasını değiştirmez.</value>
+  </data>
+  <data name="Presets_StatusHeader" xml:space="preserve">
+    <value>İş Akışı Durumu</value>
+  </data>
+  <data name="Presets_PriorityHeader" xml:space="preserve">
+    <value>Görsel Öncelik</value>
+  </data>
 </root>

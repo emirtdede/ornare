@@ -644,6 +644,12 @@ public sealed partial class ManagerWindow : Window
         if (PresetRadioClassic != null) PresetRadioClassic.Content = isTr ? "Klasik" : "Classic";
         if (PresetRadioSoft != null) PresetRadioSoft.Content = isTr ? "Yumuşak" : "Soft";
         if (PresetRadioFlat != null) PresetRadioFlat.Content = isTr ? "Düz" : "Flat";
+        if (PresetDisclaimerText != null)
+        {
+            PresetDisclaimerText.Text = isTr
+                ? "Öncelik şablonları klasörleri görsel olarak düzenlemek içindir; Windows dosya sistemi önceliğini veya Gezgin sıralamasını değiştirmez."
+                : "Priority presets provide visual folder badges for organization and do not alter Windows filesystem priority or shell sorting.";
+        }
 
         LibraryEmptyTitle.Text = isTr ? "Kitaplıkta simge yok" : "No icons in library";
         LibraryEmptySubtitle.Text = isTr ? "Özelleştirdiğiniz simgeler burada görünecektir" : "Icons you customize will appear here";
@@ -766,6 +772,9 @@ public sealed partial class ManagerWindow : Window
         "status.done" => isTr ? "Tamamlandı" : "Done",
         "status.archive" => isTr ? "Arşiv" : "Archive",
         "status.important" => isTr ? "Önemli" : "Important",
+        "priority.high" => isTr ? "Yüksek Öncelik" : "High Priority",
+        "priority.medium" => isTr ? "Orta Öncelik" : "Medium Priority",
+        "priority.low" => isTr ? "Düşük Öncelik" : "Low Priority",
         _ => presetId
     };
 
@@ -775,6 +784,9 @@ public sealed partial class ManagerWindow : Window
         "status.done" => isTr ? "Tamamlanan görevleri ve projeleri belirtir" : "Marks completed tasks and projects",
         "status.archive" => isTr ? "Geçmiş veya referans materyalleri depolar" : "Stores historical or reference material",
         "status.important" => isTr ? "Acil veya kritik klasörleri vurgular" : "Highlights urgent or critical folders",
+        "priority.high" => isTr ? "Yüksek öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks high urgency items (visual organization only)",
+        "priority.medium" => isTr ? "Normal öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks normal priority items (visual organization only)",
+        "priority.low" => isTr ? "Düşük öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks low urgency items (visual organization only)",
         _ => string.Empty
     };
 

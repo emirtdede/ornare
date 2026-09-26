@@ -46,6 +46,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F08 | Solid background color compositing over transparent source assets, native WinUI 3 ColorPicker reuse, sRGB alpha-blending without fringe artifacts, canonical key divergence, strict asset immutability | F08_background-color, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F03 | Three original Ornare folder style templates (Classic, Soft, Flat), shared proportions and semantic roles, lazy catalog loading (<1 ms), strict validator, multi-silhouette rendering, and QuickPanel selector | F03_folder-style-templates, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F04 | Four semantic work-status presets (In Progress, Done, Archive, Important) using licensed MIT Fluent UI System Icons badges, contrast-adapted backing disk, small-frame badge omission, multi-template ICO rendering, and Manager Presets view | F04_status-presets, IMAGE_PIPELINE, INFORMATION_ARCHITECTURE | unit/integration/E2E tests |
+| ORN-EXP-F05 | Three visual priority presets (High, Medium, Low) using Ornare-authored geometric badges, standard status preset compositor and omission rules, and localized organization disclaimer in Manager Presets view | F05_priority-presets, IMAGE_PIPELINE, INFORMATION_ARCHITECTURE | unit/integration/E2E tests |
 
 ## Traceability rule
 

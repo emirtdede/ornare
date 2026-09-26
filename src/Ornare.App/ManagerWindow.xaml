@@ -413,6 +413,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <!-- Top style template selector -->
@@ -485,6 +486,16 @@
                             </DataTemplate>
                         </GridView.ItemTemplate>
                     </GridView>
+
+                    <!-- Disclaimer text (F05) -->
+                    <TextBlock
+                        Grid.Row="2"
+                        x:Name="PresetDisclaimerText"
+                        Text="Priority presets provide visual folder badges for organization and do not alter Windows filesystem priority or shell sorting."
+                        FontSize="11"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Margin="0,4,0,0" />
                 </Grid>
 
                 <!-- 6. SETTINGS VIEW -->
