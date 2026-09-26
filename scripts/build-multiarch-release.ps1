@@ -241,6 +241,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Installer MSBuild failed with exit code $LASTEXITCODE"
 }
 $builtCandidates = @(
+    "production_artifacts/release/candidate/OrnareSetup.exe",
     "src/Ornare.Installer/production_artifacts/release/candidate/OrnareSetup.exe",
     "src/Ornare.Installer/x64/Release/OrnareSetup.exe",
     "src/Ornare.Installer/x64/Release/Ornare.Installer.exe"
@@ -250,7 +251,9 @@ if (!$builtInstaller) {
     throw "Built installer executable not found among candidates"
 }
 $candidateInstaller = Join-Path $releaseDir "OrnareSetup.exe"
-Copy-Item $builtInstaller $candidateInstaller -Force
+if ([System.IO.Path]::GetFullPath($builtInstaller) -ne [System.IO.Path]::GetFullPath($candidateInstaller)) {
+    Copy-Item $builtInstaller $candidateInstaller -Force
+}
 $signArgs = @("sign", "/fd", "SHA256", "/sha1", $thumbprint, $candidateInstaller)
 $proc = Start-Process -FilePath $signTool -ArgumentList $signArgs -NoNewWindow -PassThru -Wait
 if ($proc.ExitCode -ne 0) {

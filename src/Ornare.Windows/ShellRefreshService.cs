@@ -10,6 +10,9 @@ public static class ShellRefreshService
     private const int ShcneUpdateItem = 0x00002000;
     private const int ShcneAttributes = 0x00000800;
     private const int ShcneUpdateDir = 0x00001000;
+    private const int ShcneAssocChanged = 0x08000000;
+
+    private const uint ShcnfIdList = 0x0000;
     private const uint ShcnfPathW = 0x0005;
     private const uint ShcnfFlushNoWait = 0x3000; // SHCNF_FLUSH (0x1000) | SHCNF_FLUSHNOWAIT (0x2000)
 
@@ -23,6 +26,7 @@ public static class ShellRefreshService
         try
         {
             uint pathFlags = ShcnfPathW | ShcnfFlushNoWait;
+            uint idFlags = ShcnfIdList | ShcnfFlushNoWait;
 
             unsafe
             {
@@ -36,23 +40,25 @@ public static class ShellRefreshService
                     }
                 }
 
-                // 2. Notify target folder attributes and item changed
+                // 2. Notify target folder item and attributes changed
                 fixed (char* pPath = folderPath)
                 {
-                    PInvoke.SHChangeNotify((SHCNE_ID)ShcneAttributes, (SHCNF_FLAGS)pathFlags, pPath, null);
                     PInvoke.SHChangeNotify((SHCNE_ID)ShcneUpdateItem, (SHCNF_FLAGS)pathFlags, pPath, null);
+                    PInvoke.SHChangeNotify((SHCNE_ID)ShcneAttributes, (SHCNF_FLAGS)pathFlags, pPath, null);
                 }
 
-                // 3. Notify parent directory (e.g. Desktop or Explorer folder) updated so child item refreshes
+                // 3. Notify parent directory updated so child item views refresh
                 string? parentDir = Path.GetDirectoryName(folderPath.TrimEnd('\\', '/'));
                 if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
                 {
                     fixed (char* pParent = parentDir)
                     {
                         PInvoke.SHChangeNotify((SHCNE_ID)ShcneUpdateDir, (SHCNF_FLAGS)pathFlags, pParent, null);
-                        PInvoke.SHChangeNotify((SHCNE_ID)ShcneUpdateItem, (SHCNF_FLAGS)pathFlags, pParent, null);
                     }
                 }
+
+                // 4. Invalidate Shell icon and thumbnail cache so Explorer views (including Desktop) redraw immediately
+                PInvoke.SHChangeNotify((SHCNE_ID)ShcneAssocChanged, (SHCNF_FLAGS)idFlags, null, null);
             }
         }
         catch

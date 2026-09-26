@@ -919,7 +919,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     HWND hWnd = CreateWindowExW(
         dwExStyle,
         L"OrnareInstallerClass",
-        g_isTurkish ? L"Ornare Kurulumu - Vellium" : L"Ornare Setup - Vellium",
+        g_isTurkish ? L"Ornare Kurulumu" : L"Ornare Setup",
         dwStyle,
         x, y, winWidth, winHeight,
         nullptr, nullptr, hInstance, nullptr);
