@@ -61,7 +61,7 @@ function Build-ArchPackage([string]$arch) {
     $manifestContent = $manifestContent -replace 'ProcessorArchitecture="[^"]+"', "ProcessorArchitecture=`"$targetArch`""
     Set-Content -Path (Join-Path $layoutDir "AppxManifest.xml") -Value $manifestContent -Encoding utf8
 
-    # 5. Compile resources.pri using makepri.exe
+    # 5. Compile resources.pri using makepri.exe (merging Ornare.App.pri to retain XAML/XBF and strings)
     Write-Host "Compiling root resources.pri for $arch..."
     $priConfigPath = Join-Path $releaseDir "priconfig_$arch.xml"
     $configContent = @"
@@ -83,20 +83,26 @@ function Build-ArchPackage([string]$arch) {
 			<qualifier name="Custom" value=""/>
 		</default>
 		<indexer-config type="folder" foldernameAsQualifier="true" filenameAsQualifier="true" qualifierDelimiter="."/>
+		<indexer-config type="resw" convertDotsToSlashes="true" initialPath=""/>
+		<indexer-config type="resjson" initialPath=""/>
+		<indexer-config type="PRI"/>
 	</index>
 </resources>
 "@
     Set-Content -Path $priConfigPath -Value $configContent -Encoding utf8
     $priOutput = Join-Path $layoutDir "resources.pri"
-    if (Test-Path $priOutput) {
-        Remove-Item $priOutput -Force
-    }
-    $priArgs = @("new", "/pr", (Resolve-Path $layoutDir).Path, "/cf", (Resolve-Path $priConfigPath).Path, "/of", $priOutput, "/o")
+    $tempPri = [System.IO.Path]::GetFullPath((Join-Path $releaseDir "temp_resources_$arch.pri"))
+    if (Test-Path $tempPri) { Remove-Item $tempPri -Force }
+    if (Test-Path $priOutput) { Remove-Item $priOutput -Force }
+    $manifestPath = (Join-Path (Resolve-Path $layoutDir).Path "AppxManifest.xml")
+    $priArgs = @("new", "/pr", (Resolve-Path $layoutDir).Path, "/cf", (Resolve-Path $priConfigPath).Path, "/mn", $manifestPath, "/of", $tempPri, "/o")
     $priProc = Start-Process -FilePath $makePri -ArgumentList $priArgs -NoNewWindow -PassThru -Wait
-    if ($priProc.ExitCode -ne 0 -or !(Test-Path $priOutput)) {
-        throw "makepri failed for $arch with exit code $($priProc.ExitCode)"
+    if ($priProc.ExitCode -ne 0 -or !(Test-Path $tempPri)) {
+        throw "makepri new failed for $arch with exit code $($priProc.ExitCode)"
     }
+    Move-Item $tempPri $priOutput -Force
     Write-Host "resources.pri successfully compiled for $arch (Size: $((Get-Item $priOutput).Length) bytes)."
+
 
     # 6. Pack MSIX
     $outputMsix = Join-Path $releaseDir "Ornare_1.0.0.0_$arch.msix"
@@ -224,6 +230,38 @@ foreach ($pkg in $manifestXml.Bundle.Packages.Package) {
     Write-Host "  -> Architecture: $($pkg.Architecture), Version: $($pkg.Version), FileName: $($pkg.FileName)"
 }
 Remove-Item $unpackBundleDir -Recurse -Force
+# Build and sign Installer
+Write-Host "`n======================================================="
+Write-Host "BUILDING AND SIGNING ORNARE SETUP INSTALLER"
+Write-Host "======================================================="
+$msBuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+$installerProj = "src/Ornare.Installer/Ornare.Installer.vcxproj"
+& $msBuild $installerProj /p:Configuration=Release /p:Platform=x64 /t:Rebuild /nodeReuse:false
+if ($LASTEXITCODE -ne 0) {
+    throw "Installer MSBuild failed with exit code $LASTEXITCODE"
+}
+$builtCandidates = @(
+    "src/Ornare.Installer/production_artifacts/release/candidate/OrnareSetup.exe",
+    "src/Ornare.Installer/x64/Release/OrnareSetup.exe",
+    "src/Ornare.Installer/x64/Release/Ornare.Installer.exe"
+)
+$builtInstaller = $builtCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (!$builtInstaller) {
+    throw "Built installer executable not found among candidates"
+}
+$candidateInstaller = Join-Path $releaseDir "OrnareSetup.exe"
+Copy-Item $builtInstaller $candidateInstaller -Force
+$signArgs = @("sign", "/fd", "SHA256", "/sha1", $thumbprint, $candidateInstaller)
+$proc = Start-Process -FilePath $signTool -ArgumentList $signArgs -NoNewWindow -PassThru -Wait
+if ($proc.ExitCode -ne 0) {
+    throw "signtool failed for $candidateInstaller with exit code $($proc.ExitCode)"
+}
+Write-Host "Installer built and signed successfully: $candidateInstaller"
+
+# Also update Desktop copy for the user
+$desktopSetup = "C:\Users\emir\Desktop\OrnareSetup.exe"
+Copy-Item $candidateInstaller $desktopSetup -Force
+Write-Host "Updated Desktop copy: $desktopSetup"
 
 # Update SHA256SUMS.txt
 $candidateFiles = Get-ChildItem -Path $releaseDir -File | Where-Object { $_.Extension -in @(".msix", ".msixbundle", ".exe") }

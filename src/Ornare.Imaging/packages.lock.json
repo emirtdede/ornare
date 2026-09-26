@@ -19,17 +19,6 @@
       "ornare.core": {
         "type": "Project"
       }
-    },
-    "net10.0/win-x64": {
-      "Magick.NET-Q16-AnyCPU": {
-        "type": "Direct",
-        "requested": "[14.17.1, )",
-        "resolved": "14.17.1",
-        "contentHash": "m7NksccmpXQiQoSsDyBpXkOFC3XV9/cM3chZp2bHPdi1QPTzSicljNwrKmGZiQnQUyOBznvzv+A3ROT3/eIqUg==",
-        "dependencies": {
-          "Magick.NET.Core": "14.17.1"
-        }
-      }
     }
   }
 }
