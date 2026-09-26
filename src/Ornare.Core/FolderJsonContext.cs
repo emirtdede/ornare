@@ -6,6 +6,8 @@ namespace Ornare.Core;
 [JsonSerializable(typeof(FolderIconSemantics))]
 [JsonSerializable(typeof(DiagnosticReport))]
 [JsonSerializable(typeof(UserSettings))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(FolderAssignment))]
 [JsonSerializable(typeof(LibraryAsset))]
 [JsonSerializable(typeof(AssignmentHistoryEntry))]

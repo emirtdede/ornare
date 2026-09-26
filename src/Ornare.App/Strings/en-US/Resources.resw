@@ -291,4 +291,16 @@
   <data name="Color_Slate" xml:space="preserve">
     <value>Slate</value>
   </data>
+  <data name="ColorPicker_CustomColor" xml:space="preserve">
+    <value>Custom Color</value>
+  </data>
+  <data name="ColorPicker_RecentColors" xml:space="preserve">
+    <value>Recent Colors</value>
+  </data>
+  <data name="ColorPicker_Apply" xml:space="preserve">
+    <value>Apply Color</value>
+  </data>
+  <data name="ColorPicker_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
 </root>

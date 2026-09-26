@@ -38,7 +38,7 @@ public enum QuickPanelErrorType
     Generic
 }
 
-public sealed partial class QuickPanelWindow : Window
+public sealed partial class QuickPanelWindow : Window, IDisposable
 {
     private readonly IImagePipeline _imagePipeline;
     private readonly IFolderCustomizer _folderCustomizer;
@@ -55,6 +55,15 @@ public sealed partial class QuickPanelWindow : Window
     private Guid _stagedOperationId;
     private string? _stagedTempIcoPath;
     private NormalizedImageResult? _stagedProcessResult;
+    private string? _stagedCustomColorHex;
+    private CancellationTokenSource? _previewDebounceCts;
+    private string? _tempPreviewPngPath;
+
+    private string? _snapshotStagedTempIcoPath;
+    private NormalizedImageResult? _snapshotStagedProcessResult;
+    private Microsoft.UI.Xaml.Media.ImageSource? _snapshotPreviewImageSource;
+    private ProcessingStage _snapshotStage;
+    private bool _isCustomColorCommitted;
 
     #region Win32 P/Invoke & Structures for Native Monitor Positioning
 
@@ -168,7 +177,7 @@ public sealed partial class QuickPanelWindow : Window
         ConfigureWindow();
         SetupKeyboardShortcuts();
         InitializeColorPalette();
-        Closed += (_, _) => CleanupStagedFiles();
+        Closed += (_, _) => Dispose();
     }
 
     private void StripMinimizeMaximizeButtons()
@@ -583,6 +592,13 @@ public sealed partial class QuickPanelWindow : Window
         ColorPaletteContainer.Children.Clear();
         bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
+        if (CustomColorButton != null)
+        {
+            string customColorText = isTr ? "Özel Renk" : "Custom Color";
+            ToolTipService.SetToolTip(CustomColorButton, customColorText);
+            AutomationProperties.SetName(CustomColorButton, customColorText);
+        }
+
         foreach (var entry in BuiltInColors.Entries)
         {
             if (!ColorConversion.TryParseHex(entry.HexValue, out byte r, out byte g, out byte b))
@@ -611,7 +627,7 @@ public sealed partial class QuickPanelWindow : Window
             {
                 if (s is Button btn && btn.Tag is string hex)
                 {
-                    await StageColorAsync(hex);
+                    await StageColorAsync(hex, isCustom: false);
                 }
             };
 
@@ -636,7 +652,7 @@ public sealed partial class QuickPanelWindow : Window
         _ => isTr ? "Renk" : "Color"
     };
 
-    private async Task StageColorAsync(string hexColor)
+    private async Task StageColorAsync(string hexColor, bool isCustom = false)
     {
         if (_isProcessing) return;
 
@@ -649,7 +665,8 @@ public sealed partial class QuickPanelWindow : Window
         try
         {
             CleanupStagedFiles();
-            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}");
+            _stagedCustomColorHex = isCustom ? hexColor : null;
+            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}, isCustom={isCustom}");
 
             await SetProcessingStageAsync(ProcessingStage.PreparingImage);
             await Task.Delay(20);
@@ -687,6 +704,172 @@ public sealed partial class QuickPanelWindow : Window
         }
     }
 
+    private void OnCustomColorFlyoutOpened(object sender, object e)
+    {
+        _isCustomColorCommitted = false;
+        _snapshotStagedTempIcoPath = _stagedTempIcoPath;
+        _snapshotStagedProcessResult = _stagedProcessResult;
+        _snapshotPreviewImageSource = PreviewIconImage.Source;
+        _snapshotStage = _currentStage;
+
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+        if (CustomColorTitleText != null) CustomColorTitleText.Text = isTr ? "Özel Renk" : "Custom Color";
+        if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = isTr ? "Herhangi bir klasör rengi seçin" : "Select any folder color";
+        if (RecentColorsTitle != null) RecentColorsTitle.Text = isTr ? "Son Kullanılan Renkler" : "Recent Colors";
+        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = isTr ? "Rengi Uygula" : "Apply Color";
+        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = isTr ? "İptal" : "Cancel";
+
+        var currentColor = CustomColorPicker.Color;
+        string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
+        var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex);
+        if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
+        {
+            FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
+        }
+
+        _ = LoadRecentCustomColorsToFlyoutAsync();
+    }
+
+    private async void OnCustomColorFlyoutClosed(object sender, object e)
+    {
+        _previewDebounceCts?.Cancel();
+        _previewDebounceCts?.Dispose();
+        _previewDebounceCts = null;
+
+        if (!_isCustomColorCommitted)
+        {
+            _stagedTempIcoPath = _snapshotStagedTempIcoPath;
+            _stagedProcessResult = _snapshotStagedProcessResult;
+            PreviewIconImage.Source = _snapshotPreviewImageSource;
+            if (FlyoutPreviewImage != null)
+            {
+                FlyoutPreviewImage.Source = null;
+            }
+            await SetProcessingStageAsync(_snapshotStage);
+        }
+    }
+
+    private void OnCustomColorPickerColorChanged(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        var newColor = args.NewColor;
+        _previewDebounceCts?.Cancel();
+        _previewDebounceCts?.Dispose();
+        _previewDebounceCts = new CancellationTokenSource();
+        var token = _previewDebounceCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(80, token);
+                if (token.IsCancellationRequested) return;
+
+                string hex = ColorConversion.ToHex(newColor.R, newColor.G, newColor.B);
+                var previewResult = FolderTemplateRenderer.RenderPreviewPng(hex);
+                if (!previewResult.IsSuccess || previewResult.Value == null || token.IsCancellationRequested) return;
+
+                byte[] pngBytes = previewResult.Value;
+
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    var bitmap = LoadPreviewBitmapFromBytes(pngBytes);
+                    if (token.IsCancellationRequested || bitmap == null) return;
+
+                    if (FlyoutPreviewImage != null)
+                    {
+                        FlyoutPreviewImage.Source = bitmap;
+                    }
+                    if (PreviewIconImage != null)
+                    {
+                        PreviewIconImage.Source = bitmap;
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                App.Log($"Debounced color preview error: {ex.Message}");
+            }
+        }, token);
+    }
+
+    private async void OnApplyCustomColorClicked(object sender, RoutedEventArgs e)
+    {
+        var color = CustomColorPicker.Color;
+        string hex = ColorConversion.ToHex(color.R, color.G, color.B);
+        _isCustomColorCommitted = true;
+        CustomColorFlyout.Hide();
+
+        await StageColorAsync(hex, isCustom: true);
+    }
+
+    private void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)
+    {
+        _isCustomColorCommitted = false;
+        CustomColorFlyout.Hide();
+    }
+
+    private async Task LoadRecentCustomColorsToFlyoutAsync()
+    {
+        if (RecentColorsContainer == null || RecentColorsSection == null) return;
+
+        RecentColorsContainer.Children.Clear();
+
+        try
+        {
+            var settings = await _storageService.GetUserSettingsAsync();
+            var recents = settings.RecentCustomColors;
+
+            if (recents == null || recents.Count == 0)
+            {
+                RecentColorsSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            RecentColorsSection.Visibility = Visibility.Visible;
+            foreach (var hex in recents)
+            {
+                if (!ColorConversion.TryParseHex(hex, out byte r, out byte g, out byte b))
+                {
+                    continue;
+                }
+
+                var chip = new Button
+                {
+                    Width = 22,
+                    Height = 22,
+                    Padding = new Thickness(0),
+                    CornerRadius = new CornerRadius(11),
+                    Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, r, g, b)),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(50, 255, 255, 255)),
+                    Tag = hex
+                };
+
+                ToolTipService.SetToolTip(chip, hex);
+                AutomationProperties.SetName(chip, hex);
+
+                chip.Click += (s, _) =>
+                {
+                    if (s is Button b && b.Tag is string chipHex && ColorConversion.TryParseHex(chipHex, out byte cr, out byte cg, out byte cb))
+                    {
+                        CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, cr, cg, cb);
+                    }
+                };
+
+                RecentColorsContainer.Children.Add(chip);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Error loading recent custom colors: {ex.Message}");
+            RecentColorsSection.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)
     {
         if (_isProcessing || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || _stagedProcessResult == null)
@@ -700,6 +883,7 @@ public sealed partial class QuickPanelWindow : Window
     private async void OnCancelPreviewClicked(object sender, RoutedEventArgs e)
     {
         CleanupStagedFiles();
+        _stagedCustomColorHex = null;
         PreviewIconImage.Source = null;
         await SetProcessingStageAsync(ProcessingStage.Idle);
     }
@@ -832,6 +1016,25 @@ public sealed partial class QuickPanelWindow : Window
 
             App.Log($"CommitStagedIconAsync completed successfully for '{_currentFolderPath}'");
 
+            // Persist recent custom color on successful folder apply (F02)
+            if (!string.IsNullOrWhiteSpace(_stagedCustomColorHex))
+            {
+                try
+                {
+                    var userSettings = await _storageService.GetUserSettingsAsync();
+                    var updatedSettings = userSettings.WithRecentCustomColor(_stagedCustomColorHex);
+                    await _storageService.SaveUserSettingsAsync(updatedSettings);
+                }
+                catch (Exception ex)
+                {
+                    App.Log($"Failed to record recent custom color: {ex.Message}");
+                }
+                finally
+                {
+                    _stagedCustomColorHex = null;
+                }
+            }
+
             // 4. Done / Success: Restrained success state with auto-close timer per spec
             await SetProcessingStageAsync(ProcessingStage.Done);
             ResetButton.Visibility = Visibility.Visible;
@@ -925,6 +1128,44 @@ public sealed partial class QuickPanelWindow : Window
         catch { }
         _stagedTempIcoPath = null;
         _stagedProcessResult = null;
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_tempPreviewPngPath) && File.Exists(_tempPreviewPngPath))
+            {
+                File.Delete(_tempPreviewPngPath);
+            }
+        }
+        catch { }
+        _tempPreviewPngPath = null;
+    }
+
+    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadPreviewBitmapFromBytes(byte[] pngBytes)
+    {
+        try
+        {
+            string newTemp = Path.Combine(Path.GetTempPath(), $"ornare_prev_{Guid.NewGuid():N}.png");
+            File.WriteAllBytes(newTemp, pngBytes);
+            string? oldTemp = _tempPreviewPngPath;
+            _tempPreviewPngPath = newTemp;
+            if (oldTemp != null && File.Exists(oldTemp))
+            {
+                try { File.Delete(oldTemp); } catch { }
+            }
+            return LoadBitmapSafe(newTemp);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void Dispose()
+    {
+        _previewDebounceCts?.Cancel();
+        _previewDebounceCts?.Dispose();
+        _previewDebounceCts = null;
+        CleanupStagedFiles();
     }
 
     private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapSafe(string path)

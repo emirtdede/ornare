@@ -973,13 +973,32 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     {
         string theme = await GetSettingAsync("Theme") ?? "System";
         string language = await GetSettingAsync("Language") ?? "System";
-        return new UserSettings { Theme = theme, Language = language };
+        string? recentColorsRaw = await GetSettingAsync("RecentCustomColors");
+
+        IReadOnlyList<string> recentColors = Array.Empty<string>();
+        if (!string.IsNullOrWhiteSpace(recentColorsRaw))
+        {
+            recentColors = recentColorsRaw
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(c => c.StartsWith('#') && c.Length == 7)
+                .Take(UserSettings.MaxRecentCustomColors)
+                .ToList();
+        }
+
+        return new UserSettings
+        {
+            Theme = theme,
+            Language = language,
+            RecentCustomColors = recentColors
+        };
     }
 
     public async Task SaveUserSettingsAsync(UserSettings settings)
     {
         await SetSettingAsync("Theme", settings.Theme);
         await SetSettingAsync("Language", settings.Language);
+        string recentColorsRaw = string.Join(";", settings.RecentCustomColors.Take(UserSettings.MaxRecentCustomColors));
+        await SetSettingAsync("RecentCustomColors", recentColorsRaw);
     }
 
     private static string GetDefaultDbPath()

@@ -291,4 +291,16 @@
   <data name="Color_Slate" xml:space="preserve">
     <value>Arduvaz Grisi</value>
   </data>
+  <data name="ColorPicker_CustomColor" xml:space="preserve">
+    <value>Özel Renk</value>
+  </data>
+  <data name="ColorPicker_RecentColors" xml:space="preserve">
+    <value>Son Kullanılan Renkler</value>
+  </data>
+  <data name="ColorPicker_Apply" xml:space="preserve">
+    <value>Rengi Uygula</value>
+  </data>
+  <data name="ColorPicker_Cancel" xml:space="preserve">
+    <value>İptal</value>
+  </data>
 </root>
