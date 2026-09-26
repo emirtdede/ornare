@@ -56,6 +56,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private string? _stagedTempIcoPath;
     private NormalizedImageResult? _stagedProcessResult;
     private string? _stagedCustomColorHex;
+    private byte[]? _stagedImageBytes;
+    private ImagePlacementMode _stagedPlacementMode = ImagePlacementMode.Contain;
     private CancellationTokenSource? _previewDebounceCts;
     private string? _tempPreviewPngPath;
 
@@ -576,6 +578,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             // Load staged preview
             PreviewIconImage.Source = LoadBitmapSafe(_stagedTempIcoPath);
 
+            _stagedImageBytes = imageBytes;
+            _stagedPlacementMode = ImagePlacementMode.Contain;
+            if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Visible;
+            if (PlacementModeRadioButtons != null) PlacementModeRadioButtons.SelectedIndex = 0;
+            if (PlacementFillWarningText != null) PlacementFillWarningText.Visibility = Visibility.Collapsed;
+
             // 3. Show preview and wait for explicit user confirmation
             await SetProcessingStageAsync(ProcessingStage.PreviewReady);
         }
@@ -666,6 +674,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             CleanupStagedFiles();
             _stagedCustomColorHex = isCustom ? hexColor : null;
+            if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Collapsed;
             App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}, isCustom={isCustom}");
 
             await SetProcessingStageAsync(ProcessingStage.PreparingImage);
@@ -867,6 +876,99 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             App.Log($"Error loading recent custom colors: {ex.Message}");
             RecentColorsSection.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void OnPlacementSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isProcessing || _stagedImageBytes == null || PlacementModeRadioButtons == null)
+        {
+            return;
+        }
+
+        int index = PlacementModeRadioButtons.SelectedIndex;
+        var newMode = index switch
+        {
+            1 => ImagePlacementMode.Cover,
+            2 => ImagePlacementMode.Fill,
+            _ => ImagePlacementMode.Contain
+        };
+
+        if (PlacementFillWarningText != null)
+        {
+            PlacementFillWarningText.Visibility = (newMode == ImagePlacementMode.Fill)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        if (_stagedPlacementMode == newMode)
+        {
+            return;
+        }
+
+        _stagedPlacementMode = newMode;
+
+        try
+        {
+            var tempPath = _stagedTempIcoPath;
+            if (string.IsNullOrWhiteSpace(tempPath))
+            {
+                return;
+            }
+
+            var imageBytes = _stagedImageBytes;
+            var mode = _stagedPlacementMode;
+
+            // Render fast preview PNG first
+            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode));
+            if (previewResult.IsSuccess && previewResult.Value != null)
+            {
+                PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewResult.Value);
+            }
+
+            // Also render staged ICO in background so Apply is instantly ready
+            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode));
+            if (processResult.IsSuccess && processResult.Value != null)
+            {
+                _stagedProcessResult = processResult.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Placement change failed: {ex.Message}");
+        }
+    }
+
+    private void UpdatePlacementStrings(bool isTr)
+    {
+        if (PlacementOptionsButton != null)
+        {
+            PlacementOptionsButton.Content = isTr ? "Seçenekler..." : "Options...";
+            ToolTipService.SetToolTip(PlacementOptionsButton, isTr ? "Görsel Yerleşim Seçenekleri" : "Image Placement Options");
+            AutomationProperties.SetName(PlacementOptionsButton, isTr ? "Görsel Yerleşim Seçenekleri" : "Image Placement Options");
+        }
+        if (PlacementTitleText != null)
+        {
+            PlacementTitleText.Text = isTr ? "Görsel Yerleşimi" : "Image Placement";
+        }
+        if (RadioPlacementContain != null)
+        {
+            RadioPlacementContain.Content = isTr ? "Sığdır (Contain)" : "Contain";
+            ToolTipService.SetToolTip(RadioPlacementContain, isTr ? "En boy oranını korur ve tuval içine sığdırır" : "Preserves aspect ratio and fits inside canvas");
+        }
+        if (RadioPlacementCover != null)
+        {
+            RadioPlacementCover.Content = isTr ? "Doldur (Cover)" : "Cover";
+            ToolTipService.SetToolTip(RadioPlacementCover, isTr ? "En boy oranını korur ve tuvali dolduracak şekilde kırpar" : "Preserves aspect ratio and center-crops to fill canvas");
+        }
+        if (RadioPlacementFill != null)
+        {
+            RadioPlacementFill.Content = isTr ? "Uzat (Fill - Esnet)" : "Fill (Stretch)";
+            ToolTipService.SetToolTip(RadioPlacementFill, isTr ? "Görseli tuvale esnetir (oranlar bozulabilir)" : "Stretches to canvas (may distort aspect ratio)");
+        }
+        if (PlacementFillWarningText != null)
+        {
+            PlacementFillWarningText.Text = isTr ? "Uyarı: Uzat modu görseli esnetir ve orijinal oranlarını değiştirir." : "Warning: Fill mode stretches the image and alters its proportions.";
         }
     }
 
@@ -1128,6 +1230,16 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         catch { }
         _stagedTempIcoPath = null;
         _stagedProcessResult = null;
+        _stagedImageBytes = null;
+        _stagedPlacementMode = ImagePlacementMode.Contain;
+        if (PlacementModeRadioButtons != null)
+        {
+            PlacementModeRadioButtons.SelectedIndex = 0;
+        }
+        if (PlacementFillWarningText != null)
+        {
+            PlacementFillWarningText.Visibility = Visibility.Collapsed;
+        }
 
         try
         {
@@ -1257,6 +1369,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewSubtitleText.Text = isTr ? "Klasöre uygulamak için onaylayın" : "Confirm to apply to folder";
                 ApplyConfirmButton.Content = isTr ? "Uygula" : "Apply";
                 CancelPreviewButton.Content = isTr ? "Vazgeç" : "Cancel";
+                UpdatePlacementStrings(isTr);
                 break;
 
             case ProcessingStage.ApplyingIcon:
@@ -1398,6 +1511,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         ToolTipService.SetToolTip(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
         AutomationProperties.SetName(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
         TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
+        UpdatePlacementStrings(isTr);
 
         if (string.Equals(uiState, "drag-over", StringComparison.OrdinalIgnoreCase))
         {

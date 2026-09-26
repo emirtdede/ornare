@@ -303,4 +303,31 @@
   <data name="ColorPicker_Cancel" xml:space="preserve">
     <value>Cancel</value>
   </data>
+  <data name="Placement_Options" xml:space="preserve">
+    <value>Options...</value>
+  </data>
+  <data name="Placement_Title" xml:space="preserve">
+    <value>Image Placement</value>
+  </data>
+  <data name="Placement_Contain" xml:space="preserve">
+    <value>Contain</value>
+  </data>
+  <data name="Placement_Cover" xml:space="preserve">
+    <value>Cover</value>
+  </data>
+  <data name="Placement_Fill" xml:space="preserve">
+    <value>Fill (Stretch)</value>
+  </data>
+  <data name="Placement_Fill_Warning" xml:space="preserve">
+    <value>Warning: Fill mode stretches the image and alters its proportions.</value>
+  </data>
+  <data name="Placement_Contain_ToolTip" xml:space="preserve">
+    <value>Preserves aspect ratio and fits inside canvas</value>
+  </data>
+  <data name="Placement_Cover_ToolTip" xml:space="preserve">
+    <value>Preserves aspect ratio and center-crops to fill canvas</value>
+  </data>
+  <data name="Placement_Fill_ToolTip" xml:space="preserve">
+    <value>Stretches to canvas (may distort aspect ratio)</value>
+  </data>
 </root>

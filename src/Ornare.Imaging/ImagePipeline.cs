@@ -121,7 +121,10 @@ public sealed class ImagePipeline : IImagePipeline
         }
     }
 
-    public OperationResult<NormalizedImageResult> ProcessImage(string inputPath, string outputIcoPath)
+    public OperationResult<NormalizedImageResult> ProcessImage(
+        string inputPath,
+        string outputIcoPath,
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain)
     {
         if (string.IsNullOrWhiteSpace(inputPath) || !File.Exists(inputPath))
         {
@@ -140,10 +143,13 @@ public sealed class ImagePipeline : IImagePipeline
                 ErrorCode.FilesystemError, $"Failed to read input image: {ex.Message}");
         }
 
-        return ProcessImageBytes(bytes, outputIcoPath);
+        return ProcessImageBytes(bytes, outputIcoPath, placementMode);
     }
 
-    public OperationResult<NormalizedImageResult> ProcessImageBytes(byte[] imageBytes, string outputIcoPath)
+    public OperationResult<NormalizedImageResult> ProcessImageBytes(
+        byte[] imageBytes,
+        string outputIcoPath,
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain)
     {
         if (imageBytes == null || imageBytes.Length == 0)
         {
@@ -155,7 +161,7 @@ public sealed class ImagePipeline : IImagePipeline
         RenderRecipe defaultRecipe = new()
         {
             SourceAssetHash = contentHash,
-            PlacementMode = 0,
+            PlacementMode = (int)placementMode,
             TargetFormat = "ico",
             TargetFrameSizes = IcoFrameSizes
         };
@@ -286,7 +292,13 @@ public sealed class ImagePipeline : IImagePipeline
             }
         }
 
-        var renderResult = RenderImageBytesCore(bytesToRender, outputIcoPath, renderKey, originalHash);
+        var renderResult = RenderImageBytesCore(
+            bytesToRender,
+            outputIcoPath,
+            renderKey,
+            originalHash,
+            recipe.ImagePlacement,
+            recipe.PaddingPercent);
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
             return renderResult;
@@ -384,7 +396,9 @@ public sealed class ImagePipeline : IImagePipeline
         byte[] imageBytes,
         string outputIcoPath,
         string renderKey,
-        string? overrideContentHash = null)
+        string? overrideContentHash = null,
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain,
+        double paddingPercent = 0.0)
     {
         bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
         bool isSvg = IsPotentialSvg(imageBytes);
@@ -450,22 +464,29 @@ public sealed class ImagePipeline : IImagePipeline
 
             string contentHash = overrideContentHash ?? ComputeSourceHash(imageBytes);
 
-            uint maxDim = Math.Max(sourceImage.Width, sourceImage.Height);
-            if (maxDim == 0) maxDim = 256;
-            using MagickImage squareMaster = new(MagickColors.Transparent, maxDim, maxDim);
-            squareMaster.Format = MagickFormat.Png;
-            squareMaster.ColorSpace = ColorSpace.sRGB;
-
-            int offsetX = (int)(maxDim - sourceImage.Width) / 2;
-            int offsetY = (int)(maxDim - sourceImage.Height) / 2;
-            squareMaster.Composite(sourceImage, offsetX, offsetY, CompositeOperator.Over);
-
             using MagickImageCollection icoFrames = new();
             foreach (int size in IcoFrameSizes)
             {
-                MagickImage frame = (MagickImage)squareMaster.Clone();
-                frame.FilterType = FilterType.Lanczos;
-                frame.Resize((uint)size, (uint)size);
+                var geom = ImagePlacementCalculator.ComputePlacement(
+                    (int)sourceImage.Width,
+                    (int)sourceImage.Height,
+                    size,
+                    size,
+                    placementMode,
+                    paddingPercent);
+
+                using var subImage = (geom.SourceCropX == 0 && geom.SourceCropY == 0 && geom.SourceCropWidth == sourceImage.Width && geom.SourceCropHeight == sourceImage.Height)
+                    ? (MagickImage)sourceImage.Clone()
+                    : (MagickImage)sourceImage.CloneArea(new MagickGeometry(geom.SourceCropX, geom.SourceCropY, (uint)geom.SourceCropWidth, (uint)geom.SourceCropHeight));
+
+                subImage.FilterType = FilterType.Lanczos;
+                var resizeGeo = new MagickGeometry((uint)geom.DestWidth, (uint)geom.DestHeight) { IgnoreAspectRatio = true };
+                subImage.Resize(resizeGeo);
+
+                MagickImage frame = new(MagickColors.Transparent, (uint)size, (uint)size);
+                frame.Format = MagickFormat.Png;
+                frame.ColorSpace = ColorSpace.sRGB;
+                frame.Composite(subImage, geom.DestX, geom.DestY, CompositeOperator.Over);
                 frame.Format = MagickFormat.Ico;
                 icoFrames.Add(frame);
             }
@@ -501,6 +522,69 @@ public sealed class ImagePipeline : IImagePipeline
         {
             return OperationResult.Failure<NormalizedImageResult>(
                 ErrorCode.IcoGenerationFailed, $"Failed to generate ICO: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Renders a fast, bounded 256x256 PNG preview honoring the specified placement mode and padding (F06).
+    /// </summary>
+    public static OperationResult<byte[]> RenderPlacementPreviewPng(
+        byte[] imageBytes,
+        int previewSize = 256,
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain,
+        double paddingPercent = 0.0)
+    {
+        if (imageBytes == null || imageBytes.Length == 0)
+        {
+            return OperationResult.Failure<byte[]>(ErrorCode.InvalidTarget, "Image payload is empty.");
+        }
+
+        try
+        {
+            bool isSvg = IsPotentialSvg(imageBytes);
+            if (isSvg)
+            {
+                var sec = SvgSecurityValidator.Validate(imageBytes);
+                if (!sec.IsSuccess)
+                {
+                    return OperationResult.Failure<byte[]>(sec.ErrorCode, sec.ErrorMessage ?? "SVG validation failed.");
+                }
+            }
+
+            var readSettings = isSvg
+                ? new MagickReadSettings { Format = MagickFormat.Svg, Width = (uint)previewSize, Height = (uint)previewSize }
+                : null;
+
+            using var source = readSettings != null ? new MagickImage(imageBytes, readSettings) : new MagickImage(imageBytes);
+            source.AutoOrient();
+            source.ColorSpace = ColorSpace.sRGB;
+
+            var geom = ImagePlacementCalculator.ComputePlacement(
+                (int)source.Width,
+                (int)source.Height,
+                previewSize,
+                previewSize,
+                placementMode,
+                paddingPercent);
+
+            using var sub = (geom.SourceCropX == 0 && geom.SourceCropY == 0 && geom.SourceCropWidth == source.Width && geom.SourceCropHeight == source.Height)
+                ? (MagickImage)source.Clone()
+                : (MagickImage)source.CloneArea(new MagickGeometry(geom.SourceCropX, geom.SourceCropY, (uint)geom.SourceCropWidth, (uint)geom.SourceCropHeight));
+
+            sub.FilterType = FilterType.Lanczos;
+            var resizeGeo = new MagickGeometry((uint)geom.DestWidth, (uint)geom.DestHeight) { IgnoreAspectRatio = true };
+            sub.Resize(resizeGeo);
+
+            using MagickImage previewCanvas = new(MagickColors.Transparent, (uint)previewSize, (uint)previewSize);
+            previewCanvas.Format = MagickFormat.Png;
+            previewCanvas.ColorSpace = ColorSpace.sRGB;
+            previewCanvas.Composite(sub, geom.DestX, geom.DestY, CompositeOperator.Over);
+
+            return OperationResult.Success(previewCanvas.ToByteArray());
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"Preview generation failed: {ex.Message}");
         }
     }
 }

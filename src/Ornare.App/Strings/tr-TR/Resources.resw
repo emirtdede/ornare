@@ -303,4 +303,31 @@
   <data name="ColorPicker_Cancel" xml:space="preserve">
     <value>İptal</value>
   </data>
+  <data name="Placement_Options" xml:space="preserve">
+    <value>Seçenekler...</value>
+  </data>
+  <data name="Placement_Title" xml:space="preserve">
+    <value>Görsel Yerleşimi</value>
+  </data>
+  <data name="Placement_Contain" xml:space="preserve">
+    <value>Sığdır (Contain)</value>
+  </data>
+  <data name="Placement_Cover" xml:space="preserve">
+    <value>Doldur (Cover)</value>
+  </data>
+  <data name="Placement_Fill" xml:space="preserve">
+    <value>Uzat (Fill - Esnet)</value>
+  </data>
+  <data name="Placement_Fill_Warning" xml:space="preserve">
+    <value>Uyarı: Uzat modu görseli esnetir ve orijinal oranlarını değiştirir.</value>
+  </data>
+  <data name="Placement_Contain_ToolTip" xml:space="preserve">
+    <value>En-boy oranını korur ve tuval içine sığdırır</value>
+  </data>
+  <data name="Placement_Cover_ToolTip" xml:space="preserve">
+    <value>En-boy oranını korur ve tuvali dolduracak şekilde ortalayarak kırpar</value>
+  </data>
+  <data name="Placement_Fill_ToolTip" xml:space="preserve">
+    <value>Tuvale esnetir (en-boy oranı bozulabilir)</value>
+  </data>
 </root>

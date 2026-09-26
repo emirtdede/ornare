@@ -22,6 +22,7 @@ public sealed record RenderRecipe
     public string SvgRecolorValue { get; init; } = string.Empty;
     public int SvgRecolorVersion { get; init; } = 1;
     public int PlacementMode { get; init; }
+    public ImagePlacementMode ImagePlacement => (ImagePlacementMode)PlacementMode;
     public int PaddingPercent { get; init; }
     public int BackgroundMode { get; init; }
     public string BackgroundColor { get; init; } = string.Empty;

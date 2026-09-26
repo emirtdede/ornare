@@ -290,6 +290,32 @@
                                 CornerRadius="6"
                                 Click="OnApplyConfirmClicked" />
                             <Button
+                                x:Name="PlacementOptionsButton"
+                                Content="Options..."
+                                FontSize="12"
+                                Height="32"
+                                Padding="12,0"
+                                CornerRadius="6">
+                                <Button.Flyout>
+                                    <Flyout x:Name="PlacementOptionsFlyout">
+                                        <StackPanel Width="230" Spacing="8">
+                                            <TextBlock x:Name="PlacementTitleText" Text="Image Placement" FontWeight="SemiBold" FontSize="13" />
+                                            <RadioButtons x:Name="PlacementModeRadioButtons" SelectedIndex="0" SelectionChanged="OnPlacementSelectionChanged">
+                                                <RadioButton x:Name="RadioPlacementContain" Content="Contain" Tag="0" IsChecked="True" />
+                                                <RadioButton x:Name="RadioPlacementCover" Content="Cover" Tag="1" />
+                                                <RadioButton x:Name="RadioPlacementFill" Content="Fill (Stretch)" Tag="2" />
+                                            </RadioButtons>
+                                            <TextBlock x:Name="PlacementFillWarningText"
+                                                       Text="Warning: Fill stretches the image and alters its proportions."
+                                                       FontSize="11"
+                                                       Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="Collapsed" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button
                                 x:Name="CancelPreviewButton"
                                 Content="Cancel"
                                 FontSize="12"
