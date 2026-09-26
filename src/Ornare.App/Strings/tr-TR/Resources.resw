@@ -438,4 +438,28 @@
   <data name="ExportPng" xml:space="preserve">
     <value>Dışa Aktar (.png)</value>
   </data>
+  <data name="ManageTags" xml:space="preserve">
+    <value>Etiketleri Yönet...</value>
+  </data>
+  <data name="TagFilter_All" xml:space="preserve">
+    <value>Tümü</value>
+  </data>
+  <data name="ManageTags_Title" xml:space="preserve">
+    <value>Varlık Etiketlerini Yönet</value>
+  </data>
+  <data name="ManageTags_AddPlaceholder" xml:space="preserve">
+    <value>Yeni etiket (1-40 karakter)...</value>
+  </data>
+  <data name="ManageTags_AddButton" xml:space="preserve">
+    <value>Ekle</value>
+  </data>
+  <data name="ManageTags_CloseButton" xml:space="preserve">
+    <value>Kapat</value>
+  </data>
+  <data name="ManageTags_NoTags" xml:space="preserve">
+    <value>Bu varlığa henüz bir etiket atanmamış.</value>
+  </data>
+  <data name="ManageTags_LimitReached" xml:space="preserve">
+    <value>Bir varlık için en fazla 32 etiket eklenebilir.</value>
+  </data>
 </root>

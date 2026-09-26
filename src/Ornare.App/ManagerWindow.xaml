@@ -168,8 +168,18 @@
                 <Grid Grid.Row="1">
                 <!-- 1. LIBRARY VIEW -->
                 <Grid x:Name="LibraryView" Visibility="Visible">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Tag Filter Bar: Clean horizontal pill selector -->
+                    <ScrollViewer Grid.Row="0" x:Name="TagFilterScrollViewer" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" Margin="0,0,0,12" Visibility="Collapsed">
+                        <StackPanel x:Name="TagFilterBar" Orientation="Horizontal" Spacing="6" />
+                    </ScrollViewer>
+
                     <!-- Empty State -->
-                    <StackPanel x:Name="LibraryEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
+                    <StackPanel Grid.Row="1" x:Name="LibraryEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
                         <FontIcon Glyph="&#xE8B7;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
                         <TextBlock x:Name="LibraryEmptyTitle" Text="No icons in library" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
                         <TextBlock x:Name="LibraryEmptySubtitle" Text="Icons you customize will appear here" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
@@ -177,6 +187,7 @@
 
                     <!-- Icon Grid: Clean modern gallery tiles -->
                     <GridView
+                        Grid.Row="1"
                         x:Name="LibraryGridView"
                         SelectionMode="None"
                         IsItemClickEnabled="True"
@@ -194,6 +205,11 @@
                                             <MenuFlyoutItem Text="{Binding ContextOpenExplorerText}" Tag="{Binding CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="&#xE8DA;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextManageTagsText}" Tag="{Binding Sha256}" Click="OnManageTagsClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8EC;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="{Binding ContextExportIcoText}" Tag="{Binding CanonicalIcoPath}" Click="OnExportIcoClicked">

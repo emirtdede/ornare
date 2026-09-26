@@ -52,4 +52,15 @@ public interface IStorageService
     Task<IReadOnlyList<string>> GetUnreferencedAssetsAsync();
     Task<int> CleanupUnreferencedAssetsAsync();
     Task<int> GetCurrentSchemaVersionAsync();
+
+    // F15: Library Tags
+    Task<LibraryTag> CreateOrGetTagAsync(string tagName);
+    Task<bool> AttachTagToAssetAsync(string assetHash, string tagId);
+    Task<bool> DetachTagFromAssetAsync(string assetHash, string tagId);
+    Task<bool> DeleteTagAsync(string tagId);
+    Task<IReadOnlyList<LibraryTag>> GetTagsForAssetAsync(string assetHash);
+    Task<IReadOnlyList<LibraryTag>> GetAllTagsAsync();
+    Task<IReadOnlyList<LibraryAsset>> GetAssetsByTagAsync(string tagId);
+    Task<Dictionary<string, List<LibraryTag>>> GetTagsForAssetsAsync(IEnumerable<string> assetHashes);
+    Task<bool> VerifyForeignKeysEnabledAsync();
 }

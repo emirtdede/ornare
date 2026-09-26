@@ -438,4 +438,28 @@
   <data name="ExportPng" xml:space="preserve">
     <value>Export PNG (.png)</value>
   </data>
+  <data name="ManageTags" xml:space="preserve">
+    <value>Manage Tags...</value>
+  </data>
+  <data name="TagFilter_All" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="ManageTags_Title" xml:space="preserve">
+    <value>Manage Asset Tags</value>
+  </data>
+  <data name="ManageTags_AddPlaceholder" xml:space="preserve">
+    <value>Add tag (1-40 characters)...</value>
+  </data>
+  <data name="ManageTags_AddButton" xml:space="preserve">
+    <value>Add</value>
+  </data>
+  <data name="ManageTags_CloseButton" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="ManageTags_NoTags" xml:space="preserve">
+    <value>No tags assigned to this asset yet.</value>
+  </data>
+  <data name="ManageTags_LimitReached" xml:space="preserve">
+    <value>Maximum 32 tags per asset allowed.</value>
+  </data>
 </root>

@@ -40,7 +40,8 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             _connectionString = new SqliteConnectionStringBuilder
             {
                 DataSource = databasePath,
-                Mode = SqliteOpenMode.ReadWriteCreate
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                ForeignKeys = true
             }.ToString();
 
             using var connection = new SqliteConnection(_connectionString);
@@ -51,6 +52,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 pragmaCmd.CommandText = @"
                     PRAGMA journal_mode = WAL;
                     PRAGMA synchronous = NORMAL;
+                    PRAGMA foreign_keys = ON;
                 ";
                 await pragmaCmd.ExecuteNonQueryAsync();
             }
@@ -169,6 +171,11 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             if (currentVersion < 2)
             {
                 await ApplyMigrationV2InternalAsync(connection, injectFailure: false);
+            }
+
+            if (currentVersion < 3)
+            {
+                await ApplyMigrationV3InternalAsync(connection, injectFailure: false);
             }
 
             _isInitialized = true;
@@ -1344,6 +1351,10 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             {
                 await ApplyMigrationV2InternalAsync(connection, injectFailure);
             }
+            else if (targetVersion == 3)
+            {
+                await ApplyMigrationV3InternalAsync(connection, injectFailure);
+            }
         }
         finally
         {
@@ -1412,6 +1423,433 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             throw;
         }
     }
+
+    private static async Task ApplyMigrationV3InternalAsync(SqliteConnection connection, bool injectFailure)
+    {
+        using var tx = connection.BeginTransaction();
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS tags (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL UNIQUE,
+                    created_utc INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS asset_tags (
+                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
+                    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                    created_utc INTEGER NOT NULL,
+                    PRIMARY KEY (asset_hash, tag_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_tags_normalized_name ON tags(normalized_name);
+                CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id ON asset_tags(tag_id);
+                CREATE INDEX IF NOT EXISTS idx_asset_tags_asset_hash ON asset_tags(asset_hash);
+            ";
+            await cmd.ExecuteNonQueryAsync();
+
+            if (injectFailure)
+            {
+                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
+            }
+
+            using var setVersionCmd = connection.CreateCommand();
+            setVersionCmd.Transaction = tx;
+            setVersionCmd.CommandText = "PRAGMA user_version = 3;";
+            await setVersionCmd.ExecuteNonQueryAsync();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    #region F15: Library Tags Implementation
+
+    private async Task<SqliteConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        using var pragmaCmd = connection.CreateCommand();
+        pragmaCmd.CommandText = "PRAGMA foreign_keys = ON;";
+        await pragmaCmd.ExecuteNonQueryAsync(cancellationToken);
+        return connection;
+    }
+
+    public async Task<bool> VerifyForeignKeysEnabledAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA foreign_keys;";
+            object? result = await cmd.ExecuteScalarAsync();
+            return Convert.ToInt32(result, CultureInfo.InvariantCulture) == 1;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<LibraryTag> CreateOrGetTagAsync(string tagName)
+    {
+        EnsureInitialized();
+        if (!LibraryNameNormalizer.TryValidateAndNormalize(tagName, out string displayName, out string normalizedName, out string? error))
+        {
+            throw new ArgumentException(error ?? "Invalid tag name.", nameof(tagName));
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var selectCmd = connection.CreateCommand())
+            {
+                selectCmd.Transaction = tx;
+                selectCmd.CommandText = "SELECT id, display_name, normalized_name, created_utc FROM tags WHERE normalized_name = @norm;";
+                selectCmd.Parameters.AddWithValue("@norm", normalizedName);
+                using var reader = await selectCmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return new LibraryTag(
+                        reader.GetString(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetInt64(3)
+                    );
+                }
+            }
+
+            using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.Transaction = tx;
+                countCmd.CommandText = "SELECT COUNT(*) FROM tags;";
+                long count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (count >= LibraryNameNormalizer.MaxTotalTags)
+                {
+                    throw new InvalidOperationException($"Total tag limit of {LibraryNameNormalizer.MaxTotalTags} has been reached.");
+                }
+            }
+
+            string newId = Guid.NewGuid().ToString("N");
+            long nowUtc = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            using (var insertCmd = connection.CreateCommand())
+            {
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = @"
+                    INSERT INTO tags (id, display_name, normalized_name, created_utc)
+                    VALUES (@id, @display, @norm, @created);
+                ";
+                insertCmd.Parameters.AddWithValue("@id", newId);
+                insertCmd.Parameters.AddWithValue("@display", displayName);
+                insertCmd.Parameters.AddWithValue("@norm", normalizedName);
+                insertCmd.Parameters.AddWithValue("@created", nowUtc);
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return new LibraryTag(newId, displayName, normalizedName, nowUtc);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> AttachTagToAssetAsync(string assetHash, string tagId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.Transaction = tx;
+                checkCmd.CommandText = "SELECT 1 FROM asset_tags WHERE asset_hash = @hash AND tag_id = @tagId;";
+                checkCmd.Parameters.AddWithValue("@hash", assetHash);
+                checkCmd.Parameters.AddWithValue("@tagId", tagId);
+                object? exists = await checkCmd.ExecuteScalarAsync();
+                if (exists != null)
+                {
+                    return true;
+                }
+            }
+
+            using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.Transaction = tx;
+                countCmd.CommandText = "SELECT COUNT(*) FROM asset_tags WHERE asset_hash = @hash;";
+                countCmd.Parameters.AddWithValue("@hash", assetHash);
+                long count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (count >= LibraryNameNormalizer.MaxTagsPerAsset)
+                {
+                    throw new InvalidOperationException($"Asset tag limit of {LibraryNameNormalizer.MaxTagsPerAsset} has been reached for this asset.");
+                }
+            }
+
+            long nowUtc = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            using (var insertCmd = connection.CreateCommand())
+            {
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = @"
+                    INSERT INTO asset_tags (asset_hash, tag_id, created_utc)
+                    VALUES (@hash, @tagId, @created);
+                ";
+                insertCmd.Parameters.AddWithValue("@hash", assetHash);
+                insertCmd.Parameters.AddWithValue("@tagId", tagId);
+                insertCmd.Parameters.AddWithValue("@created", nowUtc);
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return true;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> DetachTagFromAssetAsync(string assetHash, string tagId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM asset_tags WHERE asset_hash = @hash AND tag_id = @tagId;";
+            cmd.Parameters.AddWithValue("@hash", assetHash);
+            cmd.Parameters.AddWithValue("@tagId", tagId);
+            int rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> DeleteTagAsync(string tagId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM tags WHERE id = @tagId;";
+            cmd.Parameters.AddWithValue("@tagId", tagId);
+            int rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryTag>> GetTagsForAssetAsync(string assetHash)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT t.id, t.display_name, t.normalized_name, t.created_utc
+                FROM tags t
+                INNER JOIN asset_tags at ON t.id = at.tag_id
+                WHERE at.asset_hash = @hash
+                ORDER BY t.display_name COLLATE NOCASE ASC;
+            ";
+            cmd.Parameters.AddWithValue("@hash", assetHash);
+
+            var list = new List<LibraryTag>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryTag(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3)
+                ));
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryTag>> GetAllTagsAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT id, display_name, normalized_name, created_utc FROM tags ORDER BY display_name COLLATE NOCASE ASC;";
+
+            var list = new List<LibraryTag>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryTag(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3)
+                ));
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryAsset>> GetAssetsByTagAsync(string tagId)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT a.id, a.sha256, a.canonical_ico_path, a.source_format, a.created_at, a.last_used_at,
+                       (CASE WHEN f.asset_id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+                FROM assets a
+                INNER JOIN asset_tags at ON a.sha256 = at.asset_hash
+                LEFT JOIN favorites f ON a.id = f.asset_id
+                WHERE at.tag_id = @tagId
+                ORDER BY a.last_used_at DESC;
+            ";
+            cmd.Parameters.AddWithValue("@tagId", tagId);
+
+            var list = new List<LibraryAsset>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new LibraryAsset
+                {
+                    Id = reader.GetString(0),
+                    Sha256 = reader.GetString(1),
+                    CanonicalIcoPath = reader.GetString(2),
+                    SourceFormat = reader.GetString(3),
+                    CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+                    IsFavorite = reader.GetInt32(6) == 1
+                });
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<Dictionary<string, List<LibraryTag>>> GetTagsForAssetsAsync(IEnumerable<string> assetHashes)
+    {
+        EnsureInitialized();
+        ArgumentNullException.ThrowIfNull(assetHashes);
+
+        var hashes = assetHashes.Distinct().Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+        var result = new Dictionary<string, List<LibraryTag>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in hashes)
+        {
+            result[h] = new List<LibraryTag>();
+        }
+
+        if (hashes.Count == 0)
+        {
+            return result;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+
+            foreach (var chunk in hashes.Chunk(100))
+            {
+                using var cmd = connection.CreateCommand();
+                var paramNames = new List<string>();
+                for (int i = 0; i < chunk.Length; i++)
+                {
+                    string p = $"@h{i}";
+                    paramNames.Add(p);
+                    cmd.Parameters.AddWithValue(p, chunk[i]);
+                }
+
+                cmd.CommandText = $@"
+                    SELECT at.asset_hash, t.id, t.display_name, t.normalized_name, t.created_utc
+                    FROM tags t
+                    INNER JOIN asset_tags at ON t.id = at.tag_id
+                    WHERE at.asset_hash IN ({string.Join(",", paramNames)})
+                    ORDER BY t.display_name COLLATE NOCASE ASC;
+                ";
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    string hash = reader.GetString(0);
+                    var tag = new LibraryTag(
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetInt64(4)
+                    );
+                    if (result.TryGetValue(hash, out var list))
+                    {
+                        list.Add(tag);
+                    }
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    #endregion
 
     public void Dispose()
     {
