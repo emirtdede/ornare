@@ -249,4 +249,46 @@
   <data name="SuccessSubtitle" xml:space="preserve">
     <value>Changes applied successfully</value>
   </data>
+  <data name="Colors" xml:space="preserve">
+    <value>Colors</value>
+  </data>
+  <data name="ColorCustom" xml:space="preserve">
+    <value>Custom Color</value>
+  </data>
+  <data name="Color_Amber" xml:space="preserve">
+    <value>Amber</value>
+  </data>
+  <data name="Color_Orange" xml:space="preserve">
+    <value>Orange</value>
+  </data>
+  <data name="Color_Red" xml:space="preserve">
+    <value>Red</value>
+  </data>
+  <data name="Color_Rose" xml:space="preserve">
+    <value>Rose</value>
+  </data>
+  <data name="Color_Magenta" xml:space="preserve">
+    <value>Magenta</value>
+  </data>
+  <data name="Color_Purple" xml:space="preserve">
+    <value>Purple</value>
+  </data>
+  <data name="Color_Indigo" xml:space="preserve">
+    <value>Indigo</value>
+  </data>
+  <data name="Color_Blue" xml:space="preserve">
+    <value>Blue</value>
+  </data>
+  <data name="Color_Cyan" xml:space="preserve">
+    <value>Cyan</value>
+  </data>
+  <data name="Color_Teal" xml:space="preserve">
+    <value>Teal</value>
+  </data>
+  <data name="Color_Green" xml:space="preserve">
+    <value>Green</value>
+  </data>
+  <data name="Color_Slate" xml:space="preserve">
+    <value>Slate</value>
+  </data>
 </root>

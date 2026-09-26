@@ -167,6 +167,7 @@ public sealed partial class QuickPanelWindow : Window
 
         ConfigureWindow();
         SetupKeyboardShortcuts();
+        InitializeColorPalette();
         Closed += (_, _) => CleanupStagedFiles();
     }
 
@@ -572,6 +573,115 @@ public sealed partial class QuickPanelWindow : Window
         catch (Exception ex)
         {
             App.Log($"StageImageBytesAsync unhandled exception: {ex}");
+            CleanupStagedFiles();
+            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, ex.Message);
+        }
+    }
+
+    private void InitializeColorPalette()
+    {
+        ColorPaletteContainer.Children.Clear();
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var entry in BuiltInColors.Entries)
+        {
+            if (!ColorConversion.TryParseHex(entry.HexValue, out byte r, out byte g, out byte b))
+            {
+                continue;
+            }
+
+            var button = new Button
+            {
+                Width = 20,
+                Height = 20,
+                Padding = new Thickness(0),
+                CornerRadius = new CornerRadius(10),
+                Margin = new Thickness(0),
+                Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, r, g, b)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(40, 255, 255, 255)),
+                Tag = entry.HexValue
+            };
+
+            string displayName = GetColorDisplayName(entry.Id, isTr);
+            ToolTipService.SetToolTip(button, displayName);
+            AutomationProperties.SetName(button, displayName);
+
+            button.Click += async (s, _) =>
+            {
+                if (s is Button btn && btn.Tag is string hex)
+                {
+                    await StageColorAsync(hex);
+                }
+            };
+
+            ColorPaletteContainer.Children.Add(button);
+        }
+    }
+
+    private static string GetColorDisplayName(string id, bool isTr) => id switch
+    {
+        "color.amber" => isTr ? "Kehribar" : "Amber",
+        "color.orange" => isTr ? "Turuncu" : "Orange",
+        "color.red" => isTr ? "Kırmızı" : "Red",
+        "color.rose" => isTr ? "Gül Kurusu" : "Rose",
+        "color.magenta" => isTr ? "Macenta" : "Magenta",
+        "color.purple" => isTr ? "Mor" : "Purple",
+        "color.indigo" => isTr ? "Çivit Mavisi" : "Indigo",
+        "color.blue" => isTr ? "Mavi" : "Blue",
+        "color.cyan" => isTr ? "Camgöbeği" : "Cyan",
+        "color.teal" => isTr ? "Deniz Mavisi" : "Teal",
+        "color.green" => isTr ? "Yeşil" : "Green",
+        "color.slate" => isTr ? "Arduvaz Grisi" : "Slate",
+        _ => isTr ? "Renk" : "Color"
+    };
+
+    private async Task StageColorAsync(string hexColor)
+    {
+        if (_isProcessing) return;
+
+        if (string.IsNullOrWhiteSpace(_currentFolderPath))
+        {
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
+            return;
+        }
+
+        try
+        {
+            CleanupStagedFiles();
+            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}");
+
+            await SetProcessingStageAsync(ProcessingStage.PreparingImage);
+            await Task.Delay(20);
+
+            _stagedOperationId = Guid.NewGuid();
+            _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
+
+            await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+            await Task.Delay(20);
+
+            var tempPath = _stagedTempIcoPath;
+            var renderResult = await Task.Run(() =>
+            {
+                var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
+                return FolderTemplateRenderer.RenderColoredTemplateIco(pipeline, hexColor, tempPath);
+            });
+
+            if (!renderResult.IsSuccess || renderResult.Value == null)
+            {
+                CleanupStagedFiles();
+                ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, renderResult.ErrorMessage);
+                return;
+            }
+
+            _stagedProcessResult = renderResult.Value;
+            PreviewIconImage.Source = LoadBitmapSafe(_stagedTempIcoPath);
+
+            await SetProcessingStageAsync(ProcessingStage.PreviewReady);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"StageColorAsync exception: {ex}");
             CleanupStagedFiles();
             ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, ex.Message);
         }

@@ -114,6 +114,14 @@
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                             HorizontalAlignment="Center" />
+
+                        <!-- Compact Color Palette Row (F01) -->
+                        <StackPanel
+                            x:Name="ColorPaletteContainer"
+                            Orientation="Horizontal"
+                            Spacing="5"
+                            HorizontalAlignment="Center"
+                            Margin="0,6,0,0" />
                     </StackPanel>
 
                     <!-- Processing State -->

@@ -62,7 +62,9 @@ public sealed class ImagePipeline : IImagePipeline
         return Convert.ToHexString(sha256.GetHashAndReset()).ToLowerInvariant();
     }
 
-    public string ComputeSourceHash(byte[] bytes)
+    public string ComputeSourceHash(byte[] bytes) => ComputeSourceHashStatic(bytes);
+
+    public static string ComputeSourceHashStatic(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

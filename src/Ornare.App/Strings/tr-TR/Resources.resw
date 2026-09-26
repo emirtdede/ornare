@@ -249,4 +249,46 @@
   <data name="SuccessSubtitle" xml:space="preserve">
     <value>İşlem başarıyla tamamlandı</value>
   </data>
+  <data name="Colors" xml:space="preserve">
+    <value>Renkler</value>
+  </data>
+  <data name="ColorCustom" xml:space="preserve">
+    <value>Özel Renk</value>
+  </data>
+  <data name="Color_Amber" xml:space="preserve">
+    <value>Kehribar</value>
+  </data>
+  <data name="Color_Orange" xml:space="preserve">
+    <value>Turuncu</value>
+  </data>
+  <data name="Color_Red" xml:space="preserve">
+    <value>Kırmızı</value>
+  </data>
+  <data name="Color_Rose" xml:space="preserve">
+    <value>Gül Kurusu</value>
+  </data>
+  <data name="Color_Magenta" xml:space="preserve">
+    <value>Macenta</value>
+  </data>
+  <data name="Color_Purple" xml:space="preserve">
+    <value>Mor</value>
+  </data>
+  <data name="Color_Indigo" xml:space="preserve">
+    <value>Çivit Mavisi</value>
+  </data>
+  <data name="Color_Blue" xml:space="preserve">
+    <value>Mavi</value>
+  </data>
+  <data name="Color_Cyan" xml:space="preserve">
+    <value>Camgöbeği</value>
+  </data>
+  <data name="Color_Teal" xml:space="preserve">
+    <value>Deniz Mavisi</value>
+  </data>
+  <data name="Color_Green" xml:space="preserve">
+    <value>Yeşil</value>
+  </data>
+  <data name="Color_Slate" xml:space="preserve">
+    <value>Arduvaz Grisi</value>
+  </data>
 </root>
