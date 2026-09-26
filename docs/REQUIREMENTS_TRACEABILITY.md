@@ -38,6 +38,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-SC-001 | Locked/pinned dependencies, vulnerability audit, SBOM and notices | DEPENDENCY_SUPPLY_CHAIN | CI/release artifacts |
 | ORN-EXP-F18 | Canonical source asset and versioned render recipe deduplication with verified render cache and rollback-safe migration | F18_asset-deduplication, STORAGE_DATA_MODEL, IMAGE_PIPELINE | unit/integration/benchmark tests |
 | ORN-EXP-F09 | Safe SVG recoloring with semantic template roles and single-color user SVG detection under zero-allocation security preflight | F09_svg-recoloring, IMAGE_PIPELINE, SECURITY_PRIVACY | unit/security/benchmark tests |
+| ORN-EXP-F10 | Deterministic 5-tone folder palette generation using OKLab/OKLCH color science, binary search gamut mapping, and WCAG non-text contrast | F10_adaptive-contrast, IMAGE_PIPELINE, DESIGN_SYSTEM | unit/property/contrast/benchmark tests |
 
 ## Traceability rule
 

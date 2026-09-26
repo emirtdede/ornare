@@ -60,6 +60,14 @@ public class PerformanceBenchmarkTests
 
         try
         {
+            // Warm up JIT and native coders per shared measurement protocol
+            for (int w = 0; w < 2; w++)
+            {
+                using var warmupDecoded = new MagickImage(imgBytes);
+                _ = _pipeline.ProcessImageBytes(imgBytes, tempIco);
+                _customizer.ApplyIcon(tempDir, tempIco);
+            }
+
             for (int i = 0; i < 20; i++)
             {
                 var swTotal = Stopwatch.StartNew();

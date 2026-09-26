@@ -262,7 +262,8 @@ public sealed class ImagePipeline : IImagePipeline
             string svgStr = System.Text.Encoding.UTF8.GetString(sourceBytes);
             if (recipe.SvgRecolorMode == 1) // SemanticTemplate
             {
-                var palette = SemanticColorPalette.FromBaseColor(recipe.SvgRecolorValue);
+                var folderPalette = FolderPaletteGenerator.GenerateFromHex(recipe.SvgRecolorValue);
+                var palette = folderPalette.ToSemanticColorPalette();
                 var recolorResult = SvgRecolorService.RecolorSemanticTemplate(svgStr, palette);
                 if (!recolorResult.IsSuccess)
                 {
