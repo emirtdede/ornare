@@ -266,6 +266,7 @@ public sealed partial class ManagerWindow : Window
             ? (isTr ? "Favorilerden Kaldır" : "Remove from Favorites")
             : (isTr ? "Favorilere Ekle" : "Add to Favorites");
         string explorerText = isTr ? "Dosya Gezgini'nde Göster" : "Show in File Explorer";
+        string exportText = isTr ? "Dışa Aktar (.ico)..." : "Export Icon (.ico)...";
 
         return new LibraryItemVm
         {
@@ -280,7 +281,8 @@ public sealed partial class ManagerWindow : Window
                 : new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, 200, 200, 200)),
             FavoriteToolTip = favToolTip,
             ContextToggleFavoriteText = toggleText,
-            ContextOpenExplorerText = explorerText
+            ContextOpenExplorerText = explorerText,
+            ContextExportIcoText = exportText
         };
     }
 
@@ -788,6 +790,45 @@ public sealed partial class ManagerWindow : Window
         }
     }
 
+    private async void OnExportIcoClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item || item.Tag is not string canonicalIcoPath || string.IsNullOrEmpty(canonicalIcoPath))
+        {
+            return;
+        }
+
+        if (!File.Exists(canonicalIcoPath))
+        {
+            return;
+        }
+
+        var picker = new global::Windows.Storage.Pickers.FileSavePicker();
+        IntPtr hwnd = WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+        picker.FileTypeChoices.Add("Windows Icon", new List<string>() { ".ico" });
+        picker.DefaultFileExtension = ".ico";
+        picker.SuggestedFileName = "icon.ico";
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null)
+        {
+            // Cancel performs zero writes
+            return;
+        }
+
+        var exportResult = AtomicExportWriter.ExportAtomically(
+            canonicalIcoPath,
+            file.Path,
+            customValidator: path => _imagePipeline.IsValidIco(path, expectedMinFrames: 10));
+
+        if (!exportResult.IsSuccess)
+        {
+            App.Log($"Atomic export failed: {exportResult.ErrorMessage}");
+        }
+    }
+
     private void LoadPresetsView()
     {
         _presetItems.Clear();
@@ -994,6 +1035,7 @@ public class LibraryItemVm
     public string FavoriteToolTip { get; set; } = "Favorilere Ekle";
     public string ContextToggleFavoriteText { get; set; } = "Favorilere Ekle";
     public string ContextOpenExplorerText { get; set; } = "Dosya Gezgini'nde Göster";
+    public string ContextExportIcoText { get; set; } = "Dışa Aktar (.ico)...";
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]

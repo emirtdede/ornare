@@ -21,7 +21,8 @@ public enum ErrorCode
     ConcurrencyConflict,
     SvgNotThemeable,
     SvgSecurityViolation,
-    IcoMalformed
+    IcoMalformed,
+    UnsupportedExportDestination
 }
 
 public sealed class OperationResult

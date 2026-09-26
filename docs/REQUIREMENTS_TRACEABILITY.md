@@ -48,6 +48,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F04 | Four semantic work-status presets (In Progress, Done, Archive, Important) using licensed MIT Fluent UI System Icons badges, contrast-adapted backing disk, small-frame badge omission, multi-template ICO rendering, and Manager Presets view | F04_status-presets, IMAGE_PIPELINE, INFORMATION_ARCHITECTURE | unit/integration/E2E tests |
 | ORN-EXP-F05 | Three visual priority presets (High, Medium, Low) using Ornare-authored geometric badges, standard status preset compositor and omission rules, and localized organization disclaimer in Manager Presets view | F05_priority-presets, IMAGE_PIPELINE, INFORMATION_ARCHITECTURE | unit/integration/E2E tests |
 | ORN-EXP-F12 | Safe ICO import with container validation (magic, limits, hostile corpus), fast-path preservation for compliant 10-frame icons, deterministic frame-selection normalization, bounded preview extraction, and Library import UI | F12_ico-import, IMAGE_PIPELINE, STORAGE_DATA_MODEL | unit/integration/E2E tests |
+| ORN-EXP-F13 | Atomic ICO export with exact 10-frame compliance, verified F18 render-cache copy reuse, sibling temp ReplaceFileW/MoveFileExW semantics, and zero cancel mutation | F13_ico-export, STORAGE_DATA_MODEL, UX_UI_SPEC | unit/integration/E2E tests |
 
 ## Traceability rule
 
