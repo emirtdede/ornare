@@ -23,7 +23,7 @@ using Ornare.Storage;
 using Ornare.Windows;
 using WinRT.Interop;
 
-public sealed partial class ManagerWindow : Window
+public sealed partial class ManagerWindow : Window, IDisposable
 {
     private readonly IStorageService _storageService;
     private readonly IFolderCustomizer _folderCustomizer;
@@ -40,6 +40,8 @@ public sealed partial class ManagerWindow : Window
     private string _currentLanguage = "System";
     private string _currentTheme = "System";
     private bool _isLoaded;
+    private readonly System.Threading.CancellationTokenSource _windowCts = new();
+    private System.Threading.CancellationTokenSource? _searchCts;
 
     public ManagerWindow(IStorageService storageService, IFolderCustomizer folderCustomizer, IImagePipeline? imagePipeline = null)
     {
@@ -49,6 +51,8 @@ public sealed partial class ManagerWindow : Window
 
         InitializeComponent();
         ConfigureWindow();
+
+        Closed += (s, e) => Dispose();
 
         SettingsArchValue.Text = RuntimeInformation.ProcessArchitecture.ToString();
 
@@ -118,6 +122,20 @@ public sealed partial class ManagerWindow : Window
             await RefreshAllDataAsync();
             _isLoaded = true;
             NavListView.SelectedIndex = 0;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _storageService.EnsureSearchIndexReadyAsync(_windowCts.Token);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    App.Log($"EnsureSearchIndexReadyAsync background task failed: {ex.Message}");
+                }
+            }, _windowCts.Token);
+
             App.Log("LoadInitialDataAsync completed successfully.");
         }
         catch (Exception ex)
@@ -429,27 +447,75 @@ public sealed partial class ManagerWindow : Window
 
     private async void OnSearchTextChanged(object sender, TextChangedEventArgs e)
     {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new System.Threading.CancellationTokenSource();
+        var token = _searchCts.Token;
+
         string query = SearchTextBox.Text?.Trim() ?? string.Empty;
-        var favIds = (await _storageService.GetFavoritesAsync()).Select(f => f.Sha256).ToHashSet();
-        if (string.IsNullOrEmpty(query))
+
+        try
         {
+            // Debounce at 120 ms
+            await Task.Delay(120, token);
+
+            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+
+            if (string.IsNullOrEmpty(query))
+            {
+                await LoadLibraryAsync();
+                return;
+            }
+
+            var indexState = await _storageService.GetSearchIndexStateAsync();
+            if (!indexState.IsReady)
+            {
+                _libraryItems.Clear();
+                SyncItems(LibraryGridView, _libraryItems);
+                LibraryGridView.Visibility = Visibility.Collapsed;
+                LibraryEmptyPanel.Visibility = Visibility.Visible;
+                LibraryEmptyTitle.Text = isTr ? "Arama dizini hazırlanıyor…" : "Preparing search index…";
+                LibraryEmptySubtitle.Text = isTr ? "Dizin hazırlandığında sonuçlar otomatik olarak görüntülenecektir." : "Results will appear automatically once indexing completes.";
+                SectionSubtitleText.Text = isTr ? "Dizin hazırlanıyor…" : "Indexing…";
+                return;
+            }
+
+            var results = await _storageService.SearchLibraryAsync(query, limit: 100, cancellationToken: token);
+            var favIds = (await _storageService.GetFavoritesAsync()).Select(f => f.Sha256).ToHashSet();
+
             _libraryItems.Clear();
-            foreach (var a in _allAssets)
+            foreach (var a in results)
             {
                 _libraryItems.Add(CreateLibraryVm(a, favIds.Contains(a.Sha256)));
             }
-        }
-        else
-        {
-            _libraryItems.Clear();
-            foreach (var a in _allAssets.Where(a => a.Sha256.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                                                   a.SourceFormat.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            SyncItems(LibraryGridView, _libraryItems);
+
+            LibraryEmptyPanel.Visibility = _libraryItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            LibraryGridView.Visibility = _libraryItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            if (_libraryItems.Count == 0)
             {
-                _libraryItems.Add(CreateLibraryVm(a, favIds.Contains(a.Sha256)));
+                LibraryEmptyTitle.Text = isTr ? "Sonuç bulunamadı" : "No results found";
+                LibraryEmptySubtitle.Text = isTr
+                    ? $"'{query}' için eşleşen simge bulunamadı."
+                    : $"No icons matched '{query}'.";
+                SectionSubtitleText.Text = isTr ? "0 sonuç" : "0 results";
+            }
+            else
+            {
+                SectionSubtitleText.Text = _libraryItems.Count == 1
+                    ? (isTr ? $"'{query}' için 1 sonuç" : $"1 result for '{query}'")
+                    : (isTr ? $"'{query}' için {_libraryItems.Count} sonuç" : $"{_libraryItems.Count} results for '{query}'");
             }
         }
-        SyncItems(LibraryGridView, _libraryItems);
-        UpdateSubtitle();
+        catch (OperationCanceledException)
+        {
+            // Stale query cancelled by subsequent keystrokes
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Search failed: {ex.Message}");
+        }
     }
 
     private async void OnToggleFavoriteClicked(object sender, RoutedEventArgs e)
@@ -1875,6 +1941,14 @@ public sealed partial class ManagerWindow : Window
                 try { File.Delete(tempIco); } catch { }
             }
         }
+    }
+
+    public void Dispose()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _windowCts.Cancel();
+        _windowCts.Dispose();
     }
 }
 

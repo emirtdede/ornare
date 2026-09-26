@@ -77,4 +77,13 @@ public interface IStorageService
     Task<IReadOnlyList<LibraryCollection>> GetCollectionsForAssetAsync(string assetHash);
     Task<bool> ReorderCollectionAsync(string collectionId, string? targetNeighborId, bool insertBefore);
     Task RebalanceCollectionSortKeysAsync();
+
+    // F17: Library Search & Durable Index
+    Task<SearchIndexState> GetSearchIndexStateAsync();
+    Task<bool> StepSearchIndexBuildAsync(int batchSize = 500);
+    Task EnsureSearchIndexReadyAsync(CancellationToken cancellationToken = default);
+    Task RebuildSearchIndexAsync();
+    Task<IReadOnlyList<LibraryAsset>> SearchLibraryAsync(string query, int limit = 100, int offset = 0, CancellationToken cancellationToken = default);
+    Task<bool> UpdateAssetDisplayNameAsync(string assetHash, string displayName);
+    Task<bool> RenameTagAsync(string tagId, string newName);
 }

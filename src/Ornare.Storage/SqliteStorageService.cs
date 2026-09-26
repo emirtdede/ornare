@@ -183,6 +183,11 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 await ApplyMigrationV4InternalAsync(connection, injectFailure: false);
             }
 
+            if (currentVersion < 5)
+            {
+                await ApplyMigrationV5InternalAsync(connection, injectFailure: false);
+            }
+
             _isInitialized = true;
         }
         finally
@@ -616,22 +621,48 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             command.Parameters.AddWithValue("@format", sourceFormat);
             command.Parameters.AddWithValue("@now", nowStr);
 
-            using var reader = await command.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
+            LibraryAsset? asset = null;
+            using (var reader = await command.ExecuteReaderAsync())
             {
-                return new LibraryAsset
+                if (await reader.ReadAsync())
                 {
-                    Id = reader.GetString(0),
-                    Sha256 = reader.GetString(1),
-                    CanonicalIcoPath = reader.GetString(2),
-                    SourceFormat = reader.GetString(3),
-                    CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
-                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
-                    IsFavorite = reader.GetInt32(6) == 1
-                };
+                    asset = new LibraryAsset
+                    {
+                        Id = reader.GetString(0),
+                        Sha256 = reader.GetString(1),
+                        CanonicalIcoPath = reader.GetString(2),
+                        SourceFormat = reader.GetString(3),
+                        CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+                        LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+                        IsFavorite = reader.GetInt32(6) == 1
+                    };
+                }
             }
 
-            throw new InvalidOperationException($"Failed to insert or query asset with sha256 '{sha256}'.");
+            if (asset == null)
+            {
+                throw new InvalidOperationException($"Failed to insert or query asset with sha256 '{sha256}'.");
+            }
+
+            try
+            {
+                string fn = Path.GetFileNameWithoutExtension(canonicalIcoPath);
+                var tokens = LibrarySearchTokenizer.Tokenize(fn);
+                foreach (var t in tokens)
+                {
+                    using var tokenCmd = connection.CreateCommand();
+                    tokenCmd.CommandText = "INSERT OR IGNORE INTO asset_search_tokens (asset_hash, token) VALUES (@hash, @token);";
+                    tokenCmd.Parameters.AddWithValue("@hash", sha256);
+                    tokenCmd.Parameters.AddWithValue("@token", t);
+                    await tokenCmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (SqliteException)
+            {
+                // Pre-V5 migration compatibility
+            }
+
+            return asset;
         }
         finally
         {
@@ -1349,25 +1380,34 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         await _dbLock.WaitAsync();
         try
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
-
-            if (targetVersion == 2)
-            {
-                await ApplyMigrationV2InternalAsync(connection, injectFailure);
-            }
-            else if (targetVersion == 3)
-            {
-                await ApplyMigrationV3InternalAsync(connection, injectFailure);
-            }
-            else if (targetVersion == 4)
-            {
-                await ApplyMigrationV4InternalAsync(connection, injectFailure);
-            }
+            await ApplyMigrationForTestingAsync(_connectionString, targetVersion, injectFailure);
         }
         finally
         {
             _dbLock.Release();
+        }
+    }
+
+    public static async Task ApplyMigrationForTestingAsync(string connectionString, int targetVersion, bool injectFailure)
+    {
+        using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+
+        if (targetVersion == 2)
+        {
+            await ApplyMigrationV2InternalAsync(connection, injectFailure);
+        }
+        else if (targetVersion == 3)
+        {
+            await ApplyMigrationV3InternalAsync(connection, injectFailure);
+        }
+        else if (targetVersion == 4)
+        {
+            await ApplyMigrationV4InternalAsync(connection, injectFailure);
+        }
+        else if (targetVersion == 5)
+        {
+            await ApplyMigrationV5InternalAsync(connection, injectFailure);
         }
     }
 
@@ -1531,6 +1571,77 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
+    private static async Task ApplyMigrationV5InternalAsync(SqliteConnection connection, bool injectFailure)
+    {
+        using var tx = connection.BeginTransaction();
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS asset_search_tokens (
+                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
+                    token TEXT NOT NULL,
+                    PRIMARY KEY (asset_hash, token)
+                );
+
+                CREATE TABLE IF NOT EXISTS tag_search_tokens (
+                    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL,
+                    PRIMARY KEY (tag_id, token)
+                );
+
+                CREATE TABLE IF NOT EXISTS collection_search_tokens (
+                    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL,
+                    PRIMARY KEY (collection_id, token)
+                );
+
+                CREATE TABLE IF NOT EXISTS search_index_state (
+                    index_version INTEGER PRIMARY KEY,
+                    phase TEXT NOT NULL,
+                    last_cursor TEXT,
+                    is_ready INTEGER NOT NULL,
+                    updated_utc INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_asset_search_tokens_token ON asset_search_tokens(token ASC, asset_hash);
+                CREATE INDEX IF NOT EXISTS idx_tag_search_tokens_token ON tag_search_tokens(token ASC, tag_id);
+                CREATE INDEX IF NOT EXISTS idx_collection_search_tokens_token ON collection_search_tokens(token ASC, collection_id);
+            ";
+            await cmd.ExecuteNonQueryAsync();
+
+            try
+            {
+                using var alterCmd = connection.CreateCommand();
+                alterCmd.Transaction = tx;
+                alterCmd.CommandText = "ALTER TABLE assets ADD COLUMN display_name TEXT;";
+                await alterCmd.ExecuteNonQueryAsync();
+            }
+            catch (SqliteException)
+            {
+                // Column may already exist
+            }
+
+            if (injectFailure)
+            {
+                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
+            }
+
+            using var setVersionCmd = connection.CreateCommand();
+            setVersionCmd.Transaction = tx;
+            setVersionCmd.CommandText = "PRAGMA user_version = 5;";
+            await setVersionCmd.ExecuteNonQueryAsync();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
     #region F15: Library Tags Implementation
 
     private async Task<SqliteConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken = default)
@@ -1617,6 +1728,24 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 insertCmd.Parameters.AddWithValue("@norm", normalizedName);
                 insertCmd.Parameters.AddWithValue("@created", nowUtc);
                 await insertCmd.ExecuteNonQueryAsync();
+            }
+
+            try
+            {
+                var tagTokens = LibrarySearchTokenizer.Tokenize(displayName);
+                foreach (var t in tagTokens)
+                {
+                    using var tCmd = connection.CreateCommand();
+                    tCmd.Transaction = tx;
+                    tCmd.CommandText = "INSERT OR IGNORE INTO tag_search_tokens (tag_id, token) VALUES (@id, @token);";
+                    tCmd.Parameters.AddWithValue("@id", newId);
+                    tCmd.Parameters.AddWithValue("@token", t);
+                    await tCmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (SqliteException)
+            {
+                // Pre-V5 migration compatibility
             }
 
             tx.Commit();
@@ -2000,6 +2129,24 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 await insertCmd.ExecuteNonQueryAsync();
             }
 
+            try
+            {
+                var colTokens = LibrarySearchTokenizer.Tokenize(displayName);
+                foreach (var t in colTokens)
+                {
+                    using var tCmd = connection.CreateCommand();
+                    tCmd.Transaction = tx;
+                    tCmd.CommandText = "INSERT OR IGNORE INTO collection_search_tokens (collection_id, token) VALUES (@id, @token);";
+                    tCmd.Parameters.AddWithValue("@id", id);
+                    tCmd.Parameters.AddWithValue("@token", t);
+                    await tCmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (SqliteException)
+            {
+                // Pre-V5 migration compatibility
+            }
+
             tx.Commit();
             return new LibraryCollection(id, displayName, normalizedName, sortKey, now, now);
         }
@@ -2151,6 +2298,30 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 updateCmd.Parameters.AddWithValue("@now", now);
                 updateCmd.Parameters.AddWithValue("@id", collectionId);
                 rows = await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            try
+            {
+                using var delCmd = connection.CreateCommand();
+                delCmd.Transaction = tx;
+                delCmd.CommandText = "DELETE FROM collection_search_tokens WHERE collection_id = @id;";
+                delCmd.Parameters.AddWithValue("@id", collectionId);
+                await delCmd.ExecuteNonQueryAsync();
+
+                var colTokens = LibrarySearchTokenizer.Tokenize(displayName);
+                foreach (var t in colTokens)
+                {
+                    using var tCmd = connection.CreateCommand();
+                    tCmd.Transaction = tx;
+                    tCmd.CommandText = "INSERT OR IGNORE INTO collection_search_tokens (collection_id, token) VALUES (@id, @token);";
+                    tCmd.Parameters.AddWithValue("@id", collectionId);
+                    tCmd.Parameters.AddWithValue("@token", t);
+                    await tCmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (SqliteException)
+            {
+                // Pre-V5 migration compatibility
             }
 
             tx.Commit();
@@ -2551,6 +2722,705 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             updateCmd.Parameters.AddWithValue("@id", id);
             await updateCmd.ExecuteNonQueryAsync();
             key += CollectionSortKeyStep;
+        }
+    }
+
+    #endregion
+
+    #region F17: Library Search & Durable Index Implementation
+
+    public async Task<SearchIndexState> GetSearchIndexStateAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT index_version, phase, last_cursor, is_ready, updated_utc FROM search_index_state WHERE index_version = 1;";
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new SearchIndexState(
+                    reader.GetInt32(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetInt32(3) == 1,
+                    reader.GetInt64(4)
+                );
+            }
+
+            return new SearchIndexState(1, "Assets", null, false, 0);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> StepSearchIndexBuildAsync(int batchSize = 500)
+    {
+        EnsureInitialized();
+        if (batchSize <= 0) batchSize = 500;
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            SearchIndexState state;
+            using (var stateCmd = connection.CreateCommand())
+            {
+                stateCmd.Transaction = tx;
+                stateCmd.CommandText = "SELECT index_version, phase, last_cursor, is_ready, updated_utc FROM search_index_state WHERE index_version = 1;";
+                using var reader = await stateCmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    state = new SearchIndexState(
+                        reader.GetInt32(0),
+                        reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetInt32(3) == 1,
+                        reader.GetInt64(4)
+                    );
+                }
+                else
+                {
+                    state = new SearchIndexState(1, "Assets", null, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                    using var insertStateCmd = connection.CreateCommand();
+                    insertStateCmd.Transaction = tx;
+                    insertStateCmd.CommandText = "INSERT INTO search_index_state (index_version, phase, last_cursor, is_ready, updated_utc) VALUES (1, 'Assets', NULL, 0, @now);";
+                    insertStateCmd.Parameters.AddWithValue("@now", state.UpdatedUtc);
+                    await insertStateCmd.ExecuteNonQueryAsync();
+                }
+            }
+
+            if (state.IsReady)
+            {
+                tx.Commit();
+                return true;
+            }
+
+            long nowUtc = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            if (string.Equals(state.Phase, "Assets", StringComparison.OrdinalIgnoreCase))
+            {
+                var batch = new List<(string sha256, string? displayName, string icoPath)>();
+                using (var fetchCmd = connection.CreateCommand())
+                {
+                    fetchCmd.Transaction = tx;
+                    if (state.LastCursor == null)
+                    {
+                        fetchCmd.CommandText = "SELECT sha256, display_name, canonical_ico_path FROM assets ORDER BY sha256 ASC LIMIT @limit;";
+                    }
+                    else
+                    {
+                        fetchCmd.CommandText = "SELECT sha256, display_name, canonical_ico_path FROM assets WHERE sha256 > @cursor ORDER BY sha256 ASC LIMIT @limit;";
+                        fetchCmd.Parameters.AddWithValue("@cursor", state.LastCursor);
+                    }
+                    fetchCmd.Parameters.AddWithValue("@limit", batchSize);
+
+                    using var reader = await fetchCmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        batch.Add((
+                            reader.GetString(0),
+                            reader.IsDBNull(1) ? null : reader.GetString(1),
+                            reader.GetString(2)
+                        ));
+                    }
+                }
+
+                foreach (var item in batch)
+                {
+                    string textToTokenize = !string.IsNullOrWhiteSpace(item.displayName)
+                        ? item.displayName
+                        : (Path.GetFileNameWithoutExtension(item.icoPath) ?? item.sha256);
+
+                    var tokens = LibrarySearchTokenizer.Tokenize(textToTokenize);
+                    foreach (var t in tokens)
+                    {
+                        using var insCmd = connection.CreateCommand();
+                        insCmd.Transaction = tx;
+                        insCmd.CommandText = "INSERT OR IGNORE INTO asset_search_tokens (asset_hash, token) VALUES (@hash, @token);";
+                        insCmd.Parameters.AddWithValue("@hash", item.sha256);
+                        insCmd.Parameters.AddWithValue("@token", t);
+                        await insCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var updateStateCmd = connection.CreateCommand())
+                {
+                    updateStateCmd.Transaction = tx;
+                    if (batch.Count == batchSize)
+                    {
+                        string nextCursor = batch[^1].sha256;
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET last_cursor = @cursor, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@cursor", nextCursor);
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                    }
+                    else
+                    {
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET phase = 'Tags', last_cursor = NULL, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                    }
+                    await updateStateCmd.ExecuteNonQueryAsync();
+                }
+
+                tx.Commit();
+                return false;
+            }
+            else if (string.Equals(state.Phase, "Tags", StringComparison.OrdinalIgnoreCase))
+            {
+                var batch = new List<(string id, string displayName)>();
+                using (var fetchCmd = connection.CreateCommand())
+                {
+                    fetchCmd.Transaction = tx;
+                    if (state.LastCursor == null)
+                    {
+                        fetchCmd.CommandText = "SELECT id, display_name FROM tags ORDER BY id ASC LIMIT @limit;";
+                    }
+                    else
+                    {
+                        fetchCmd.CommandText = "SELECT id, display_name FROM tags WHERE id > @cursor ORDER BY id ASC LIMIT @limit;";
+                        fetchCmd.Parameters.AddWithValue("@cursor", state.LastCursor);
+                    }
+                    fetchCmd.Parameters.AddWithValue("@limit", batchSize);
+
+                    using var reader = await fetchCmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        batch.Add((reader.GetString(0), reader.GetString(1)));
+                    }
+                }
+
+                foreach (var item in batch)
+                {
+                    var tokens = LibrarySearchTokenizer.Tokenize(item.displayName);
+                    foreach (var t in tokens)
+                    {
+                        using var insCmd = connection.CreateCommand();
+                        insCmd.Transaction = tx;
+                        insCmd.CommandText = "INSERT OR IGNORE INTO tag_search_tokens (tag_id, token) VALUES (@id, @token);";
+                        insCmd.Parameters.AddWithValue("@id", item.id);
+                        insCmd.Parameters.AddWithValue("@token", t);
+                        await insCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var updateStateCmd = connection.CreateCommand())
+                {
+                    updateStateCmd.Transaction = tx;
+                    if (batch.Count == batchSize)
+                    {
+                        string nextCursor = batch[^1].id;
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET last_cursor = @cursor, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@cursor", nextCursor);
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                    }
+                    else
+                    {
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET phase = 'Collections', last_cursor = NULL, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                    }
+                    await updateStateCmd.ExecuteNonQueryAsync();
+                }
+
+                tx.Commit();
+                return false;
+            }
+            else if (string.Equals(state.Phase, "Collections", StringComparison.OrdinalIgnoreCase))
+            {
+                var batch = new List<(string id, string displayName)>();
+                using (var fetchCmd = connection.CreateCommand())
+                {
+                    fetchCmd.Transaction = tx;
+                    if (state.LastCursor == null)
+                    {
+                        fetchCmd.CommandText = "SELECT id, display_name FROM collections ORDER BY id ASC LIMIT @limit;";
+                    }
+                    else
+                    {
+                        fetchCmd.CommandText = "SELECT id, display_name FROM collections WHERE id > @cursor ORDER BY id ASC LIMIT @limit;";
+                        fetchCmd.Parameters.AddWithValue("@cursor", state.LastCursor);
+                    }
+                    fetchCmd.Parameters.AddWithValue("@limit", batchSize);
+
+                    using var reader = await fetchCmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        batch.Add((reader.GetString(0), reader.GetString(1)));
+                    }
+                }
+
+                foreach (var item in batch)
+                {
+                    var tokens = LibrarySearchTokenizer.Tokenize(item.displayName);
+                    foreach (var t in tokens)
+                    {
+                        using var insCmd = connection.CreateCommand();
+                        insCmd.Transaction = tx;
+                        insCmd.CommandText = "INSERT OR IGNORE INTO collection_search_tokens (collection_id, token) VALUES (@id, @token);";
+                        insCmd.Parameters.AddWithValue("@id", item.id);
+                        insCmd.Parameters.AddWithValue("@token", t);
+                        await insCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var updateStateCmd = connection.CreateCommand())
+                {
+                    updateStateCmd.Transaction = tx;
+                    if (batch.Count == batchSize)
+                    {
+                        string nextCursor = batch[^1].id;
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET last_cursor = @cursor, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@cursor", nextCursor);
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                        await updateStateCmd.ExecuteNonQueryAsync();
+                        tx.Commit();
+                        return false;
+                    }
+                    else
+                    {
+                        updateStateCmd.CommandText = "UPDATE search_index_state SET phase = 'Ready', last_cursor = NULL, is_ready = 1, updated_utc = @now WHERE index_version = 1;";
+                        updateStateCmd.Parameters.AddWithValue("@now", nowUtc);
+                        await updateStateCmd.ExecuteNonQueryAsync();
+                        tx.Commit();
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                using var markReadyCmd = connection.CreateCommand();
+                markReadyCmd.Transaction = tx;
+                markReadyCmd.CommandText = "UPDATE search_index_state SET phase = 'Ready', is_ready = 1, updated_utc = @now WHERE index_version = 1;";
+                markReadyCmd.Parameters.AddWithValue("@now", nowUtc);
+                await markReadyCmd.ExecuteNonQueryAsync();
+                tx.Commit();
+                return true;
+            }
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task EnsureSearchIndexReadyAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            bool isDone = await StepSearchIndexBuildAsync(500);
+            if (isDone)
+            {
+                break;
+            }
+        }
+    }
+
+    public async Task RebuildSearchIndexAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"
+                    DELETE FROM asset_search_tokens;
+                    DELETE FROM tag_search_tokens;
+                    DELETE FROM collection_search_tokens;
+                    DELETE FROM search_index_state;
+                    INSERT INTO search_index_state (index_version, phase, last_cursor, is_ready, updated_utc)
+                    VALUES (1, 'Assets', NULL, 0, @now);
+                ";
+                cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> UpdateAssetDisplayNameAsync(string assetHash, string displayName)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetHash);
+        ArgumentNullException.ThrowIfNull(displayName);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var updateCmd = connection.CreateCommand())
+            {
+                updateCmd.Transaction = tx;
+                updateCmd.CommandText = "UPDATE assets SET display_name = @name WHERE sha256 = @hash;";
+                updateCmd.Parameters.AddWithValue("@name", displayName);
+                updateCmd.Parameters.AddWithValue("@hash", assetHash);
+                int rows = await updateCmd.ExecuteNonQueryAsync();
+                if (rows == 0) return false;
+            }
+
+            using (var delCmd = connection.CreateCommand())
+            {
+                delCmd.Transaction = tx;
+                delCmd.CommandText = "DELETE FROM asset_search_tokens WHERE asset_hash = @hash;";
+                delCmd.Parameters.AddWithValue("@hash", assetHash);
+                await delCmd.ExecuteNonQueryAsync();
+            }
+
+            var tokens = LibrarySearchTokenizer.Tokenize(displayName);
+            foreach (var t in tokens)
+            {
+                using var insCmd = connection.CreateCommand();
+                insCmd.Transaction = tx;
+                insCmd.CommandText = "INSERT OR IGNORE INTO asset_search_tokens (asset_hash, token) VALUES (@hash, @token);";
+                insCmd.Parameters.AddWithValue("@hash", assetHash);
+                insCmd.Parameters.AddWithValue("@token", t);
+                await insCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return true;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> RenameTagAsync(string tagId, string newName)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(tagId);
+        if (!LibraryNameNormalizer.TryValidateAndNormalize(newName, out string displayName, out string normalizedName, out string? error))
+        {
+            throw new ArgumentException(error ?? "Invalid tag name.", nameof(newName));
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            using var tx = connection.BeginTransaction();
+
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.Transaction = tx;
+                checkCmd.CommandText = "SELECT COUNT(*) FROM tags WHERE normalized_name = @norm AND id != @id;";
+                checkCmd.Parameters.AddWithValue("@norm", normalizedName);
+                checkCmd.Parameters.AddWithValue("@id", tagId);
+                long dup = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
+                if (dup > 0)
+                {
+                    throw new InvalidOperationException($"A tag with the name '{displayName}' already exists.");
+                }
+            }
+
+            using (var updateCmd = connection.CreateCommand())
+            {
+                updateCmd.Transaction = tx;
+                updateCmd.CommandText = "UPDATE tags SET display_name = @display, normalized_name = @norm WHERE id = @id;";
+                updateCmd.Parameters.AddWithValue("@display", displayName);
+                updateCmd.Parameters.AddWithValue("@norm", normalizedName);
+                updateCmd.Parameters.AddWithValue("@id", tagId);
+                int rows = await updateCmd.ExecuteNonQueryAsync();
+                if (rows == 0) return false;
+            }
+
+            using (var delCmd = connection.CreateCommand())
+            {
+                delCmd.Transaction = tx;
+                delCmd.CommandText = "DELETE FROM tag_search_tokens WHERE tag_id = @id;";
+                delCmd.Parameters.AddWithValue("@id", tagId);
+                await delCmd.ExecuteNonQueryAsync();
+            }
+
+            var tokens = LibrarySearchTokenizer.Tokenize(displayName);
+            foreach (var t in tokens)
+            {
+                using var insCmd = connection.CreateCommand();
+                insCmd.Transaction = tx;
+                insCmd.CommandText = "INSERT OR IGNORE INTO tag_search_tokens (tag_id, token) VALUES (@id, @token);";
+                insCmd.Parameters.AddWithValue("@id", tagId);
+                insCmd.Parameters.AddWithValue("@token", t);
+                await insCmd.ExecuteNonQueryAsync();
+            }
+
+            tx.Commit();
+            return true;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<LibraryAsset>> SearchLibraryAsync(
+        string query,
+        int limit = 100,
+        int offset = 0,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        if (limit <= 0) limit = 100;
+        if (offset < 0) offset = 0;
+
+        var queryTokens = LibrarySearchTokenizer.Tokenize(query);
+        if (queryTokens.Count == 0)
+        {
+            return await GetPagedAssetsInternalAsync(limit, offset, cancellationToken);
+        }
+
+        await _dbLock.WaitAsync(cancellationToken);
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync(cancellationToken);
+
+            // Check if search index is ready; return no partial results if incomplete
+            using (var checkReadyCmd = connection.CreateCommand())
+            {
+                checkReadyCmd.CommandText = "SELECT is_ready FROM search_index_state WHERE index_version = 1;";
+                object? isReadyVal = await checkReadyCmd.ExecuteScalarAsync(cancellationToken);
+                bool isReady = isReadyVal != null && isReadyVal != DBNull.Value && Convert.ToInt32(isReadyVal, CultureInfo.InvariantCulture) == 1;
+                if (!isReady)
+                {
+                    return Array.Empty<LibraryAsset>();
+                }
+            }
+
+            // Cap query tokens at 16 to protect query plan budget
+            var effectiveTokens = queryTokens.Take(16).ToList();
+
+            using var cmd = connection.CreateCommand();
+            var branches = new List<string>();
+
+            for (int i = 0; i < effectiveTokens.Count; i++)
+            {
+                string token = effectiveTokens[i];
+                string? nextToken = LibrarySearchTokenizer.ComputeLexicalNextTerm(token);
+                string pMin = $"@tmin_{i}";
+                string pNext = $"@tnext_{i}";
+                string pOrd = $"@ord_{i}";
+
+                cmd.Parameters.AddWithValue(pMin, token);
+                cmd.Parameters.AddWithValue(pOrd, i);
+
+                if (nextToken != null)
+                {
+                    cmd.Parameters.AddWithValue(pNext, nextToken);
+                    branches.Add($@"
+                        SELECT asset_hash, {pOrd} AS term_ord FROM asset_search_tokens WHERE token >= {pMin} AND token < {pNext}
+                        UNION
+                        SELECT at.asset_hash, {pOrd} AS term_ord FROM tag_search_tokens tst INNER JOIN asset_tags at ON at.tag_id = tst.tag_id WHERE tst.token >= {pMin} AND tst.token < {pNext}
+                        UNION
+                        SELECT ca.asset_hash, {pOrd} AS term_ord FROM collection_search_tokens cst INNER JOIN collection_assets ca ON ca.collection_id = cst.collection_id WHERE cst.token >= {pMin} AND cst.token < {pNext}
+                    ");
+                }
+                else
+                {
+                    branches.Add($@"
+                        SELECT asset_hash, {pOrd} AS term_ord FROM asset_search_tokens WHERE token = {pMin}
+                        UNION
+                        SELECT at.asset_hash, {pOrd} AS term_ord FROM tag_search_tokens tst INNER JOIN asset_tags at ON at.tag_id = tst.tag_id WHERE tst.token = {pMin}
+                        UNION
+                        SELECT ca.asset_hash, {pOrd} AS term_ord FROM collection_search_tokens cst INNER JOIN collection_assets ca ON ca.collection_id = cst.collection_id WHERE cst.token = {pMin}
+                    ");
+                }
+            }
+
+            string unionSql = string.Join("\nUNION\n", branches);
+            cmd.CommandText = $@"
+                WITH matches AS (
+                    {unionSql}
+                ),
+                filtered_assets AS (
+                    SELECT asset_hash
+                    FROM matches
+                    GROUP BY asset_hash
+                    HAVING COUNT(DISTINCT term_ord) = @tokenCount
+                )
+                SELECT a.id, a.sha256, a.canonical_ico_path, a.source_format, a.created_at, a.last_used_at,
+                       (CASE WHEN f.asset_id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+                FROM filtered_assets fa
+                INNER JOIN assets a ON a.sha256 = fa.asset_hash
+                LEFT JOIN favorites f ON f.asset_id = a.id
+                ORDER BY a.last_used_at DESC
+                LIMIT @limit OFFSET @offset;
+            ";
+            cmd.Parameters.AddWithValue("@tokenCount", effectiveTokens.Count);
+            cmd.Parameters.AddWithValue("@limit", limit);
+            cmd.Parameters.AddWithValue("@offset", offset);
+
+            var list = new List<LibraryAsset>();
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                list.Add(new LibraryAsset
+                {
+                    Id = reader.GetString(0),
+                    Sha256 = reader.GetString(1),
+                    CanonicalIcoPath = reader.GetString(2),
+                    SourceFormat = reader.GetString(3),
+                    CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+                    IsFavorite = reader.GetInt32(6) == 1
+                });
+            }
+
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> ExplainSearchQueryPlanAsync(string query)
+    {
+        EnsureInitialized();
+        var queryTokens = LibrarySearchTokenizer.Tokenize(query);
+        if (queryTokens.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync();
+            var effectiveTokens = queryTokens.Take(16).ToList();
+
+            using var cmd = connection.CreateCommand();
+            var branches = new List<string>();
+
+            for (int i = 0; i < effectiveTokens.Count; i++)
+            {
+                string token = effectiveTokens[i];
+                string? nextToken = LibrarySearchTokenizer.ComputeLexicalNextTerm(token);
+                string pMin = $"@tmin_{i}";
+                string pNext = $"@tnext_{i}";
+                string pOrd = $"@ord_{i}";
+
+                cmd.Parameters.AddWithValue(pMin, token);
+                cmd.Parameters.AddWithValue(pOrd, i);
+
+                if (nextToken != null)
+                {
+                    cmd.Parameters.AddWithValue(pNext, nextToken);
+                    branches.Add($@"
+                        SELECT asset_hash, {pOrd} AS term_ord FROM asset_search_tokens WHERE token >= {pMin} AND token < {pNext}
+                        UNION
+                        SELECT at.asset_hash, {pOrd} AS term_ord FROM tag_search_tokens tst INNER JOIN asset_tags at ON at.tag_id = tst.tag_id WHERE tst.token >= {pMin} AND tst.token < {pNext}
+                        UNION
+                        SELECT ca.asset_hash, {pOrd} AS term_ord FROM collection_search_tokens cst INNER JOIN collection_assets ca ON ca.collection_id = cst.collection_id WHERE cst.token >= {pMin} AND cst.token < {pNext}
+                    ");
+                }
+                else
+                {
+                    branches.Add($@"
+                        SELECT asset_hash, {pOrd} AS term_ord FROM asset_search_tokens WHERE token = {pMin}
+                        UNION
+                        SELECT at.asset_hash, {pOrd} AS term_ord FROM tag_search_tokens tst INNER JOIN asset_tags at ON at.tag_id = tst.tag_id WHERE tst.token = {pMin}
+                        UNION
+                        SELECT ca.asset_hash, {pOrd} AS term_ord FROM collection_search_tokens cst INNER JOIN collection_assets ca ON ca.collection_id = cst.collection_id WHERE cst.token = {pMin}
+                    ");
+                }
+            }
+
+            string unionSql = string.Join("\nUNION\n", branches);
+            cmd.CommandText = $@"
+                EXPLAIN QUERY PLAN
+                WITH matches AS (
+                    {unionSql}
+                ),
+                filtered_assets AS (
+                    SELECT asset_hash
+                    FROM matches
+                    GROUP BY asset_hash
+                    HAVING COUNT(DISTINCT term_ord) = @tokenCount
+                )
+                SELECT a.id, a.sha256, a.canonical_ico_path, a.source_format, a.created_at, a.last_used_at,
+                       (CASE WHEN f.asset_id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+                FROM filtered_assets fa
+                INNER JOIN assets a ON a.sha256 = fa.asset_hash
+                LEFT JOIN favorites f ON f.asset_id = a.id
+                ORDER BY a.last_used_at DESC
+                LIMIT @limit OFFSET @offset;
+            ";
+            cmd.Parameters.AddWithValue("@tokenCount", effectiveTokens.Count);
+            cmd.Parameters.AddWithValue("@limit", 100);
+            cmd.Parameters.AddWithValue("@offset", 0);
+
+            var lines = new List<string>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                // In SQLite EXPLAIN QUERY PLAN, column 3 (detail) contains the plan description
+                lines.Add(reader.GetString(3));
+            }
+
+            return lines;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<LibraryAsset>> GetPagedAssetsInternalAsync(int limit, int offset, CancellationToken cancellationToken)
+    {
+        await _dbLock.WaitAsync(cancellationToken);
+        try
+        {
+            using var connection = await CreateOpenConnectionAsync(cancellationToken);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT a.id, a.sha256, a.canonical_ico_path, a.source_format, a.created_at, a.last_used_at,
+                       (CASE WHEN f.asset_id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+                FROM assets a
+                LEFT JOIN favorites f ON a.id = f.asset_id
+                ORDER BY a.last_used_at DESC
+                LIMIT @limit OFFSET @offset;
+            ";
+            cmd.Parameters.AddWithValue("@limit", limit);
+            cmd.Parameters.AddWithValue("@offset", offset);
+
+            var list = new List<LibraryAsset>();
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                list.Add(new LibraryAsset
+                {
+                    Id = reader.GetString(0),
+                    Sha256 = reader.GetString(1),
+                    CanonicalIcoPath = reader.GetString(2),
+                    SourceFormat = reader.GetString(3),
+                    CreatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+                    IsFavorite = reader.GetInt32(6) == 1
+                });
+            }
+
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
         }
     }
 
