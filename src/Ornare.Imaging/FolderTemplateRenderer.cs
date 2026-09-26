@@ -148,6 +148,11 @@ public static class FolderTemplateRenderer
             lock (SvgRasterizationGate.Lock)
             {
                 using var image = new MagickImage(recoloredSvgBytes, readSettings);
+                if (image.Width != targetSize || image.Height != targetSize)
+                {
+                    image.FilterType = FilterType.Lanczos;
+                    image.Resize((uint)targetSize, (uint)targetSize);
+                }
                 image.Format = MagickFormat.Png;
                 image.ColorSpace = ColorSpace.sRGB;
                 pngBytes = image.ToByteArray();

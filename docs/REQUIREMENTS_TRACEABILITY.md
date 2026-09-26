@@ -58,6 +58,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F21 | Apply last icon via Explorer context menu flyout, command line (--apply-last), and custom URI protocol (ornare://apply-last), with resilient recipe-based cache rebuilding, durable journal, and relative folder icon semantics | F21_apply-last-icon, WINDOWS_SHELL, STORAGE_DATA_MODEL, IMAGE_PIPELINE | unit/integration/E2E tests |
 | ORN-EXP-F22 | Undo from Explorer context menu flyout, command line (--undo), and custom URI protocol (ornare://undo), with durable journal baseline restoration, NTFS rename reconciliation, rapid duplicate serialization, and external conflict safety | F22_undo-from-explorer, WINDOWS_SHELL, STORAGE_DATA_MODEL, FOLDER_CUSTOMIZATION | unit/integration/E2E tests |
 | ORN-EXP-F23 | Reset from Explorer context menu flyout, command line (--reset), and custom URI protocol (ornare://reset), with live semantic merge, external conflict safety, NTFS identity TargetChanged validation, and owned artifact cleanup | F23_reset-from-explorer, WINDOWS_SHELL, STORAGE_DATA_MODEL, FOLDER_CUSTOMIZATION | unit/integration/E2E tests |
+| ORN-EXP-F24 | Native AOT-friendly CLI (Ornare.Cli.exe / ornare.exe) exposing 7 commands (apply, apply-last, undo, reset, inspect, export-ico, export-png), strict --json stdout purity (schemaVersion 1), deterministic exit codes, and modifier validation matrix | F24_cli-json, WINDOWS_SHELL, STORAGE_DATA_MODEL, IMAGE_PIPELINE | unit/integration/E2E tests |
 
 
 ## Traceability rule

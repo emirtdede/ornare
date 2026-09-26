@@ -101,6 +101,11 @@
           "SQLitePCLRaw.core": "2.1.11"
         }
       },
+      "System.CommandLine": {
+        "type": "Transitive",
+        "resolved": "2.0.0",
+        "contentHash": "Bjklzc5NoxqAGFi7BcGlY2TWAdB06Bq3a5sfRr3ubMRU80Mf98eyq3Y2UgR6xRV0TLznZmfe5T7mUjOunRNcdA=="
+      },
       "xunit.abstractions": {
         "type": "Transitive",
         "resolved": "2.0.3",
@@ -139,6 +144,16 @@
         "contentHash": "yMb6vMESlSrE3Wfj7V6cjQ3S4TXdXpRqYeNEI3zsX31uTsGMJjEw6oD5F5u1cHnMptjhEECnmZSsPxB6ChZHDQ==",
         "dependencies": {
           "xunit.extensibility.core": "[2.9.3]"
+        }
+      },
+      "ornare.cli": {
+        "type": "Project",
+        "dependencies": {
+          "Ornare.Core": "[1.0.0, )",
+          "Ornare.Imaging": "[1.0.0, )",
+          "Ornare.Storage": "[1.0.0, )",
+          "Ornare.Windows": "[1.0.0, )",
+          "System.CommandLine": "[2.0.0, )"
         }
       },
       "ornare.core": {

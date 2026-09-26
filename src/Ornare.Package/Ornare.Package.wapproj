@@ -40,6 +40,9 @@
     <ProjectReference Include="..\Ornare.App\Ornare.App.csproj">
       <SkipGetTargetFrameworkProperties>True</SkipGetTargetFrameworkProperties>
     </ProjectReference>
+    <ProjectReference Include="..\Ornare.Cli\Ornare.Cli.csproj">
+      <SkipGetTargetFrameworkProperties>True</SkipGetTargetFrameworkProperties>
+    </ProjectReference>
     <ProjectReference Include="..\Ornare.ShellExtension\Ornare.ShellExtension.vcxproj" />
   </ItemGroup>
   <Import Project="$(WapProjPath)\Microsoft.DesktopBridge.targets" Condition="Exists('$(WapProjPath)\Microsoft.DesktopBridge.targets')" />

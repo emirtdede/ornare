@@ -7,6 +7,7 @@ $projects = @(
     "src/Ornare.Windows/Ornare.Windows.csproj",
     "src/Ornare.Storage/Ornare.Storage.csproj",
     "src/Ornare.Imaging/Ornare.Imaging.csproj",
+    "src/Ornare.Cli/Ornare.Cli.csproj",
     "src/Ornare.App/Ornare.App.csproj"
 )
 
@@ -20,4 +21,4 @@ foreach ($p in $projects) {
     }
 }
 
-Write-Host "`n>>> ALL 6 MANAGED PROJECTS BUILT CLEANLY FOR ARM64 (0 ERRORS, 0 WARNINGS) <<<"
+Write-Host "`n>>> ALL 7 MANAGED PROJECTS BUILT CLEANLY FOR ARM64 (0 ERRORS, 0 WARNINGS) <<<"

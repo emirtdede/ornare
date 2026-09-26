@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Ornare.App/Ornare.App.csproj" />
+    <Project Path="src/Ornare.Cli/Ornare.Cli.csproj" />
     <Project Path="src/Ornare.Core/Ornare.Core.csproj" />
     <Project Path="src/Ornare.DesignSystem/Ornare.DesignSystem.csproj" />
     <Project Path="src/Ornare.Imaging/Ornare.Imaging.csproj" />

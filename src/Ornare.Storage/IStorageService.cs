@@ -2,7 +2,7 @@ using Ornare.Core;
 
 namespace Ornare.Storage;
 
-public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage, IUndoStorage, IResetStorage
+public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage, IApplyStorage, IInspectStorage, IUndoStorage, IResetStorage
 {
     bool IsInitialized { get; }
     Task InitializeAsync(string? dbPath = null);
@@ -14,13 +14,11 @@ public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage, I
     Task<IReadOnlyList<FolderAssignment>> GetAllFolderAssignmentsAsync();
     Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64);
     Task<FolderAssignment?> GetAssignmentByIdentityAsync(uint volumeSerialNumber, ulong fileId64);
-    Task<FolderAssignment?> GetAssignmentByPathAsync(string folderPath);
 
     // Startup reconciliation
     Task<int> ReconcileStartupAsync(Func<JournalEntry, Task<bool>>? customReconciler = null);
 
-    // Assets & Library (GetAssetByHashAsync inherited from IApplyLastStorage)
-    Task<LibraryAsset> AddOrUpdateAssetAsync(string sha256, string canonicalIcoPath, string sourceFormat, DateTimeOffset? now = null);
+    // Assets & Library (GetAssetByHashAsync and AddOrUpdateAssetAsync inherited)
     Task<IReadOnlyList<LibraryAsset>> GetAllAssetsAsync();
     Task<bool> DeleteAssetAsync(string sha256);
 

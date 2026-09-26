@@ -166,7 +166,7 @@ public static class ApplyLastService
         var ntfsId = FolderIdentityService.GetNtfsIdentity(fullPath);
         if (ntfsId.HasValue)
         {
-            await storage.UpdateAssignmentIdentityAsync(fullPath, ntfsId.Value.VolumeSerialNumber.ToString(System.Globalization.CultureInfo.InvariantCulture), ntfsId.Value.FileId64.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            await storage.UpdateAssignmentIdentityAsync(fullPath, ntfsId.Value.VolumeSerialNumber.ToString("X8", System.Globalization.CultureInfo.InvariantCulture), ntfsId.Value.FileId64.ToString("X16", System.Globalization.CultureInfo.InvariantCulture));
         }
         else
         {
