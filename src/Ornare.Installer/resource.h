@@ -9,3 +9,4 @@
 #define IDC_BTN_LAUNCH     1003
 #define IDC_CHK_SHORTCUT   1004
 #define IDC_PROGRESS       1005
+#define IDC_LBL_SHORTCUT   1006

@@ -33,7 +33,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(SolutionDir)production_artifacts\release\candidate\</OutDir>
+    <OutDir>$(ProjectDir)..\..\production_artifacts\release\candidate\</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <TargetName>OrnareSetup</TargetName>
   </PropertyGroup>
@@ -59,7 +59,7 @@
       <HighEntropyVA>true</HighEntropyVA>
       <NXCompat>true</NXCompat>
       <EnableUAC>true</EnableUAC>
-      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <UACExecutionLevel>AsInvoker</UACExecutionLevel>
       <AdditionalDependencies>comctl32.lib;dwmapi.lib;uxtheme.lib;crypt32.lib;shell32.lib;ole32.lib;advapi32.lib;user32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
