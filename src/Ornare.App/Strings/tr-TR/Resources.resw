@@ -432,4 +432,10 @@
   <data name="Presets_PriorityHeader" xml:space="preserve">
     <value>Görsel Öncelik</value>
   </data>
+  <data name="ExportIcon" xml:space="preserve">
+    <value>Dışa Aktar (.ico)...</value>
+  </data>
+  <data name="ExportPng" xml:space="preserve">
+    <value>Dışa Aktar (.png)</value>
+  </data>
 </root>

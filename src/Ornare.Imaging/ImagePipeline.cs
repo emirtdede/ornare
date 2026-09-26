@@ -672,6 +672,25 @@ public sealed class ImagePipeline : IImagePipeline
         return IcoImportService.ExtractPreviewPng(icoBytes, targetSize);
     }
 
+    public OperationResult<byte[]> RenderPng(
+        RenderRecipe recipe,
+        byte[]? sourceBytes,
+        int targetSize = ExportPngConstants.DefaultSize)
+    {
+        return PngExportService.RenderPng(recipe, sourceBytes, targetSize);
+    }
+
+    public OperationResult<RenderPngResult> RenderPngWithCache(
+        RenderRecipe recipe,
+        byte[]? sourceBytes,
+        int targetSize = ExportPngConstants.DefaultSize,
+        string? cacheDirectory = null,
+        Func<string, RenderCacheEntry?>? cacheLookup = null,
+        Action<RenderCacheEntry>? cacheStore = null)
+    {
+        return PngExportService.RenderPngWithCache(recipe, sourceBytes, targetSize, cacheDirectory, cacheLookup, cacheStore);
+    }
+
     private static MagickImage ReadSvgGated(byte[] bytes, MagickReadSettings settings)
     {
         lock (SvgRasterizationGate.Lock)

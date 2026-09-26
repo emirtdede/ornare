@@ -98,6 +98,23 @@ public static class FolderTemplateRenderer
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
         int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
     {
+        return RenderTemplatePng(baseHex, 256, templateId, templateVersion);
+    }
+
+    /// <summary>
+    /// Renders a template directly to PNG at any allowed target size (256, 512, 1024) (F14).
+    /// </summary>
+    public static OperationResult<byte[]> RenderTemplatePng(
+        string baseHex,
+        int targetSize = ExportPngConstants.DefaultSize,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+    {
+        if (!ExportPngConstants.IsAllowedSize(targetSize))
+        {
+            return OperationResult.Failure<byte[]>(ErrorCode.InvalidTarget, $"Invalid target size {targetSize}.");
+        }
+
         if (!ColorConversion.TryParseHex(baseHex, out byte r, out byte g, out byte b))
         {
             return OperationResult.Failure<byte[]>(ErrorCode.InvalidTarget, $"Invalid 6-character hex color '{baseHex}'.");
@@ -122,8 +139,8 @@ public static class FolderTemplateRenderer
             var readSettings = new MagickReadSettings
             {
                 Format = MagickFormat.Svg,
-                Width = 256,
-                Height = 256,
+                Width = (uint)targetSize,
+                Height = (uint)targetSize,
                 BackgroundColor = MagickColors.Transparent
             };
 
@@ -214,17 +231,29 @@ public static class FolderTemplateRenderer
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
         int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
     {
+        return RenderPresetPng(preset, 256, templateId, templateVersion);
+    }
+
+    /// <summary>
+    /// Renders a status preset directly to PNG at any allowed target size (256, 512, 1024) (F14).
+    /// </summary>
+    public static OperationResult<byte[]> RenderPresetPng(
+        StatusPreset preset,
+        int targetSize = ExportPngConstants.DefaultSize,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+    {
         ArgumentNullException.ThrowIfNull(preset);
 
-        var basePreviewResult = RenderPreviewPng(preset.BaseHex, templateId, templateVersion);
-        if (!basePreviewResult.IsSuccess || basePreviewResult.Value == null)
+        var baseResult = RenderTemplatePng(preset.BaseHex, targetSize, templateId, templateVersion);
+        if (!baseResult.IsSuccess || baseResult.Value == null)
         {
-            return basePreviewResult;
+            return baseResult;
         }
 
         try
         {
-            using var image = new MagickImage(basePreviewResult.Value);
+            using var image = new MagickImage(baseResult.Value);
             StatusBadgeCompositor.CompositeBadge(image, preset.BadgeAssetId, preset.BaseHex);
             image.Format = MagickFormat.Png;
             image.ColorSpace = ColorSpace.sRGB;
@@ -234,7 +263,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preset preview rasterization failed: {ex.Message}");
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preset PNG rasterization failed: {ex.Message}");
         }
     }
 }

@@ -49,6 +49,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F05 | Three visual priority presets (High, Medium, Low) using Ornare-authored geometric badges, standard status preset compositor and omission rules, and localized organization disclaimer in Manager Presets view | F05_priority-presets, IMAGE_PIPELINE, INFORMATION_ARCHITECTURE | unit/integration/E2E tests |
 | ORN-EXP-F12 | Safe ICO import with container validation (magic, limits, hostile corpus), fast-path preservation for compliant 10-frame icons, deterministic frame-selection normalization, bounded preview extraction, and Library import UI | F12_ico-import, IMAGE_PIPELINE, STORAGE_DATA_MODEL | unit/integration/E2E tests |
 | ORN-EXP-F13 | Atomic ICO export with exact 10-frame compliance, verified F18 render-cache copy reuse, sibling temp ReplaceFileW/MoveFileExW semantics, and zero cancel mutation | F13_ico-export, STORAGE_DATA_MODEL, UX_UI_SPEC | unit/integration/E2E tests |
+| ORN-EXP-F14 | Atomic PNG export with exact 256/512/1024 sizing, native vector rasterization scaling, transparent & solid background compositing, cache reuse, sibling temp ReplaceFileW semantics, and zero UI lockup | F14_png-export, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 
 ## Traceability rule
 

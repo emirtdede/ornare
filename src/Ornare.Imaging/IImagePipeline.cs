@@ -47,4 +47,18 @@ public interface IImagePipeline
         Action<RenderCacheEntry>? cacheStore = null);
 
     OperationResult<byte[]> ExtractIcoPreviewPng(byte[] icoBytes, int targetSize = 256);
+
+    // F14: PNG Export
+    OperationResult<byte[]> RenderPng(
+        RenderRecipe recipe,
+        byte[]? sourceBytes,
+        int targetSize = ExportPngConstants.DefaultSize);
+
+    OperationResult<RenderPngResult> RenderPngWithCache(
+        RenderRecipe recipe,
+        byte[]? sourceBytes,
+        int targetSize = ExportPngConstants.DefaultSize,
+        string? cacheDirectory = null,
+        Func<string, RenderCacheEntry?>? cacheLookup = null,
+        Action<RenderCacheEntry>? cacheStore = null);
 }

@@ -267,6 +267,7 @@ public sealed partial class ManagerWindow : Window
             : (isTr ? "Favorilere Ekle" : "Add to Favorites");
         string explorerText = isTr ? "Dosya Gezgini'nde Göster" : "Show in File Explorer";
         string exportText = isTr ? "Dışa Aktar (.ico)..." : "Export Icon (.ico)...";
+        string exportPngText = isTr ? "Dışa Aktar (.png)" : "Export PNG (.png)";
 
         return new LibraryItemVm
         {
@@ -282,7 +283,8 @@ public sealed partial class ManagerWindow : Window
             FavoriteToolTip = favToolTip,
             ContextToggleFavoriteText = toggleText,
             ContextOpenExplorerText = explorerText,
-            ContextExportIcoText = exportText
+            ContextExportIcoText = exportText,
+            ContextExportPngText = exportPngText
         };
     }
 
@@ -829,6 +831,95 @@ public sealed partial class ManagerWindow : Window
         }
     }
 
+    private async void OnExportPngClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item)
+        {
+            return;
+        }
+
+        int targetSize = ExportPngConstants.DefaultSize;
+        if (item.Tag is string sizeStr && int.TryParse(sizeStr, out int parsedSize) && ExportPngConstants.IsAllowedSize(parsedSize))
+        {
+            targetSize = parsedSize;
+        }
+
+        var vm = (item.DataContext as LibraryItemVm) ?? ((item.Parent as FrameworkElement)?.DataContext as LibraryItemVm);
+        string? canonicalIcoPath = vm?.CanonicalIcoPath ?? ((item.Parent as MenuFlyoutSubItem)?.Tag as string);
+
+        if (string.IsNullOrEmpty(canonicalIcoPath) || !File.Exists(canonicalIcoPath))
+        {
+            return;
+        }
+
+        var picker = new global::Windows.Storage.Pickers.FileSavePicker();
+        IntPtr hwnd = WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+        picker.FileTypeChoices.Add("PNG Image", new List<string>() { ".png" });
+        picker.DefaultFileExtension = ".png";
+        picker.SuggestedFileName = $"icon_{targetSize}.png";
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null)
+        {
+            // Cancel performs zero writes
+            return;
+        }
+
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string cacheDir = Path.Combine(appData, "Ornare", "cache");
+
+        byte[]? sourceBytes = null;
+        try
+        {
+            sourceBytes = await File.ReadAllBytesAsync(canonicalIcoPath);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Failed to read icon bytes for PNG export: {ex.Message}");
+            return;
+        }
+
+        string sourceHash = vm?.Sha256 ?? _imagePipeline.ComputeSourceHash(sourceBytes);
+        var recipe = new RenderRecipe
+        {
+            SourceAssetHash = sourceHash,
+            PlacementMode = (int)ImagePlacementMode.Contain,
+            PaddingPercent = 0,
+            BackgroundMode = (int)BackgroundMode.Transparent,
+            TargetFormat = "png",
+            TargetFrameSizes = [targetSize]
+        };
+
+        var renderResult = _imagePipeline.RenderPngWithCache(
+            recipe,
+            sourceBytes,
+            targetSize,
+            cacheDirectory: cacheDir,
+            cacheLookup: key => _storageService.GetRenderCacheEntryAsync(key).GetAwaiter().GetResult(),
+            cacheStore: entry => _storageService.SaveRenderCacheEntryAsync(entry).GetAwaiter().GetResult());
+
+        if (!renderResult.IsSuccess || renderResult.Value == null)
+        {
+            App.Log($"PNG render failed: {renderResult.ErrorMessage}");
+            return;
+        }
+
+        var exportResult = AtomicExportWriter.ExportPngAtomically(
+            renderResult.Value.PngBytes,
+            file.Path,
+            targetSize,
+            isFromCache: renderResult.Value.IsFromCache,
+            renderKey: renderResult.Value.RenderKey);
+
+        if (!exportResult.IsSuccess)
+        {
+            App.Log($"Atomic PNG export failed: {exportResult.ErrorMessage}");
+        }
+    }
+
     private void LoadPresetsView()
     {
         _presetItems.Clear();
@@ -1036,6 +1127,7 @@ public class LibraryItemVm
     public string ContextToggleFavoriteText { get; set; } = "Favorilere Ekle";
     public string ContextOpenExplorerText { get; set; } = "Dosya Gezgini'nde Göster";
     public string ContextExportIcoText { get; set; } = "Dışa Aktar (.ico)...";
+    public string ContextExportPngText { get; set; } = "Dışa Aktar (.png)";
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]

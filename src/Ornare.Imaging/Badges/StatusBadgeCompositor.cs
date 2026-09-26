@@ -86,6 +86,40 @@ public static class StatusBadgeCompositor
         }
 
         var (diskHex, glyphHex) = DetermineBadgeColors(folderBaseHex);
+
+        if (frame.Width > 256)
+        {
+            double s = frame.Width;
+            double center = s * CenterRatio;
+            double radius = s * (DiskDiameterRatio / 2.0);
+            double box = s * BadgeBoxRatio;
+            double offset = center - (box / 2.0);
+            double scale = box / 24.0;
+
+            string badgeSvg = $@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 {frame.Width} {frame.Height}"" width=""{frame.Width}"" height=""{frame.Height}"">
+  <circle cx=""{center.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}"" cy=""{center.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}"" r=""{radius.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}"" fill=""{diskHex}"" />
+  <g transform=""translate({offset.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}, {offset.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}) scale({scale.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)})"">
+    <path d=""{pathData}"" fill=""{glyphHex}"" />
+  </g>
+</svg>";
+
+            var highResSettings = new MagickReadSettings
+            {
+                Format = MagickFormat.Svg,
+                Width = (uint)frame.Width,
+                Height = (uint)frame.Height,
+                BackgroundColor = MagickColors.Transparent
+            };
+
+            lock (SvgRasterizationGate.Lock)
+            {
+                byte[] svgBytes = Encoding.UTF8.GetBytes(badgeSvg);
+                using var highResLayer = new MagickImage(svgBytes, highResSettings);
+                frame.Composite(highResLayer, 0, 0, CompositeOperator.Over);
+            }
+            return;
+        }
+
         var cacheKey = (badgeAssetId, diskHex, glyphHex);
 
         byte[] badge256Bytes;

@@ -432,4 +432,10 @@
   <data name="Presets_PriorityHeader" xml:space="preserve">
     <value>Visual Priority</value>
   </data>
+  <data name="ExportIcon" xml:space="preserve">
+    <value>Export Icon (.ico)...</value>
+  </data>
+  <data name="ExportPng" xml:space="preserve">
+    <value>Export PNG (.png)</value>
+  </data>
 </root>

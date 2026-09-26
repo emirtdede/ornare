@@ -201,6 +201,14 @@
                                                     <FontIcon Glyph="&#xEDE1;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
+                                            <MenuFlyoutSubItem Text="{Binding ContextExportPngText}" Tag="{Binding CanonicalIcoPath}">
+                                                <MenuFlyoutSubItem.Icon>
+                                                    <FontIcon Glyph="&#xEB9F;" />
+                                                </MenuFlyoutSubItem.Icon>
+                                                <MenuFlyoutItem Text="1024 × 1024 (Default)" Tag="1024" Click="OnExportPngClicked" />
+                                                <MenuFlyoutItem Text="512 × 512" Tag="512" Click="OnExportPngClicked" />
+                                                <MenuFlyoutItem Text="256 × 256" Tag="256" Click="OnExportPngClicked" />
+                                            </MenuFlyoutSubItem>
                                         </MenuFlyout>
                                     </Grid.ContextFlyout>
                                     <Grid.RowDefinitions>
@@ -301,6 +309,19 @@
                                                     <FontIcon Glyph="&#xE8DA;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextExportIcoText}" Tag="{Binding CanonicalIcoPath}" Click="OnExportIcoClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xEDE1;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutSubItem Text="{Binding ContextExportPngText}" Tag="{Binding CanonicalIcoPath}">
+                                                <MenuFlyoutSubItem.Icon>
+                                                    <FontIcon Glyph="&#xEB9F;" />
+                                                </MenuFlyoutSubItem.Icon>
+                                                <MenuFlyoutItem Text="1024 × 1024 (Default)" Tag="1024" Click="OnExportPngClicked" />
+                                                <MenuFlyoutItem Text="512 × 512" Tag="512" Click="OnExportPngClicked" />
+                                                <MenuFlyoutItem Text="256 × 256" Tag="256" Click="OnExportPngClicked" />
+                                            </MenuFlyoutSubItem>
                                         </MenuFlyout>
                                     </Grid.ContextFlyout>
                                     <Grid.RowDefinitions>
