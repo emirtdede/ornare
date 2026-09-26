@@ -39,6 +39,7 @@ public sealed record RenderRecipe
     }
 
     public int BackgroundMode { get; init; }
+    public BackgroundMode Background => (BackgroundMode)BackgroundMode;
     public string BackgroundColor { get; init; } = string.Empty;
     public string PresetId { get; init; } = string.Empty;
     public int PresetVersion { get; init; } = 1;
@@ -83,7 +84,14 @@ public static class CanonicalRecipeSerializer
             writer.Write(recipe.PlacementMode);
             writer.Write(recipe.PaddingPercent);
             writer.Write(recipe.BackgroundMode);
-            writer.Write(recipe.BackgroundColor ?? string.Empty);
+            if (recipe.BackgroundMode == (int)Core.BackgroundMode.SolidColor && !string.IsNullOrWhiteSpace(recipe.BackgroundColor))
+            {
+                writer.Write(BackgroundSpec.NormalizeHex(recipe.BackgroundColor));
+            }
+            else
+            {
+                writer.Write(string.Empty);
+            }
             writer.Write(recipe.PresetId ?? string.Empty);
             writer.Write(recipe.PresetVersion);
             writer.Write(recipe.BadgeAssetId ?? string.Empty);
@@ -143,7 +151,19 @@ public static class CanonicalRecipeSerializer
             throw new InvalidDataException($"Invalid padding percentage in recipe: {paddingPercent}. Accepted range is 0 to 30.");
         }
         int bgMode = reader.ReadInt32();
+        if (bgMode < 0 || bgMode > 1)
+        {
+            throw new InvalidDataException($"Invalid background mode in recipe: {bgMode}. Accepted values are 0 (Transparent) or 1 (SolidColor).");
+        }
         string bgColor = reader.ReadString();
+        if (bgMode == (int)Core.BackgroundMode.SolidColor)
+        {
+            bgColor = BackgroundSpec.NormalizeHex(bgColor);
+        }
+        else
+        {
+            bgColor = string.Empty;
+        }
         string presetId = reader.ReadString();
         int presetVer = reader.ReadInt32();
         string badgeAssetId = reader.ReadString();

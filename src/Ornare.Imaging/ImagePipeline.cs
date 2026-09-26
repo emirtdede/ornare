@@ -125,7 +125,9 @@ public sealed class ImagePipeline : IImagePipeline
         string inputPath,
         string outputIcoPath,
         ImagePlacementMode placementMode = ImagePlacementMode.Contain,
-        int paddingPercent = 0)
+        int paddingPercent = 0,
+        BackgroundMode backgroundMode = BackgroundMode.Transparent,
+        string? backgroundColorHex = null)
     {
         if (string.IsNullOrWhiteSpace(inputPath) || !File.Exists(inputPath))
         {
@@ -144,14 +146,16 @@ public sealed class ImagePipeline : IImagePipeline
                 ErrorCode.FilesystemError, $"Failed to read input image: {ex.Message}");
         }
 
-        return ProcessImageBytes(bytes, outputIcoPath, placementMode, paddingPercent);
+        return ProcessImageBytes(bytes, outputIcoPath, placementMode, paddingPercent, backgroundMode, backgroundColorHex);
     }
 
     public OperationResult<NormalizedImageResult> ProcessImageBytes(
         byte[] imageBytes,
         string outputIcoPath,
         ImagePlacementMode placementMode = ImagePlacementMode.Contain,
-        int paddingPercent = 0)
+        int paddingPercent = 0,
+        BackgroundMode backgroundMode = BackgroundMode.Transparent,
+        string? backgroundColorHex = null)
     {
         if (imageBytes == null || imageBytes.Length == 0)
         {
@@ -165,6 +169,10 @@ public sealed class ImagePipeline : IImagePipeline
             SourceAssetHash = contentHash,
             PlacementMode = (int)placementMode,
             PaddingPercent = Math.Clamp(paddingPercent, 0, 30),
+            BackgroundMode = (int)backgroundMode,
+            BackgroundColor = (backgroundMode == BackgroundMode.SolidColor && !string.IsNullOrWhiteSpace(backgroundColorHex))
+                ? BackgroundSpec.NormalizeHex(backgroundColorHex)
+                : string.Empty,
             TargetFormat = "ico",
             TargetFrameSizes = IcoFrameSizes
         };
@@ -301,7 +309,9 @@ public sealed class ImagePipeline : IImagePipeline
             renderKey,
             originalHash,
             recipe.ImagePlacement,
-            recipe.PaddingPercent);
+            recipe.PaddingPercent,
+            recipe.Background,
+            recipe.BackgroundColor);
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
             return renderResult;
@@ -401,7 +411,9 @@ public sealed class ImagePipeline : IImagePipeline
         string renderKey,
         string? overrideContentHash = null,
         ImagePlacementMode placementMode = ImagePlacementMode.Contain,
-        double paddingPercent = 0.0)
+        double paddingPercent = 0.0,
+        BackgroundMode backgroundMode = BackgroundMode.Transparent,
+        string? backgroundColorHex = null)
     {
         bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
         bool isSvg = IsPotentialSvg(imageBytes);
@@ -425,7 +437,7 @@ public sealed class ImagePipeline : IImagePipeline
             }
             else if (isSvg)
             {
-                info = new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Svg });
+                info = new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Svg, BackgroundColor = MagickColors.Transparent });
             }
             else
             {
@@ -455,7 +467,7 @@ public sealed class ImagePipeline : IImagePipeline
             MagickReadSettings? readSettings = isIco
                 ? new MagickReadSettings { Format = MagickFormat.Ico }
                 : info.Format == MagickFormat.Svg
-                    ? new MagickReadSettings { Format = MagickFormat.Svg, Width = 256, Height = 256 }
+                    ? new MagickReadSettings { Format = MagickFormat.Svg, Width = 256, Height = 256, BackgroundColor = MagickColors.Transparent }
                     : null;
 
             using MagickImage sourceImage = readSettings != null
@@ -466,6 +478,10 @@ public sealed class ImagePipeline : IImagePipeline
             sourceImage.ColorSpace = ColorSpace.sRGB;
 
             string contentHash = overrideContentHash ?? ComputeSourceHash(imageBytes);
+
+            MagickColor canvasBg = (backgroundMode == BackgroundMode.SolidColor && !string.IsNullOrWhiteSpace(backgroundColorHex))
+                ? new MagickColor(BackgroundSpec.NormalizeHex(backgroundColorHex))
+                : MagickColors.Transparent;
 
             using MagickImageCollection icoFrames = new();
             foreach (int size in IcoFrameSizes)
@@ -486,7 +502,7 @@ public sealed class ImagePipeline : IImagePipeline
                 var resizeGeo = new MagickGeometry((uint)geom.DestWidth, (uint)geom.DestHeight) { IgnoreAspectRatio = true };
                 subImage.Resize(resizeGeo);
 
-                MagickImage frame = new(MagickColors.Transparent, (uint)size, (uint)size);
+                MagickImage frame = new(canvasBg, (uint)size, (uint)size);
                 frame.Format = MagickFormat.Png;
                 frame.ColorSpace = ColorSpace.sRGB;
                 frame.Composite(subImage, geom.DestX, geom.DestY, CompositeOperator.Over);
@@ -529,13 +545,15 @@ public sealed class ImagePipeline : IImagePipeline
     }
 
     /// <summary>
-    /// Renders a fast, bounded 256x256 PNG preview honoring the specified placement mode and padding (F06).
+    /// Renders a fast, bounded 256x256 PNG preview honoring placement mode, padding, and background compositing (F06, F07, F08).
     /// </summary>
     public static OperationResult<byte[]> RenderPlacementPreviewPng(
         byte[] imageBytes,
         int previewSize = 256,
         ImagePlacementMode placementMode = ImagePlacementMode.Contain,
-        double paddingPercent = 0.0)
+        double paddingPercent = 0.0,
+        BackgroundMode backgroundMode = BackgroundMode.Transparent,
+        string? backgroundColorHex = null)
     {
         if (imageBytes == null || imageBytes.Length == 0)
         {
@@ -555,7 +573,7 @@ public sealed class ImagePipeline : IImagePipeline
             }
 
             var readSettings = isSvg
-                ? new MagickReadSettings { Format = MagickFormat.Svg, Width = (uint)previewSize, Height = (uint)previewSize }
+                ? new MagickReadSettings { Format = MagickFormat.Svg, Width = (uint)previewSize, Height = (uint)previewSize, BackgroundColor = MagickColors.Transparent }
                 : null;
 
             using var source = readSettings != null ? new MagickImage(imageBytes, readSettings) : new MagickImage(imageBytes);
@@ -578,7 +596,11 @@ public sealed class ImagePipeline : IImagePipeline
             var resizeGeo = new MagickGeometry((uint)geom.DestWidth, (uint)geom.DestHeight) { IgnoreAspectRatio = true };
             sub.Resize(resizeGeo);
 
-            using MagickImage previewCanvas = new(MagickColors.Transparent, (uint)previewSize, (uint)previewSize);
+            MagickColor canvasBg = (backgroundMode == BackgroundMode.SolidColor && !string.IsNullOrWhiteSpace(backgroundColorHex))
+                ? new MagickColor(BackgroundSpec.NormalizeHex(backgroundColorHex))
+                : MagickColors.Transparent;
+
+            using MagickImage previewCanvas = new(canvasBg, (uint)previewSize, (uint)previewSize);
             previewCanvas.Format = MagickFormat.Png;
             previewCanvas.ColorSpace = ColorSpace.sRGB;
             previewCanvas.Composite(sub, geom.DestX, geom.DestY, CompositeOperator.Over);

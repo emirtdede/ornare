@@ -59,6 +59,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private byte[]? _stagedImageBytes;
     private ImagePlacementMode _stagedPlacementMode = ImagePlacementMode.Contain;
     private int _stagedPaddingPercent;
+    private BackgroundMode _stagedBackgroundMode = BackgroundMode.Transparent;
+    private string _stagedBackgroundColorHex = "#FFFFFF";
     private CancellationTokenSource? _previewDebounceCts;
     private string? _tempPreviewPngPath;
 
@@ -582,12 +584,18 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             _stagedImageBytes = imageBytes;
             _stagedPlacementMode = ImagePlacementMode.Contain;
             _stagedPaddingPercent = 0;
+            _stagedBackgroundMode = BackgroundMode.Transparent;
+            _stagedBackgroundColorHex = "#FFFFFF";
             if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Visible;
             if (PlacementModeRadioButtons != null) PlacementModeRadioButtons.SelectedIndex = 0;
             if (PlacementFillWarningText != null) PlacementFillWarningText.Visibility = Visibility.Collapsed;
             if (PaddingToggleSwitch != null) PaddingToggleSwitch.IsOn = false;
             if (PaddingSlider != null) PaddingSlider.Value = 8;
             if (PaddingSliderContainer != null) PaddingSliderContainer.Visibility = Visibility.Collapsed;
+            if (BackgroundModeRadioButtons != null) BackgroundModeRadioButtons.SelectedIndex = 0;
+            if (BackgroundColorContainer != null) BackgroundColorContainer.Visibility = Visibility.Collapsed;
+            if (BackgroundColorSwatch != null) BackgroundColorSwatch.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 255, 255, 255));
+            if (BackgroundColorPicker != null) BackgroundColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 255, 255, 255);
 
             // 3. Show preview and wait for explicit user confirmation
             await SetProcessingStageAsync(ProcessingStage.PreviewReady);
@@ -925,16 +933,18 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             var mode = _stagedPlacementMode;
 
             var pad = _stagedPaddingPercent;
+            var bgMode = _stagedBackgroundMode;
+            var bgHex = _stagedBackgroundColorHex;
 
             // Render fast preview PNG first
-            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad));
+            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad, bgMode, bgHex));
             if (previewResult.IsSuccess && previewResult.Value != null)
             {
                 PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewResult.Value);
             }
 
             // Also render staged ICO in background so Apply is instantly ready
-            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad));
+            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad, bgMode, bgHex));
             if (processResult.IsSuccess && processResult.Value != null)
             {
                 _stagedProcessResult = processResult.Value;
@@ -972,10 +982,56 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         PaddingLabelText.Text = isTr ? $"Boşluk: %{percent}" : $"Padding: {percent}%";
     }
 
-    private void TriggerDebouncedPreview(int paddingPercent)
+    private void OnBackgroundSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isProcessing || _stagedImageBytes == null || BackgroundModeRadioButtons == null)
+        {
+            return;
+        }
+
+        int index = BackgroundModeRadioButtons.SelectedIndex;
+        var newMode = index == 1 ? BackgroundMode.SolidColor : BackgroundMode.Transparent;
+
+        if (BackgroundColorContainer != null)
+        {
+            BackgroundColorContainer.Visibility = (newMode == BackgroundMode.SolidColor)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        if (_stagedBackgroundMode == newMode)
+        {
+            return;
+        }
+
+        _stagedBackgroundMode = newMode;
+        TriggerDebouncedPreview();
+    }
+
+    private void OnBackgroundColorPickerColorChanged(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        var color = args.NewColor;
+        string hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+        _stagedBackgroundColorHex = hex;
+
+        if (BackgroundColorSwatch != null)
+        {
+            BackgroundColorSwatch.Background = new SolidColorBrush(color);
+        }
+
+        if (_stagedBackgroundMode == BackgroundMode.SolidColor)
+        {
+            TriggerDebouncedPreview();
+        }
+    }
+
+    private void TriggerDebouncedPreview(int? paddingPercent = null)
     {
         if (_isProcessing || _stagedImageBytes == null) return;
-        _stagedPaddingPercent = paddingPercent;
+        if (paddingPercent.HasValue)
+        {
+            _stagedPaddingPercent = paddingPercent.Value;
+        }
 
         _previewDebounceCts?.Cancel();
         _previewDebounceCts?.Dispose();
@@ -993,8 +1049,10 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 if (imageBytes == null) return;
                 var mode = _stagedPlacementMode;
                 var pad = _stagedPaddingPercent;
+                var bgMode = _stagedBackgroundMode;
+                var bgHex = _stagedBackgroundColorHex;
 
-                var previewResult = ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad);
+                var previewResult = ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad, bgMode, bgHex);
                 if (token.IsCancellationRequested || !previewResult.IsSuccess || previewResult.Value == null) return;
 
                 byte[] previewBytes = previewResult.Value;
@@ -1003,7 +1061,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 NormalizedImageResult? icoResult = null;
                 if (!string.IsNullOrWhiteSpace(tempPath))
                 {
-                    var res = _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad);
+                    var res = _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad, bgMode, bgHex);
                     if (res.IsSuccess)
                     {
                         icoResult = res.Value;
@@ -1023,7 +1081,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                App.Log($"Debounced padding preview failed: {ex.Message}");
+                App.Log($"Debounced preview failed: {ex.Message}");
             }
         }, token);
     }
@@ -1066,6 +1124,26 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             AutomationProperties.SetName(PaddingToggleSwitch, isTr ? "İç Boşluk" : "Inner Padding");
         }
         UpdatePaddingLabel(_stagedPaddingPercent > 0 ? _stagedPaddingPercent : (int)(PaddingSlider?.Value ?? 8));
+        if (BackgroundTitleText != null)
+        {
+            BackgroundTitleText.Text = isTr ? "Arka Plan" : "Background";
+        }
+        if (RadioBackgroundTransparent != null)
+        {
+            RadioBackgroundTransparent.Content = isTr ? "Şeffaf (Varsayılan)" : "Transparent";
+            ToolTipService.SetToolTip(RadioBackgroundTransparent, isTr ? "Saydam arka planı korur" : "Preserves transparent background");
+        }
+        if (RadioBackgroundSolid != null)
+        {
+            RadioBackgroundSolid.Content = isTr ? "Düz Renk" : "Solid Color";
+            ToolTipService.SetToolTip(RadioBackgroundSolid, isTr ? "Özel düz arka plan rengi uygular" : "Applies a solid background color");
+        }
+        if (PickBackgroundColorButton != null)
+        {
+            PickBackgroundColorButton.Content = isTr ? "Renk Seç..." : "Choose Color...";
+            ToolTipService.SetToolTip(PickBackgroundColorButton, isTr ? "Arka plan rengini seçin" : "Select background color");
+            AutomationProperties.SetName(PickBackgroundColorButton, isTr ? "Arka Plan Rengi Seç" : "Choose Background Color");
+        }
     }
 
     private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)

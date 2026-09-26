@@ -340,6 +340,53 @@
                                                     ValueChanged="OnPaddingSliderValueChanged"
                                                     AutomationProperties.Name="Padding percentage" />
                                             </StackPanel>
+
+                                            <MenuFlyoutSeparator Margin="0,2,0,2" />
+
+                                            <!-- F08: Background Color -->
+                                            <TextBlock x:Name="BackgroundTitleText" Text="Background" FontWeight="SemiBold" FontSize="13" />
+                                            <RadioButtons x:Name="BackgroundModeRadioButtons" SelectedIndex="0" SelectionChanged="OnBackgroundSelectionChanged">
+                                                <RadioButton x:Name="RadioBackgroundTransparent" Content="Transparent" Tag="0" IsChecked="True" />
+                                                <RadioButton x:Name="RadioBackgroundSolid" Content="Solid Color" Tag="1" />
+                                            </RadioButtons>
+
+                                            <StackPanel x:Name="BackgroundColorContainer" Spacing="6" Visibility="Collapsed">
+                                                <Grid ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border
+                                                        x:Name="BackgroundColorSwatch"
+                                                        Grid.Column="0"
+                                                        Width="28"
+                                                        Height="28"
+                                                        CornerRadius="14"
+                                                        BorderThickness="1"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        Background="#FFFFFF" />
+                                                    <Button
+                                                        x:Name="PickBackgroundColorButton"
+                                                        Grid.Column="1"
+                                                        Content="Choose Color..."
+                                                        FontSize="12"
+                                                        HorizontalAlignment="Stretch">
+                                                        <Button.Flyout>
+                                                            <Flyout x:Name="BackgroundColorPickerFlyout">
+                                                                <StackPanel Width="240" Spacing="8">
+                                                                    <ColorPicker
+                                                                        x:Name="BackgroundColorPicker"
+                                                                        IsAlphaEnabled="False"
+                                                                        IsColorSpectrumVisible="True"
+                                                                        IsColorSliderVisible="True"
+                                                                        IsHexInputVisible="True"
+                                                                        ColorChanged="OnBackgroundColorPickerColorChanged" />
+                                                                </StackPanel>
+                                                            </Flyout>
+                                                        </Button.Flyout>
+                                                    </Button>
+                                                </Grid>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>

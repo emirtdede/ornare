@@ -12,6 +12,10 @@ namespace Ornare.Imaging;
 /// </summary>
 public static class FolderTemplateRenderer
 {
+    static FolderTemplateRenderer()
+    {
+        ImageSecurityPolicy.Initialize();
+    }
     /// <summary>
     /// Builds the deterministic RenderRecipe for a colored template icon.
     /// </summary>
@@ -111,7 +115,8 @@ public static class FolderTemplateRenderer
             {
                 Format = MagickFormat.Svg,
                 Width = 256,
-                Height = 256
+                Height = 256,
+                BackgroundColor = MagickColors.Transparent
             };
 
             using var image = new MagickImage(recoloredSvgBytes, readSettings);

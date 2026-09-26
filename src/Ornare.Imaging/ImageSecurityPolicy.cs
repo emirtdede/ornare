@@ -1,4 +1,5 @@
 using ImageMagick;
+using ImageMagick.Configuration;
 
 namespace Ornare.Imaging;
 
@@ -47,6 +48,19 @@ public static class ImageSecurityPolicy
             ResourceLimits.Area = 100_000_000;
             ResourceLimits.Memory = 256 * 1024 * 1024; // 256 MB cap
             ResourceLimits.Disk = 512 * 1024 * 1024;   // 512 MB temp disk cap
+
+            try
+            {
+                var config = ConfigurationFiles.Default;
+                config.Policy.Data = @"<policymap>
+  <policy domain=""delegate"" rights=""none"" pattern=""*"" />
+</policymap>";
+                MagickNET.Initialize(config);
+            }
+            catch
+            {
+                // Fallback if already initialized
+            }
 
             _initialized = true;
         }

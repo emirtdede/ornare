@@ -16,6 +16,8 @@ namespace Ornare.Core;
 [JsonSerializable(typeof(JournalState))]
 [JsonSerializable(typeof(OperationKind))]
 [JsonSerializable(typeof(ImagePlacementMode))]
+[JsonSerializable(typeof(BackgroundMode))]
+[JsonSerializable(typeof(BackgroundSpec))]
 [JsonSerializable(typeof(FolderCustomizationState))]
 public sealed partial class FolderJsonContext : JsonSerializerContext
 {

@@ -339,4 +339,25 @@
   <data name="Padding_ToolTip" xml:space="preserve">
     <value>Inset padding per side (0–30%)</value>
   </data>
+  <data name="Background_Title" xml:space="preserve">
+    <value>Background</value>
+  </data>
+  <data name="Background_Transparent" xml:space="preserve">
+    <value>Transparent</value>
+  </data>
+  <data name="Background_Transparent_ToolTip" xml:space="preserve">
+    <value>Preserves transparent background</value>
+  </data>
+  <data name="Background_Solid" xml:space="preserve">
+    <value>Solid Color</value>
+  </data>
+  <data name="Background_Solid_ToolTip" xml:space="preserve">
+    <value>Applies a solid background color</value>
+  </data>
+  <data name="Background_ChooseColor" xml:space="preserve">
+    <value>Choose Color...</value>
+  </data>
+  <data name="Background_ChooseColor_ToolTip" xml:space="preserve">
+    <value>Select background color</value>
+  </data>
 </root>

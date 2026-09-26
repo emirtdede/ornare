@@ -339,4 +339,25 @@
   <data name="Padding_ToolTip" xml:space="preserve">
     <value>Kenar başına iç boşluk (%0–30)</value>
   </data>
+  <data name="Background_Title" xml:space="preserve">
+    <value>Arka Plan</value>
+  </data>
+  <data name="Background_Transparent" xml:space="preserve">
+    <value>Şeffaf (Varsayılan)</value>
+  </data>
+  <data name="Background_Transparent_ToolTip" xml:space="preserve">
+    <value>Saydam arka planı korur</value>
+  </data>
+  <data name="Background_Solid" xml:space="preserve">
+    <value>Düz Renk</value>
+  </data>
+  <data name="Background_Solid_ToolTip" xml:space="preserve">
+    <value>Özel düz arka plan rengi uygular</value>
+  </data>
+  <data name="Background_ChooseColor" xml:space="preserve">
+    <value>Renk Seç...</value>
+  </data>
+  <data name="Background_ChooseColor_ToolTip" xml:space="preserve">
+    <value>Arka plan rengini seçin</value>
+  </data>
 </root>
