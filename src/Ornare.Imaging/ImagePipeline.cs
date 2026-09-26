@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ImageMagick;
 using Ornare.Core;
+using Ornare.Imaging.Badges;
 
 namespace Ornare.Imaging;
 
@@ -311,7 +312,9 @@ public sealed class ImagePipeline : IImagePipeline
             recipe.ImagePlacement,
             recipe.PaddingPercent,
             recipe.Background,
-            recipe.BackgroundColor);
+            recipe.BackgroundColor,
+            recipe.BadgeAssetId,
+            recipe.PaletteParameters);
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
             return renderResult;
@@ -413,7 +416,9 @@ public sealed class ImagePipeline : IImagePipeline
         ImagePlacementMode placementMode = ImagePlacementMode.Contain,
         double paddingPercent = 0.0,
         BackgroundMode backgroundMode = BackgroundMode.Transparent,
-        string? backgroundColorHex = null)
+        string? backgroundColorHex = null,
+        string? badgeAssetId = null,
+        string? badgeFolderBaseHex = null)
     {
         bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
         bool isSvg = IsPotentialSvg(imageBytes);
@@ -437,7 +442,7 @@ public sealed class ImagePipeline : IImagePipeline
             }
             else if (isSvg)
             {
-                info = new MagickImageInfo(imageBytes, new MagickReadSettings { Format = MagickFormat.Svg, BackgroundColor = MagickColors.Transparent });
+                info = ReadSvgInfoGated(imageBytes, new MagickReadSettings { Format = MagickFormat.Svg, BackgroundColor = MagickColors.Transparent });
             }
             else
             {
@@ -470,9 +475,9 @@ public sealed class ImagePipeline : IImagePipeline
                     ? new MagickReadSettings { Format = MagickFormat.Svg, Width = 256, Height = 256, BackgroundColor = MagickColors.Transparent }
                     : null;
 
-            using MagickImage sourceImage = readSettings != null
-                ? new(imageBytes, readSettings)
-                : new(imageBytes);
+            using MagickImage sourceImage = isSvg
+                ? ReadSvgGated(imageBytes, readSettings!)
+                : (readSettings != null ? new(imageBytes, readSettings) : new(imageBytes));
 
             sourceImage.AutoOrient();
             sourceImage.ColorSpace = ColorSpace.sRGB;
@@ -506,6 +511,10 @@ public sealed class ImagePipeline : IImagePipeline
                 frame.Format = MagickFormat.Png;
                 frame.ColorSpace = ColorSpace.sRGB;
                 frame.Composite(subImage, geom.DestX, geom.DestY, CompositeOperator.Over);
+                if (!string.IsNullOrEmpty(badgeAssetId))
+                {
+                    StatusBadgeCompositor.CompositeBadge(frame, badgeAssetId, badgeFolderBaseHex ?? string.Empty);
+                }
                 frame.Format = MagickFormat.Ico;
                 icoFrames.Add(frame);
             }
@@ -576,7 +585,10 @@ public sealed class ImagePipeline : IImagePipeline
                 ? new MagickReadSettings { Format = MagickFormat.Svg, Width = (uint)previewSize, Height = (uint)previewSize, BackgroundColor = MagickColors.Transparent }
                 : null;
 
-            using var source = readSettings != null ? new MagickImage(imageBytes, readSettings) : new MagickImage(imageBytes);
+            using var source = isSvg
+                ? ReadSvgGated(imageBytes, readSettings!)
+                : (readSettings != null ? new MagickImage(imageBytes, readSettings) : new MagickImage(imageBytes));
+
             source.AutoOrient();
             source.ColorSpace = ColorSpace.sRGB;
 
@@ -610,6 +622,22 @@ public sealed class ImagePipeline : IImagePipeline
         catch (Exception ex)
         {
             return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"Preview generation failed: {ex.Message}");
+        }
+    }
+
+    private static MagickImage ReadSvgGated(byte[] bytes, MagickReadSettings settings)
+    {
+        lock (SvgRasterizationGate.Lock)
+        {
+            return new MagickImage(bytes, settings);
+        }
+    }
+
+    private static MagickImageInfo ReadSvgInfoGated(byte[] bytes, MagickReadSettings settings)
+    {
+        lock (SvgRasterizationGate.Lock)
+        {
+            return new MagickImageInfo(bytes, settings);
         }
     }
 }

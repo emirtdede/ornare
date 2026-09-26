@@ -372,4 +372,37 @@
   <data name="Template_Flat" xml:space="preserve">
     <value>Flat</value>
   </data>
+  <data name="Nav_Presets" xml:space="preserve">
+    <value>Status Presets</value>
+  </data>
+  <data name="Presets_TemplateLabel" xml:space="preserve">
+    <value>Style Template:</value>
+  </data>
+  <data name="Presets_ApplyButton" xml:space="preserve">
+    <value>Apply to Folder...</value>
+  </data>
+  <data name="Preset_InProgress" xml:space="preserve">
+    <value>In Progress</value>
+  </data>
+  <data name="Preset_InProgress_Desc" xml:space="preserve">
+    <value>Tracks active, ongoing tasks</value>
+  </data>
+  <data name="Preset_Done" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="Preset_Done_Desc" xml:space="preserve">
+    <value>Marks completed tasks and projects</value>
+  </data>
+  <data name="Preset_Archive" xml:space="preserve">
+    <value>Archive</value>
+  </data>
+  <data name="Preset_Archive_Desc" xml:space="preserve">
+    <value>Stores historical or reference material</value>
+  </data>
+  <data name="Preset_Important" xml:space="preserve">
+    <value>Important</value>
+  </data>
+  <data name="Preset_Important_Desc" xml:space="preserve">
+    <value>Highlights urgent or critical folders</value>
+  </data>
 </root>

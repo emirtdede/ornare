@@ -16,7 +16,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Ornare.Core;
+using Ornare.Core.Presets;
 using Ornare.Imaging;
+using Ornare.Imaging.Templates;
 using Ornare.Storage;
 using Ornare.Windows;
 using WinRT.Interop;
@@ -25,20 +27,24 @@ public sealed partial class ManagerWindow : Window
 {
     private readonly IStorageService _storageService;
     private readonly IFolderCustomizer _folderCustomizer;
+    private readonly IImagePipeline _imagePipeline;
     private readonly ObservableCollection<LibraryItemVm> _libraryItems = new();
     private readonly ObservableCollection<RecentItemVm> _recentItems = new();
     private readonly ObservableCollection<LibraryItemVm> _favoriteItems = new();
     private readonly ObservableCollection<FolderItemVm> _folderItems = new();
+    private readonly ObservableCollection<PresetItemVm> _presetItems = new();
+    private string _selectedPresetTemplateId = FolderTemplateCatalog.DefaultTemplateId;
 
     private List<LibraryAsset> _allAssets = new();
     private string _currentLanguage = "System";
     private string _currentTheme = "System";
     private bool _isLoaded;
 
-    public ManagerWindow(IStorageService storageService, IFolderCustomizer folderCustomizer)
+    public ManagerWindow(IStorageService storageService, IFolderCustomizer folderCustomizer, IImagePipeline? imagePipeline = null)
     {
         _storageService = storageService;
         _folderCustomizer = folderCustomizer;
+        _imagePipeline = imagePipeline ?? new ImagePipeline();
 
         InitializeComponent();
         ConfigureWindow();
@@ -320,6 +326,7 @@ public sealed partial class ManagerWindow : Window
         LibraryView.Visibility = Visibility.Collapsed;
         RecentView.Visibility = Visibility.Collapsed;
         FavoritesView.Visibility = Visibility.Collapsed;
+        if (PresetsView != null) PresetsView.Visibility = Visibility.Collapsed;
         FoldersView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Collapsed;
 
@@ -343,6 +350,14 @@ public sealed partial class ManagerWindow : Window
             case "Favorites":
                 FavoritesView.Visibility = Visibility.Visible;
                 SectionTitleText.Text = isTr ? "Favoriler" : "Favorites";
+                break;
+            case "Presets":
+                if (PresetsView != null)
+                {
+                    PresetsView.Visibility = Visibility.Visible;
+                    SectionTitleText.Text = isTr ? "Durum Şablonları" : "Status Presets";
+                    LoadPresetsView();
+                }
                 break;
             case "Folders":
                 FoldersView.Visibility = Visibility.Visible;
@@ -372,6 +387,10 @@ public sealed partial class ManagerWindow : Window
             SectionSubtitleText.Text = _folderItems.Count == 1
                 ? (isTr ? "1 klasör" : "1 folder")
                 : (isTr ? $"{_folderItems.Count} klasör" : $"{_folderItems.Count} folders");
+        }
+        else if (PresetsView != null && PresetsView.Visibility == Visibility.Visible)
+        {
+            SectionSubtitleText.Text = isTr ? "İş akışı ve durum için simgeler" : "Semantic workflow and status icons";
         }
         else
         {
@@ -617,8 +636,14 @@ public sealed partial class ManagerWindow : Window
         NavTextLibrary.Text = isTr ? "Kitaplık" : "Library";
         NavTextRecent.Text = isTr ? "Son Kullanılanlar" : "Recent";
         NavTextFavorites.Text = isTr ? "Favoriler" : "Favorites";
+        if (NavTextPresets != null) NavTextPresets.Text = isTr ? "Durum Şablonları" : "Status Presets";
         NavTextFolders.Text = isTr ? "Özelleştirilmiş Klasörler" : "Customized Folders";
         NavTextSettings.Text = isTr ? "Ayarlar" : "Settings";
+
+        if (PresetTemplateLabel != null) PresetTemplateLabel.Text = isTr ? "Stil Şablonu:" : "Style Template:";
+        if (PresetRadioClassic != null) PresetRadioClassic.Content = isTr ? "Klasik" : "Classic";
+        if (PresetRadioSoft != null) PresetRadioSoft.Content = isTr ? "Yumuşak" : "Soft";
+        if (PresetRadioFlat != null) PresetRadioFlat.Content = isTr ? "Düz" : "Flat";
 
         LibraryEmptyTitle.Text = isTr ? "Kitaplıkta simge yok" : "No icons in library";
         LibraryEmptySubtitle.Text = isTr ? "Özelleştirdiğiniz simgeler burada görünecektir" : "Icons you customize will appear here";
@@ -687,6 +712,192 @@ public sealed partial class ManagerWindow : Window
     {
         // Reserved for future selection/details if needed
     }
+
+    private void LoadPresetsView()
+    {
+        _presetItems.Clear();
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var preset in StatusPresetCatalog.All)
+        {
+            string title = GetPresetTitle(preset.Id, isTr);
+            string desc = GetPresetDescription(preset.Id, isTr);
+            string applyText = isTr ? "Klasöre Uygula..." : "Apply to Folder...";
+
+            BitmapImage? previewBitmap = null;
+            try
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "OrnarePresets");
+                Directory.CreateDirectory(tempDir);
+                string previewPath = Path.Combine(tempDir, $"{preset.Id}_{_selectedPresetTemplateId}.png");
+
+                if (!File.Exists(previewPath))
+                {
+                    var previewResult = FolderTemplateRenderer.RenderPresetPreviewPng(preset, _selectedPresetTemplateId);
+                    if (previewResult.IsSuccess && previewResult.Value != null)
+                    {
+                        File.WriteAllBytes(previewPath, previewResult.Value);
+                    }
+                }
+
+                previewBitmap = LoadBitmapSafe(previewPath);
+            }
+            catch
+            {
+                // Fallback gracefully
+            }
+
+            _presetItems.Add(new PresetItemVm
+            {
+                PresetId = preset.Id,
+                Title = title,
+                Description = desc,
+                ApplyButtonText = applyText,
+                PreviewImage = previewBitmap
+            });
+        }
+
+        SyncItems(PresetsGridView, _presetItems);
+    }
+
+    private static string GetPresetTitle(string presetId, bool isTr) => presetId switch
+    {
+        "status.in-progress" => isTr ? "Devam Ediyor" : "In Progress",
+        "status.done" => isTr ? "Tamamlandı" : "Done",
+        "status.archive" => isTr ? "Arşiv" : "Archive",
+        "status.important" => isTr ? "Önemli" : "Important",
+        _ => presetId
+    };
+
+    private static string GetPresetDescription(string presetId, bool isTr) => presetId switch
+    {
+        "status.in-progress" => isTr ? "Aktif devam eden işleri takip eder" : "Tracks active, ongoing tasks",
+        "status.done" => isTr ? "Tamamlanan görevleri ve projeleri belirtir" : "Marks completed tasks and projects",
+        "status.archive" => isTr ? "Geçmiş veya referans materyalleri depolar" : "Stores historical or reference material",
+        "status.important" => isTr ? "Acil veya kritik klasörleri vurgular" : "Highlights urgent or critical folders",
+        _ => string.Empty
+    };
+
+    private void OnPresetTemplateRadioChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton selectedRadio && selectedRadio.Tag is string tag)
+        {
+            _selectedPresetTemplateId = tag;
+            LoadPresetsView();
+        }
+    }
+
+    private async void OnApplyPresetClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string presetId) return;
+
+        var preset = StatusPresetCatalog.GetPreset(presetId);
+        if (preset == null) return;
+
+        try
+        {
+            var picker = new global::Windows.Storage.Pickers.FolderPicker();
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+            picker.FileTypeFilter.Add("*");
+
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder != null)
+            {
+                await ApplyPresetToFolderAsync(preset, folder.Path);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Preset folder picking or apply failed: {ex.Message}");
+        }
+    }
+
+    private async Task ApplyPresetToFolderAsync(StatusPreset preset, string folderPath)
+    {
+        if (!_folderCustomizer.IsSupportedPath(folderPath)) return;
+
+        string tempIco = Path.Combine(Path.GetTempPath(), $"ornare_preset_apply_{Guid.NewGuid():N}.ico");
+        try
+        {
+            var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
+            var renderResult = FolderTemplateRenderer.RenderPresetIco(
+                pipeline,
+                preset,
+                tempIco,
+                _selectedPresetTemplateId);
+
+            if (!renderResult.IsSuccess || renderResult.Value == null)
+            {
+                App.Log($"RenderPresetIco failed: {renderResult.ErrorMessage}");
+                return;
+            }
+
+            Guid operationId = Guid.NewGuid();
+            FolderBaseline priorBaseline = new FolderBaseline
+            {
+                FolderAssignmentId = Guid.NewGuid(),
+                OwnershipEpochId = Guid.NewGuid(),
+                PriorSemantics = DesktopIniParser.ReadSemantics(folderPath),
+                CapturedAt = DateTimeOffset.UtcNow
+            };
+
+            var applyResult = await Task.Run(() => _folderCustomizer.ApplyIcon(folderPath, tempIco));
+            if (applyResult.IsSuccess && applyResult.Value != null)
+            {
+                await _storageService.SaveFolderAssignmentAsync(
+                    folderPath,
+                    priorBaseline.OwnershipEpochId,
+                    applyResult.Value,
+                    priorBaseline);
+
+                // Copy to library & add asset
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
+                Directory.CreateDirectory(libraryDir);
+                string canonicalIco = Path.Combine(libraryDir, $"{renderResult.Value.ContentHash}.ico");
+                if (!File.Exists(canonicalIco))
+                {
+                    File.Copy(tempIco, canonicalIco, overwrite: true);
+                }
+
+                await _storageService.AddOrUpdateAssetAsync(
+                    renderResult.Value.ContentHash,
+                    canonicalIco,
+                    "svg");
+
+                await _storageService.RecordHistoryAsync(
+                    folderPath,
+                    operationId,
+                    null,
+                    renderResult.Value.ContentHash,
+                    "apply");
+
+                await RefreshAllDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"ApplyPresetToFolderAsync failed: {ex.Message}");
+        }
+        finally
+        {
+            if (File.Exists(tempIco))
+            {
+                try { File.Delete(tempIco); } catch { }
+            }
+        }
+    }
+}
+
+[Microsoft.UI.Xaml.Data.Bindable]
+public class PresetItemVm
+{
+    public string PresetId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string ApplyButtonText { get; set; } = string.Empty;
+    public BitmapImage? PreviewImage { get; set; }
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]

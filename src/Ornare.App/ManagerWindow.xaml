@@ -105,6 +105,12 @@
                             <TextBlock x:Name="NavTextFavorites" Text="Favorites" VerticalAlignment="Center" FontSize="13" />
                         </StackPanel>
                     </ListViewItem>
+                    <ListViewItem x:Name="NavItemPresets" AutomationProperties.Name="Status Presets" Tag="Presets" Height="40">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE73E;" FontSize="16" />
+                            <TextBlock x:Name="NavTextPresets" Text="Status Presets" VerticalAlignment="Center" FontSize="13" />
+                        </StackPanel>
+                    </ListViewItem>
                     <ListViewItem x:Name="NavItemFolders" AutomationProperties.Name="Customized Folders" Tag="Folders" Height="40">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon Glyph="&#xE838;" FontSize="16" />
@@ -402,7 +408,86 @@
                     </ListView>
                 </Grid>
 
-                <!-- 5. SETTINGS VIEW -->
+                <!-- 5. STATUS PRESETS VIEW (F04) -->
+                <Grid x:Name="PresetsView" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Top style template selector -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="16" Margin="0,0,0,16" VerticalAlignment="Center">
+                        <TextBlock x:Name="PresetTemplateLabel" Text="Style Template:" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <RadioButton x:Name="PresetRadioClassic" Content="Classic" Tag="ornare-classic" GroupName="PresetTemplateGroup" IsChecked="True" Checked="OnPresetTemplateRadioChecked" />
+                            <RadioButton x:Name="PresetRadioSoft" Content="Soft" Tag="ornare-soft" GroupName="PresetTemplateGroup" Checked="OnPresetTemplateRadioChecked" />
+                            <RadioButton x:Name="PresetRadioFlat" Content="Flat" Tag="ornare-flat" GroupName="PresetTemplateGroup" Checked="OnPresetTemplateRadioChecked" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Presets Grid -->
+                    <GridView
+                        Grid.Row="1"
+                        x:Name="PresetsGridView"
+                        SelectionMode="None"
+                        IsItemClickEnabled="False">
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="local:PresetItemVm">
+                                <Grid Width="220" Margin="0,0,16,16" Padding="16" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Preview Image -->
+                                    <Border
+                                        Grid.Row="0"
+                                        Width="80"
+                                        Height="80"
+                                        CornerRadius="8"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,0,0,12">
+                                        <Image Source="{Binding PreviewImage}" Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+
+                                    <!-- Preset Name -->
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Text="{Binding Title}"
+                                        FontSize="14"
+                                        FontWeight="SemiBold"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,0,0,4" />
+
+                                    <!-- Description -->
+                                    <TextBlock
+                                        Grid.Row="2"
+                                        Text="{Binding Description}"
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextWrapping="Wrap"
+                                        TextAlignment="Center"
+                                        MinHeight="32"
+                                        Margin="0,0,0,12" />
+
+                                    <!-- Apply Button -->
+                                    <Button
+                                        Grid.Row="3"
+                                        Content="{Binding ApplyButtonText}"
+                                        Tag="{Binding PresetId}"
+                                        Click="OnApplyPresetClicked"
+                                        HorizontalAlignment="Stretch"
+                                        Style="{ThemeResource AccentButtonStyle}" />
+                                </Grid>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </Grid>
+
+                <!-- 6. SETTINGS VIEW -->
                 <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,16,24,32">
                     <!-- Clean flat rows with dividers; no card-in-card per Visual Reference Spec -->
                     <StackPanel x:Name="SettingsContentPanel" Spacing="22" MaxWidth="760" HorizontalAlignment="Left" Margin="0,4,0,0">

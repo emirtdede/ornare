@@ -242,9 +242,9 @@ public sealed class FolderTemplateTests : IDisposable
         var softPreview = FolderTemplateRenderer.RenderPreviewPng(color, "ornare-soft", 1);
         var flatPreview = FolderTemplateRenderer.RenderPreviewPng(color, "ornare-flat", 1);
 
-        Assert.True(classicPreview.IsSuccess);
-        Assert.True(softPreview.IsSuccess);
-        Assert.True(flatPreview.IsSuccess);
+        Assert.True(classicPreview.IsSuccess, $"classicPreview failed: {classicPreview.ErrorMessage}");
+        Assert.True(softPreview.IsSuccess, $"softPreview failed: {softPreview.ErrorMessage}");
+        Assert.True(flatPreview.IsSuccess, $"flatPreview failed: {flatPreview.ErrorMessage}");
 
         byte[] classicBytes = classicPreview.Value!;
         byte[] softBytes = softPreview.Value!;

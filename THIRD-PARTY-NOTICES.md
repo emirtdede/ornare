@@ -101,6 +101,43 @@ SOFTWARE.
 
 ---
 
+## 8. Fluent UI System Icons (Microsoft)
+- **Commit:** `a563cf9166f4f91aa617557ed272612b7f0a2f72`
+- **License:** MIT License
+- **Copyright:** Copyright (c) Microsoft Corporation
+- **Project URL:** https://github.com/microsoft/fluentui-system-icons
+- **Copied Assets:**
+  - `ic_fluent_clock_24_regular.svg` (Clock badge for status.in-progress)
+  - `ic_fluent_checkmark_circle_24_regular.svg` (Checkmark Circle badge for status.done)
+  - `ic_fluent_archive_24_regular.svg` (Archive badge for status.archive)
+  - `ic_fluent_important_24_regular.svg` (Important badge for status.important)
+- **License Text:**
+```
+The MIT License (MIT)
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
 ## Reference Architecture Provenance
 - `microsoft/vscode-explorer-command` (MIT): Architectural reference for out-of-process Windows 11 `IExplorerCommand` context menu invocation.
 - `dszharikov/FolderColorizer` (MIT): Reference for Windows `desktop.ini` folder customization mechanics and attributes.

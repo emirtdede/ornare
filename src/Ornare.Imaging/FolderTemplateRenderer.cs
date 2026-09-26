@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using ImageMagick;
 using Ornare.Core;
+using Ornare.Core.Presets;
+using Ornare.Imaging.Badges;
 using Ornare.Imaging.Templates;
 
 namespace Ornare.Imaging;
@@ -125,7 +127,105 @@ public static class FolderTemplateRenderer
                 BackgroundColor = MagickColors.Transparent
             };
 
-            using var image = new MagickImage(recoloredSvgBytes, readSettings);
+            byte[] pngBytes;
+            lock (SvgRasterizationGate.Lock)
+            {
+                using var image = new MagickImage(recoloredSvgBytes, readSettings);
+                image.Format = MagickFormat.Png;
+                image.ColorSpace = ColorSpace.sRGB;
+                pngBytes = image.ToByteArray();
+            }
+            return OperationResult.Success(pngBytes);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preview rasterization failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Builds the deterministic RenderRecipe for a status preset icon (F04).
+    /// </summary>
+    public static RenderRecipe CreatePresetRecipe(
+        StatusPreset preset,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+
+        var baseRecipe = CreateRecipe(preset.BaseHex, templateId, templateVersion);
+        return baseRecipe with
+        {
+            PresetId = preset.Id,
+            PresetVersion = preset.Version,
+            BadgeAssetId = preset.BadgeAssetId,
+            BadgeVersion = preset.BadgeVersion,
+            BadgeAnchor = 0,
+            BadgeScale = 34
+        };
+    }
+
+    /// <summary>
+    /// Renders a full multi-resolution ICO for the specified status preset and template (F04), utilizing the F18 render cache.
+    /// Badges are omitted on 16, 20, and 24 px frames and composited on >= 32 px frames.
+    /// </summary>
+    public static OperationResult<NormalizedImageResult> RenderPresetIco(
+        ImagePipeline pipeline,
+        StatusPreset preset,
+        string outputIcoPath,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+        string? cacheDirectory = null,
+        Func<string, RenderCacheEntry?>? cacheLookup = null,
+        Action<RenderCacheEntry>? cacheStore = null,
+        Action<string>? cacheInvalidate = null)
+    {
+        ArgumentNullException.ThrowIfNull(pipeline);
+        ArgumentNullException.ThrowIfNull(preset);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputIcoPath);
+
+        RenderRecipe recipe;
+        try
+        {
+            recipe = CreatePresetRecipe(preset, templateId, templateVersion);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, ex.Message);
+        }
+
+        var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
+        byte[] templateBytes = descriptor.GetBytes();
+        return pipeline.ProcessRecipe(
+            recipe,
+            templateBytes,
+            outputIcoPath,
+            cacheLookup: cacheLookup,
+            cacheStore: cacheStore,
+            cacheInvalidate: cacheInvalidate,
+            cacheDirectory: cacheDirectory);
+    }
+
+    /// <summary>
+    /// Renders a fast, bounded 256x256 PNG preview for a status preset with the badge composited.
+    /// </summary>
+    public static OperationResult<byte[]> RenderPresetPreviewPng(
+        StatusPreset preset,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+
+        var basePreviewResult = RenderPreviewPng(preset.BaseHex, templateId, templateVersion);
+        if (!basePreviewResult.IsSuccess || basePreviewResult.Value == null)
+        {
+            return basePreviewResult;
+        }
+
+        try
+        {
+            using var image = new MagickImage(basePreviewResult.Value);
+            StatusBadgeCompositor.CompositeBadge(image, preset.BadgeAssetId, preset.BaseHex);
             image.Format = MagickFormat.Png;
             image.ColorSpace = ColorSpace.sRGB;
 
@@ -134,7 +234,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preview rasterization failed: {ex.Message}");
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preset preview rasterization failed: {ex.Message}");
         }
     }
 }
