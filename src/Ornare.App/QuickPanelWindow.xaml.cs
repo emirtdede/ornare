@@ -58,6 +58,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private string? _stagedCustomColorHex;
     private byte[]? _stagedImageBytes;
     private ImagePlacementMode _stagedPlacementMode = ImagePlacementMode.Contain;
+    private int _stagedPaddingPercent;
     private CancellationTokenSource? _previewDebounceCts;
     private string? _tempPreviewPngPath;
 
@@ -580,9 +581,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
             _stagedImageBytes = imageBytes;
             _stagedPlacementMode = ImagePlacementMode.Contain;
+            _stagedPaddingPercent = 0;
             if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Visible;
             if (PlacementModeRadioButtons != null) PlacementModeRadioButtons.SelectedIndex = 0;
             if (PlacementFillWarningText != null) PlacementFillWarningText.Visibility = Visibility.Collapsed;
+            if (PaddingToggleSwitch != null) PaddingToggleSwitch.IsOn = false;
+            if (PaddingSlider != null) PaddingSlider.Value = 8;
+            if (PaddingSliderContainer != null) PaddingSliderContainer.Visibility = Visibility.Collapsed;
 
             // 3. Show preview and wait for explicit user confirmation
             await SetProcessingStageAsync(ProcessingStage.PreviewReady);
@@ -919,15 +924,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             var imageBytes = _stagedImageBytes;
             var mode = _stagedPlacementMode;
 
+            var pad = _stagedPaddingPercent;
+
             // Render fast preview PNG first
-            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode));
+            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad));
             if (previewResult.IsSuccess && previewResult.Value != null)
             {
                 PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewResult.Value);
             }
 
             // Also render staged ICO in background so Apply is instantly ready
-            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode));
+            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad));
             if (processResult.IsSuccess && processResult.Value != null)
             {
                 _stagedProcessResult = processResult.Value;
@@ -937,6 +944,88 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             App.Log($"Placement change failed: {ex.Message}");
         }
+    }
+
+    private void OnPaddingToggled(object sender, RoutedEventArgs e)
+    {
+        if (PaddingToggleSwitch == null || PaddingSliderContainer == null) return;
+        bool isOn = PaddingToggleSwitch.IsOn;
+        PaddingSliderContainer.Visibility = isOn ? Visibility.Visible : Visibility.Collapsed;
+        int newPercent = isOn ? (int)Math.Round(PaddingSlider?.Value ?? 8) : 0;
+        TriggerDebouncedPreview(newPercent);
+    }
+
+    private void OnPaddingSliderValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        int newPercent = (int)Math.Round(e.NewValue);
+        UpdatePaddingLabel(newPercent);
+        if (PaddingToggleSwitch != null && PaddingToggleSwitch.IsOn)
+        {
+            TriggerDebouncedPreview(newPercent);
+        }
+    }
+
+    private void UpdatePaddingLabel(int percent)
+    {
+        if (PaddingLabelText == null) return;
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+        PaddingLabelText.Text = isTr ? $"Boşluk: %{percent}" : $"Padding: {percent}%";
+    }
+
+    private void TriggerDebouncedPreview(int paddingPercent)
+    {
+        if (_isProcessing || _stagedImageBytes == null) return;
+        _stagedPaddingPercent = paddingPercent;
+
+        _previewDebounceCts?.Cancel();
+        _previewDebounceCts?.Dispose();
+        _previewDebounceCts = new CancellationTokenSource();
+        var token = _previewDebounceCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(80, token);
+                if (token.IsCancellationRequested) return;
+
+                var imageBytes = _stagedImageBytes;
+                if (imageBytes == null) return;
+                var mode = _stagedPlacementMode;
+                var pad = _stagedPaddingPercent;
+
+                var previewResult = ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad);
+                if (token.IsCancellationRequested || !previewResult.IsSuccess || previewResult.Value == null) return;
+
+                byte[] previewBytes = previewResult.Value;
+
+                var tempPath = _stagedTempIcoPath;
+                NormalizedImageResult? icoResult = null;
+                if (!string.IsNullOrWhiteSpace(tempPath))
+                {
+                    var res = _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad);
+                    if (res.IsSuccess)
+                    {
+                        icoResult = res.Value;
+                    }
+                }
+
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    if (icoResult != null)
+                    {
+                        _stagedProcessResult = icoResult;
+                    }
+                    PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewBytes);
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                App.Log($"Debounced padding preview failed: {ex.Message}");
+            }
+        }, token);
     }
 
     private void UpdatePlacementStrings(bool isTr)
@@ -970,6 +1059,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             PlacementFillWarningText.Text = isTr ? "Uyarı: Uzat modu görseli esnetir ve orijinal oranlarını değiştirir." : "Warning: Fill mode stretches the image and alters its proportions.";
         }
+        if (PaddingToggleSwitch != null)
+        {
+            PaddingToggleSwitch.Header = isTr ? "İç Boşluk" : "Inner Padding";
+            ToolTipService.SetToolTip(PaddingToggleSwitch, isTr ? "Kenar başına iç boşluk (%0–30)" : "Inset padding per side (0–30%)");
+            AutomationProperties.SetName(PaddingToggleSwitch, isTr ? "İç Boşluk" : "Inner Padding");
+        }
+        UpdatePaddingLabel(_stagedPaddingPercent > 0 ? _stagedPaddingPercent : (int)(PaddingSlider?.Value ?? 8));
     }
 
     private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)
@@ -1239,6 +1335,19 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         if (PlacementFillWarningText != null)
         {
             PlacementFillWarningText.Visibility = Visibility.Collapsed;
+        }
+        _stagedPaddingPercent = 0;
+        if (PaddingToggleSwitch != null)
+        {
+            PaddingToggleSwitch.IsOn = false;
+        }
+        if (PaddingSlider != null)
+        {
+            PaddingSlider.Value = 8;
+        }
+        if (PaddingSliderContainer != null)
+        {
+            PaddingSliderContainer.Visibility = Visibility.Collapsed;
         }
 
         try

@@ -330,4 +330,13 @@
   <data name="Placement_Fill_ToolTip" xml:space="preserve">
     <value>Stretches to canvas (may distort aspect ratio)</value>
   </data>
+  <data name="Padding_Title" xml:space="preserve">
+    <value>Inner Padding</value>
+  </data>
+  <data name="Padding_Label" xml:space="preserve">
+    <value>Padding: {0}%</value>
+  </data>
+  <data name="Padding_ToolTip" xml:space="preserve">
+    <value>Inset padding per side (0–30%)</value>
+  </data>
 </root>

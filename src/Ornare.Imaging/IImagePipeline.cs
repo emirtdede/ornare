@@ -9,8 +9,8 @@ namespace Ornare.Imaging;
 public interface IImagePipeline
 {
     bool ValidateImageFormat(string filePath);
-    OperationResult<NormalizedImageResult> ProcessImage(string inputPath, string outputIcoPath, ImagePlacementMode placementMode = ImagePlacementMode.Contain);
-    OperationResult<NormalizedImageResult> ProcessImageBytes(byte[] imageBytes, string outputIcoPath, ImagePlacementMode placementMode = ImagePlacementMode.Contain);
+    OperationResult<NormalizedImageResult> ProcessImage(string inputPath, string outputIcoPath, ImagePlacementMode placementMode = ImagePlacementMode.Contain, int paddingPercent = 0);
+    OperationResult<NormalizedImageResult> ProcessImageBytes(byte[] imageBytes, string outputIcoPath, ImagePlacementMode placementMode = ImagePlacementMode.Contain, int paddingPercent = 0);
 
     // F18: Streaming hash and recipe rendering
     Task<string> ComputeSourceHashStreamAsync(Stream stream, CancellationToken cancellationToken = default);

@@ -41,10 +41,10 @@ public static class ImagePlacementCalculator
         int canvasW = Math.Max(1, canvasWidth);
         int canvasH = Math.Max(1, canvasHeight);
 
-        // Calculate padding offsets
-        double clampedPadding = Math.Clamp(paddingPercent, 0.0, 49.0);
-        int padX = (int)Math.Round(canvasW * (clampedPadding / 100.0) / 2.0);
-        int padY = (int)Math.Round(canvasH * (clampedPadding / 100.0) / 2.0);
+        // Calculate padding offsets per side (F07): clamped to [0, 30]%
+        double clampedPadding = Math.Clamp(paddingPercent, 0.0, 30.0);
+        int padX = (int)Math.Round(canvasW * (clampedPadding / 100.0), MidpointRounding.AwayFromZero);
+        int padY = (int)Math.Round(canvasH * (clampedPadding / 100.0), MidpointRounding.AwayFromZero);
 
         int usableW = Math.Max(1, canvasW - (padX * 2));
         int usableH = Math.Max(1, canvasH - (padY * 2));

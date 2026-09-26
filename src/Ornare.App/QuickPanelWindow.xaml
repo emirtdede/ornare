@@ -298,7 +298,7 @@
                                 CornerRadius="6">
                                 <Button.Flyout>
                                     <Flyout x:Name="PlacementOptionsFlyout">
-                                        <StackPanel Width="230" Spacing="8">
+                                        <StackPanel Width="240" Spacing="10">
                                             <TextBlock x:Name="PlacementTitleText" Text="Image Placement" FontWeight="SemiBold" FontSize="13" />
                                             <RadioButtons x:Name="PlacementModeRadioButtons" SelectedIndex="0" SelectionChanged="OnPlacementSelectionChanged">
                                                 <RadioButton x:Name="RadioPlacementContain" Content="Contain" Tag="0" IsChecked="True" />
@@ -311,6 +311,35 @@
                                                        Foreground="{ThemeResource SystemFillColorCautionBrush}"
                                                        TextWrapping="Wrap"
                                                        Visibility="Collapsed" />
+
+                                            <MenuFlyoutSeparator Margin="0,2,0,2" />
+
+                                            <!-- F07: Transparent Padding -->
+                                            <ToggleSwitch
+                                                x:Name="PaddingToggleSwitch"
+                                                Header="Inner Padding"
+                                                IsOn="False"
+                                                FontSize="12"
+                                                Toggled="OnPaddingToggled"
+                                                AutomationProperties.Name="Inner Padding" />
+
+                                            <StackPanel x:Name="PaddingSliderContainer" Spacing="4" Visibility="Collapsed">
+                                                <TextBlock
+                                                    x:Name="PaddingLabelText"
+                                                    Text="Padding: 8%"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <Slider
+                                                    x:Name="PaddingSlider"
+                                                    Minimum="0"
+                                                    Maximum="30"
+                                                    StepFrequency="1"
+                                                    SmallChange="1"
+                                                    LargeChange="5"
+                                                    Value="8"
+                                                    ValueChanged="OnPaddingSliderValueChanged"
+                                                    AutomationProperties.Name="Padding percentage" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>

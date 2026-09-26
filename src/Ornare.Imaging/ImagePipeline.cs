@@ -124,7 +124,8 @@ public sealed class ImagePipeline : IImagePipeline
     public OperationResult<NormalizedImageResult> ProcessImage(
         string inputPath,
         string outputIcoPath,
-        ImagePlacementMode placementMode = ImagePlacementMode.Contain)
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain,
+        int paddingPercent = 0)
     {
         if (string.IsNullOrWhiteSpace(inputPath) || !File.Exists(inputPath))
         {
@@ -143,13 +144,14 @@ public sealed class ImagePipeline : IImagePipeline
                 ErrorCode.FilesystemError, $"Failed to read input image: {ex.Message}");
         }
 
-        return ProcessImageBytes(bytes, outputIcoPath, placementMode);
+        return ProcessImageBytes(bytes, outputIcoPath, placementMode, paddingPercent);
     }
 
     public OperationResult<NormalizedImageResult> ProcessImageBytes(
         byte[] imageBytes,
         string outputIcoPath,
-        ImagePlacementMode placementMode = ImagePlacementMode.Contain)
+        ImagePlacementMode placementMode = ImagePlacementMode.Contain,
+        int paddingPercent = 0)
     {
         if (imageBytes == null || imageBytes.Length == 0)
         {
@@ -162,6 +164,7 @@ public sealed class ImagePipeline : IImagePipeline
         {
             SourceAssetHash = contentHash,
             PlacementMode = (int)placementMode,
+            PaddingPercent = Math.Clamp(paddingPercent, 0, 30),
             TargetFormat = "ico",
             TargetFrameSizes = IcoFrameSizes
         };

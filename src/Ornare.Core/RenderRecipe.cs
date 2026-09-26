@@ -23,7 +23,21 @@ public sealed record RenderRecipe
     public int SvgRecolorVersion { get; init; } = 1;
     public int PlacementMode { get; init; }
     public ImagePlacementMode ImagePlacement => (ImagePlacementMode)PlacementMode;
-    public int PaddingPercent { get; init; }
+
+    private readonly int _paddingPercent;
+    public int PaddingPercent
+    {
+        get => _paddingPercent;
+        init
+        {
+            if (value < 0 || value > 30)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "Padding percentage must be between 0 and 30.");
+            }
+            _paddingPercent = value;
+        }
+    }
+
     public int BackgroundMode { get; init; }
     public string BackgroundColor { get; init; } = string.Empty;
     public string PresetId { get; init; } = string.Empty;
@@ -92,6 +106,90 @@ public static class CanonicalRecipeSerializer
         }
 
         return ms.ToArray();
+    }
+
+    public static RenderRecipe Deserialize(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        if (bytes.Length < 4)
+        {
+            throw new InvalidDataException("Invalid recipe byte stream: too short.");
+        }
+
+        using var ms = new MemoryStream(bytes);
+        using var reader = new BinaryReader(ms, Encoding.UTF8);
+
+        byte[] magic = reader.ReadBytes(4);
+        if (!magic.SequenceEqual(MagicBytes))
+        {
+            throw new InvalidDataException("Invalid recipe magic bytes.");
+        }
+
+        int recipeVersion = reader.ReadInt32();
+        string sourceAssetHash = reader.ReadString();
+        int normVer = reader.ReadInt32();
+        int rendVer = reader.ReadInt32();
+        string templateId = reader.ReadString();
+        int templVer = reader.ReadInt32();
+        int palAlgVer = reader.ReadInt32();
+        string palParams = reader.ReadString();
+        int svgRecolorMode = reader.ReadInt32();
+        string svgRecolorVal = reader.ReadString();
+        int svgRecolorVer = reader.ReadInt32();
+        int placementMode = reader.ReadInt32();
+        int paddingPercent = reader.ReadInt32();
+        if (paddingPercent < 0 || paddingPercent > 30)
+        {
+            throw new InvalidDataException($"Invalid padding percentage in recipe: {paddingPercent}. Accepted range is 0 to 30.");
+        }
+        int bgMode = reader.ReadInt32();
+        string bgColor = reader.ReadString();
+        string presetId = reader.ReadString();
+        int presetVer = reader.ReadInt32();
+        string badgeAssetId = reader.ReadString();
+        int badgeVer = reader.ReadInt32();
+        int badgeAnchor = reader.ReadInt32();
+        int badgeScale = reader.ReadInt32();
+        string targetFormat = reader.ReadString();
+        int frameCount = reader.ReadInt32();
+        int[] frameSizes = new int[frameCount];
+        for (int i = 0; i < frameCount; i++)
+        {
+            frameSizes[i] = reader.ReadInt32();
+        }
+        int resampVer = reader.ReadInt32();
+        int compVer = reader.ReadInt32();
+        int colorSpaceVer = reader.ReadInt32();
+
+        return new RenderRecipe
+        {
+            RecipeVersion = recipeVersion,
+            SourceAssetHash = sourceAssetHash,
+            NormalizationPolicyVersion = normVer,
+            RendererVersion = rendVer,
+            TemplateId = templateId,
+            TemplateVersion = templVer,
+            PaletteAlgorithmVersion = palAlgVer,
+            PaletteParameters = palParams,
+            SvgRecolorMode = svgRecolorMode,
+            SvgRecolorValue = svgRecolorVal,
+            SvgRecolorVersion = svgRecolorVer,
+            PlacementMode = placementMode,
+            PaddingPercent = paddingPercent,
+            BackgroundMode = bgMode,
+            BackgroundColor = bgColor,
+            PresetId = presetId,
+            PresetVersion = presetVer,
+            BadgeAssetId = badgeAssetId,
+            BadgeVersion = badgeVer,
+            BadgeAnchor = badgeAnchor,
+            BadgeScale = badgeScale,
+            TargetFormat = targetFormat,
+            TargetFrameSizes = frameSizes,
+            ResamplingPolicyVersion = resampVer,
+            CompositingPolicyVersion = compVer,
+            ColorSpacePolicyVersion = colorSpaceVer
+        };
     }
 
     public static string ComputeRenderKey(RenderRecipe recipe)
