@@ -97,6 +97,24 @@ Crash-consistency journal for cross-filesystem/SQLite mutations:
 
 Journal entries are created before the first user-visible filesystem mutation and are processed idempotently on next launch if unfinished.
 
+### `render_cache` (Schema Version 2)
+
+Deduplication table for deterministic derived icon renders:
+
+- `render_key` (TEXT PRIMARY KEY) - SHA-256 over canonical versioned render recipe;
+- `recipe_version` (INTEGER NOT NULL);
+- `recipe_json` (TEXT NOT NULL);
+- `source_asset_hash` (TEXT NOT NULL);
+- `canonical_ico_path` (TEXT NOT NULL);
+- `frame_sizes` (TEXT NOT NULL);
+- `file_size_bytes` (INTEGER NOT NULL);
+- `created_at` (TEXT NOT NULL);
+- `last_used_at` (TEXT NOT NULL).
+
+Indexes:
+- `idx_render_cache_source` on `render_cache(source_asset_hash)`
+- `idx_render_cache_last_used` on `render_cache(last_used_at DESC)`
+
 ### `settings`
 
 Only application settings that cannot cleanly live in Windows app settings/resources.
@@ -117,10 +135,11 @@ Diagnostics must redact paths by default unless the user explicitly opts to incl
 
 Canonical asset garbage collection may remove an asset only when:
 
-- no tracked folder assignment references it;
+- no tracked folder assignment references it (directly or via derived render key);
 - no favorite references it;
-- history retention rules permit deletion;
-- operation is crash-safe.
+- no undo/history record references it (directly or via derived render key);
+- no last-applied pointer (`LastAppliedAssetHash`, `LastAppliedRenderKey`) references it;
+- operation is crash-safe and executes after commit.
 
 Never scan/delete hidden folder-owned icons outside Ornare tracking without provenance verification.
 

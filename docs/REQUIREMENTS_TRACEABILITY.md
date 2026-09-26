@@ -36,6 +36,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-PERF-002 | Quick-panel startup and apply baselines are measured P50/P95 | PERFORMANCE | benchmark report |
 | ORN-PKG-001 | x64 + ARM64 packaged Release builds and runtime qualification pass | RELEASE_DISTRIBUTION | clean machines/WACK |
 | ORN-SC-001 | Locked/pinned dependencies, vulnerability audit, SBOM and notices | DEPENDENCY_SUPPLY_CHAIN | CI/release artifacts |
+| ORN-EXP-F18 | Canonical source asset and versioned render recipe deduplication with verified render cache and rollback-safe migration | F18_asset-deduplication, STORAGE_DATA_MODEL, IMAGE_PIPELINE | unit/integration/benchmark tests |
 
 ## Traceability rule
 

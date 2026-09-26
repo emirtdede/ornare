@@ -46,96 +46,129 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
 
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-                PRAGMA journal_mode = WAL;
-                PRAGMA synchronous = NORMAL;
-
-                CREATE TABLE IF NOT EXISTS folder_assignments (
-                    id TEXT PRIMARY KEY,
-                    folder_path TEXT NOT NULL UNIQUE,
-                    ownership_epoch_id TEXT NOT NULL,
-                    icon_relative_path TEXT NOT NULL,
-                    status INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    volume_serial TEXT,
-                    file_id TEXT,
-                    current_asset_hash TEXT,
-                    conflict_state TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS folder_baselines (
-                    id TEXT PRIMARY KEY,
-                    folder_assignment_id TEXT NOT NULL,
-                    ownership_epoch_id TEXT NOT NULL,
-                    prior_semantics_json TEXT NOT NULL,
-                    captured_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS operation_journal (
-                    operation_id TEXT PRIMARY KEY,
-                    operation_kind INTEGER NOT NULL,
-                    target_folder_path TEXT NOT NULL,
-                    state INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    target_asset_path TEXT,
-                    prior_semantics_json TEXT,
-                    new_semantics_json TEXT,
-                    error_details TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS assets (
-                    id TEXT PRIMARY KEY,
-                    sha256 TEXT UNIQUE NOT NULL,
-                    canonical_ico_path TEXT NOT NULL,
-                    source_format TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    last_used_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS favorites (
-                    asset_id TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder_path TEXT NOT NULL,
-                    operation_id TEXT NOT NULL,
-                    previous_asset_hash TEXT,
-                    new_asset_hash TEXT NOT NULL,
-                    operation_type TEXT NOT NULL,
-                    timestamp TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_journal_state ON operation_journal(state);
-                CREATE INDEX IF NOT EXISTS idx_assets_sha256 ON assets(sha256);
-                CREATE INDEX IF NOT EXISTS idx_assets_last_used ON assets(last_used_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
-            ";
-            await command.ExecuteNonQueryAsync();
-
-            // Safe column additions for existing folder_assignments table
-            string[] migrationColumns = ["volume_serial TEXT", "file_id TEXT", "current_asset_hash TEXT", "conflict_state TEXT"];
-            foreach (var col in migrationColumns)
+            using (var pragmaCmd = connection.CreateCommand())
             {
-                try
+                pragmaCmd.CommandText = @"
+                    PRAGMA journal_mode = WAL;
+                    PRAGMA synchronous = NORMAL;
+                ";
+                await pragmaCmd.ExecuteNonQueryAsync();
+            }
+
+            int currentVersion = 0;
+            using (var versionCheckCmd = connection.CreateCommand())
+            {
+                versionCheckCmd.CommandText = "PRAGMA user_version;";
+                object? vObj = await versionCheckCmd.ExecuteScalarAsync();
+                currentVersion = vObj is long l ? (int)l : Convert.ToInt32(vObj, CultureInfo.InvariantCulture);
+            }
+
+            if (currentVersion == 0)
+            {
+                using var tx = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = tx;
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS folder_assignments (
+                        id TEXT PRIMARY KEY,
+                        folder_path TEXT NOT NULL UNIQUE,
+                        ownership_epoch_id TEXT NOT NULL,
+                        icon_relative_path TEXT NOT NULL,
+                        status INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        volume_serial TEXT,
+                        file_id TEXT,
+                        current_asset_hash TEXT,
+                        conflict_state TEXT
+                    );
+
+                    CREATE TABLE IF NOT EXISTS folder_baselines (
+                        id TEXT PRIMARY KEY,
+                        folder_assignment_id TEXT NOT NULL,
+                        ownership_epoch_id TEXT NOT NULL,
+                        prior_semantics_json TEXT NOT NULL,
+                        captured_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS operation_journal (
+                        operation_id TEXT PRIMARY KEY,
+                        operation_kind INTEGER NOT NULL,
+                        target_folder_path TEXT NOT NULL,
+                        state INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        target_asset_path TEXT,
+                        prior_semantics_json TEXT,
+                        new_semantics_json TEXT,
+                        error_details TEXT
+                    );
+
+                    CREATE TABLE IF NOT EXISTS assets (
+                        id TEXT PRIMARY KEY,
+                        sha256 TEXT UNIQUE NOT NULL,
+                        canonical_ico_path TEXT NOT NULL,
+                        source_format TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        last_used_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS favorites (
+                        asset_id TEXT PRIMARY KEY,
+                        created_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        folder_path TEXT NOT NULL,
+                        operation_id TEXT NOT NULL,
+                        previous_asset_hash TEXT,
+                        new_asset_hash TEXT NOT NULL,
+                        operation_type TEXT NOT NULL,
+                        timestamp TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_journal_state ON operation_journal(state);
+                    CREATE INDEX IF NOT EXISTS idx_assets_sha256 ON assets(sha256);
+                    CREATE INDEX IF NOT EXISTS idx_assets_last_used ON assets(last_used_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
+                ";
+                await command.ExecuteNonQueryAsync();
+
+                // Safe column additions for existing folder_assignments table
+                string[] migrationColumns = ["volume_serial TEXT", "file_id TEXT", "current_asset_hash TEXT", "conflict_state TEXT"];
+                foreach (var col in migrationColumns)
                 {
-                    using var alterCmd = connection.CreateCommand();
-                    alterCmd.CommandText = $"ALTER TABLE folder_assignments ADD COLUMN {col};";
-                    await alterCmd.ExecuteNonQueryAsync();
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.Transaction = tx;
+                        alterCmd.CommandText = $"ALTER TABLE folder_assignments ADD COLUMN {col};";
+                        await alterCmd.ExecuteNonQueryAsync();
+                    }
+                    catch (SqliteException)
+                    {
+                        // Column already exists, safe to ignore
+                    }
                 }
-                catch (SqliteException)
-                {
-                    // Column already exists, safe to ignore
-                }
+
+                using var setV1Cmd = connection.CreateCommand();
+                setV1Cmd.Transaction = tx;
+                setV1Cmd.CommandText = "PRAGMA user_version = 1;";
+                await setV1Cmd.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                currentVersion = 1;
+            }
+
+            if (currentVersion < 2)
+            {
+                await ApplyMigrationV2InternalAsync(connection, injectFailure: false);
             }
 
             _isInitialized = true;
@@ -960,6 +993,404 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         if (!_isInitialized)
         {
             throw new InvalidOperationException("SqliteStorageService must be initialized before use.");
+        }
+    }
+
+    public async Task<RenderCacheEntry?> GetRenderCacheEntryAsync(string renderKey)
+    {
+        EnsureInitialized();
+        if (string.IsNullOrWhiteSpace(renderKey))
+        {
+            return null;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT render_key, recipe_version, recipe_json, source_asset_hash,
+                       canonical_ico_path, frame_sizes, file_size_bytes, created_at, last_used_at
+                FROM render_cache
+                WHERE render_key = @key;
+            ";
+            command.Parameters.AddWithValue("@key", renderKey);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var entry = new RenderCacheEntry
+                {
+                    RenderKey = reader.GetString(0),
+                    RecipeVersion = reader.GetInt32(1),
+                    RecipeJson = reader.GetString(2),
+                    SourceAssetHash = reader.GetString(3),
+                    CanonicalIcoPath = reader.GetString(4),
+                    FrameSizes = reader.GetString(5),
+                    FileSizeBytes = reader.GetInt64(6),
+                    CreatedAt = DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture),
+                    LastUsedAt = DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture)
+                };
+
+                using var touchCmd = connection.CreateCommand();
+                touchCmd.CommandText = "UPDATE render_cache SET last_used_at = @now WHERE render_key = @key;";
+                touchCmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                touchCmd.Parameters.AddWithValue("@key", renderKey);
+                await touchCmd.ExecuteNonQueryAsync();
+
+                return entry;
+            }
+
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task SaveRenderCacheEntryAsync(RenderCacheEntry entry)
+    {
+        EnsureInitialized();
+        ArgumentNullException.ThrowIfNull(entry);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                INSERT INTO render_cache (
+                    render_key, recipe_version, recipe_json, source_asset_hash,
+                    canonical_ico_path, frame_sizes, file_size_bytes, created_at, last_used_at
+                ) VALUES (
+                    @render_key, @recipe_version, @recipe_json, @source_asset_hash,
+                    @canonical_ico_path, @frame_sizes, @file_size_bytes, @created_at, @last_used_at
+                )
+                ON CONFLICT(render_key) DO UPDATE SET
+                    canonical_ico_path = @canonical_ico_path,
+                    file_size_bytes = @file_size_bytes,
+                    last_used_at = @last_used_at;
+            ";
+            command.Parameters.AddWithValue("@render_key", entry.RenderKey);
+            command.Parameters.AddWithValue("@recipe_version", entry.RecipeVersion);
+            command.Parameters.AddWithValue("@recipe_json", entry.RecipeJson);
+            command.Parameters.AddWithValue("@source_asset_hash", entry.SourceAssetHash);
+            command.Parameters.AddWithValue("@canonical_ico_path", entry.CanonicalIcoPath);
+            command.Parameters.AddWithValue("@frame_sizes", entry.FrameSizes);
+            command.Parameters.AddWithValue("@file_size_bytes", entry.FileSizeBytes);
+            command.Parameters.AddWithValue("@created_at", entry.CreatedAt.ToString("o", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("@last_used_at", entry.LastUsedAt.ToString("o", CultureInfo.InvariantCulture));
+
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task InvalidateRenderCacheAsync(string renderKey)
+    {
+        EnsureInitialized();
+        if (string.IsNullOrWhiteSpace(renderKey))
+        {
+            return;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM render_cache WHERE render_key = @key;";
+            command.Parameters.AddWithValue("@key", renderKey);
+
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<bool> IsAssetOrRenderReferencedAsync(string hashOrKey)
+    {
+        EnsureInitialized();
+        if (string.IsNullOrWhiteSpace(hashOrKey))
+        {
+            return false;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT
+                    (SELECT COUNT(1) FROM folder_assignments WHERE current_asset_hash = @id OR render_key = @id) +
+                    (SELECT COUNT(1) FROM history WHERE previous_asset_hash = @id OR new_asset_hash = @id OR render_key = @id) +
+                    (SELECT COUNT(1) FROM favorites WHERE asset_id = @id) +
+                    (SELECT COUNT(1) FROM settings WHERE key IN ('LastAppliedRenderKey', 'LastAppliedAssetHash') AND value = @id) +
+                    (SELECT COUNT(1) FROM render_cache rc
+                     WHERE rc.source_asset_hash = @id
+                       AND (
+                           EXISTS (SELECT 1 FROM folder_assignments fa WHERE fa.render_key = rc.render_key)
+                           OR EXISTS (SELECT 1 FROM history h WHERE h.render_key = rc.render_key)
+                           OR EXISTS (SELECT 1 FROM settings s WHERE s.key = 'LastAppliedRenderKey' AND s.value = rc.render_key)
+                       )
+                    );
+            ";
+            command.Parameters.AddWithValue("@id", hashOrKey);
+
+            object? result = await command.ExecuteScalarAsync();
+            long count = result is long l ? l : Convert.ToInt64(result, CultureInfo.InvariantCulture);
+            return count > 0;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GetUnreferencedAssetsAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT a.sha256
+                FROM assets a
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM folder_assignments fa WHERE fa.current_asset_hash = a.sha256
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM history h WHERE h.previous_asset_hash = a.sha256 OR h.new_asset_hash = a.sha256
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM favorites f WHERE f.asset_id = a.sha256
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM settings s WHERE s.key = 'LastAppliedAssetHash' AND s.value = a.sha256
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM render_cache rc
+                    WHERE rc.source_asset_hash = a.sha256
+                    AND (
+                        EXISTS (SELECT 1 FROM folder_assignments fa WHERE fa.render_key = rc.render_key)
+                        OR EXISTS (SELECT 1 FROM history h WHERE h.render_key = rc.render_key)
+                        OR EXISTS (SELECT 1 FROM settings s WHERE s.key = 'LastAppliedRenderKey' AND s.value = rc.render_key)
+                    )
+                );
+            ";
+
+            var list = new List<string>();
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(reader.GetString(0));
+            }
+            return list;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<int> CleanupUnreferencedAssetsAsync()
+    {
+        EnsureInitialized();
+        var unreferencedHashes = await GetUnreferencedAssetsAsync();
+        if (unreferencedHashes.Count == 0)
+        {
+            return 0;
+        }
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            using var tx = connection.BeginTransaction();
+
+            int cleanedCount = 0;
+            foreach (var hash in unreferencedHashes)
+            {
+                string? assetIcoPath = null;
+                using (var getCmd = connection.CreateCommand())
+                {
+                    getCmd.Transaction = tx;
+                    getCmd.CommandText = "SELECT canonical_ico_path FROM assets WHERE sha256 = @hash;";
+                    getCmd.Parameters.AddWithValue("@hash", hash);
+                    object? res = await getCmd.ExecuteScalarAsync();
+                    if (res is string s) assetIcoPath = s;
+                }
+
+                var renderPaths = new List<string>();
+                using (var getRenderCmd = connection.CreateCommand())
+                {
+                    getRenderCmd.Transaction = tx;
+                    getRenderCmd.CommandText = "SELECT canonical_ico_path FROM render_cache WHERE source_asset_hash = @hash;";
+                    getRenderCmd.Parameters.AddWithValue("@hash", hash);
+                    using var rReader = await getRenderCmd.ExecuteReaderAsync();
+                    while (await rReader.ReadAsync())
+                    {
+                        renderPaths.Add(rReader.GetString(0));
+                    }
+                }
+
+                using (var delRenderCmd = connection.CreateCommand())
+                {
+                    delRenderCmd.Transaction = tx;
+                    delRenderCmd.CommandText = "DELETE FROM render_cache WHERE source_asset_hash = @hash;";
+                    delRenderCmd.Parameters.AddWithValue("@hash", hash);
+                    await delRenderCmd.ExecuteNonQueryAsync();
+                }
+
+                using (var delAssetCmd = connection.CreateCommand())
+                {
+                    delAssetCmd.Transaction = tx;
+                    delAssetCmd.CommandText = "DELETE FROM assets WHERE sha256 = @hash;";
+                    delAssetCmd.Parameters.AddWithValue("@hash", hash);
+                    cleanedCount += await delAssetCmd.ExecuteNonQueryAsync();
+                }
+
+                if (!string.IsNullOrEmpty(assetIcoPath) && File.Exists(assetIcoPath))
+                {
+                    try { File.Delete(assetIcoPath); } catch { }
+                }
+                foreach (var rp in renderPaths)
+                {
+                    if (!string.IsNullOrEmpty(rp) && File.Exists(rp))
+                    {
+                        try { File.Delete(rp); } catch { }
+                    }
+                }
+            }
+
+            tx.Commit();
+            return cleanedCount;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<int> GetCurrentSchemaVersionAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA user_version;";
+            object? result = await cmd.ExecuteScalarAsync();
+            return result is long l ? (int)l : Convert.ToInt32(result, CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task ApplyForwardMigrationWithFailureInjectionAsync(int targetVersion, bool injectFailure)
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            if (targetVersion == 2)
+            {
+                await ApplyMigrationV2InternalAsync(connection, injectFailure);
+            }
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    private static async Task ApplyMigrationV2InternalAsync(SqliteConnection connection, bool injectFailure)
+    {
+        using var tx = connection.BeginTransaction();
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS render_cache (
+                    render_key TEXT PRIMARY KEY,
+                    recipe_version INTEGER NOT NULL,
+                    recipe_json TEXT NOT NULL,
+                    source_asset_hash TEXT NOT NULL,
+                    canonical_ico_path TEXT NOT NULL,
+                    frame_sizes TEXT NOT NULL,
+                    file_size_bytes INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_render_cache_source ON render_cache(source_asset_hash);
+                CREATE INDEX IF NOT EXISTS idx_render_cache_last_used ON render_cache(last_used_at DESC);
+            ";
+            await cmd.ExecuteNonQueryAsync();
+
+            try
+            {
+                using var alterCmd = connection.CreateCommand();
+                alterCmd.Transaction = tx;
+                alterCmd.CommandText = "ALTER TABLE folder_assignments ADD COLUMN render_key TEXT;";
+                await alterCmd.ExecuteNonQueryAsync();
+            }
+            catch (SqliteException) { }
+
+            try
+            {
+                using var alterCmd = connection.CreateCommand();
+                alterCmd.Transaction = tx;
+                alterCmd.CommandText = "ALTER TABLE history ADD COLUMN render_key TEXT;";
+                await alterCmd.ExecuteNonQueryAsync();
+            }
+            catch (SqliteException) { }
+
+            if (injectFailure)
+            {
+                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
+            }
+
+            using var setVersionCmd = connection.CreateCommand();
+            setVersionCmd.Transaction = tx;
+            setVersionCmd.CommandText = "PRAGMA user_version = 2;";
+            await setVersionCmd.ExecuteNonQueryAsync();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
         }
     }
 

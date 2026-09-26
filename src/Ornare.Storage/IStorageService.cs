@@ -43,4 +43,13 @@ public interface IStorageService
     Task SetSettingAsync(string key, string value);
     Task<UserSettings> GetUserSettingsAsync();
     Task SaveUserSettingsAsync(UserSettings settings);
+
+    // F18: Render Cache & Reference-Safe Cleanup
+    Task<RenderCacheEntry?> GetRenderCacheEntryAsync(string renderKey);
+    Task SaveRenderCacheEntryAsync(RenderCacheEntry entry);
+    Task InvalidateRenderCacheAsync(string renderKey);
+    Task<bool> IsAssetOrRenderReferencedAsync(string hashOrKey);
+    Task<IReadOnlyList<string>> GetUnreferencedAssetsAsync();
+    Task<int> CleanupUnreferencedAssetsAsync();
+    Task<int> GetCurrentSchemaVersionAsync();
 }

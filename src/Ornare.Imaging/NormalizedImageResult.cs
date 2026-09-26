@@ -8,4 +8,6 @@ public sealed record NormalizedImageResult
     public required string SourceFormat { get; init; }
     public required string GeneratedIcoPath { get; init; }
     public required IReadOnlyList<int> FrameSizes { get; init; }
+    public string? RenderKey { get; init; }
+    public bool IsFromCache { get; init; }
 }
