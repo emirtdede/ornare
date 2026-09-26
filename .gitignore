@@ -36,8 +36,15 @@ ui-captures/
 *.msixbundle
 *.appxbundle
 *.pfx
-production_artifacts/release/layout/
-production_artifacts/release/candidate/layout/
+*.exe
+*.pdb
+production_artifacts/release/layout*/
+production_artifacts/release/candidate/layout*/
+production_artifacts/release/candidate/priconfig_*.xml
+production_artifacts/release/scratch/
+production_artifacts/release/*.png
+src/Ornare.Installer/x64/
+src/Ornare.Installer/production_artifacts/
 
 # Test directories
 OrnareGate1Final/

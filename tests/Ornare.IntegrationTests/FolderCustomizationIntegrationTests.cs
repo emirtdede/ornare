@@ -365,6 +365,57 @@ public class FolderCustomizationIntegrationTests
         }
     }
 
+    [Fact]
+    public void StagedPreviewDoesNotMutateTargetFolderUntilExplicitlyApplied()
+    {
+        string targetFolder = Path.Combine(Path.GetTempPath(), "ornare_stage_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(targetFolder);
+
+        string sourceImage = Path.Combine(Path.GetTempPath(), "ornare_source_" + Guid.NewGuid().ToString("N") + ".png");
+        string stagedIco = Path.Combine(Path.GetTempPath(), "ornare_staged_" + Guid.NewGuid().ToString("N") + ".ico");
+
+        try
+        {
+            // 1. Generate image bytes
+            using (var img = new MagickImage(MagickColors.Azure, 64, 64))
+            {
+                img.Write(sourceImage, MagickFormat.Png);
+            }
+
+            // 2. Stage preview (generate ICO without touching target folder)
+            var stageResult = _imagePipeline.ProcessImage(sourceImage, stagedIco);
+            Assert.True(stageResult.IsSuccess);
+            Assert.True(File.Exists(stagedIco));
+
+            // Invariant: Target folder MUST NOT have any desktop.ini or .ornare directory
+            Assert.False(File.Exists(Path.Combine(targetFolder, "desktop.ini")), "Target folder desktop.ini must not exist before user confirms apply");
+            Assert.False(Directory.Exists(Path.Combine(targetFolder, ".ornare")), "Target folder .ornare directory must not exist before user confirms apply");
+
+            // 3. User cancels preview simulation: staged file deleted, target still 100% clean
+            File.Delete(stagedIco);
+            Assert.False(File.Exists(stagedIco));
+            Assert.False(File.Exists(Path.Combine(targetFolder, "desktop.ini")));
+            Assert.False(Directory.Exists(Path.Combine(targetFolder, ".ornare")));
+
+            // 4. Re-stage and now user confirms apply
+            var reStageResult = _imagePipeline.ProcessImage(sourceImage, stagedIco);
+            Assert.True(reStageResult.IsSuccess);
+
+            var applyResult = _customizer.ApplyIcon(targetFolder, stagedIco);
+            Assert.True(applyResult.IsSuccess);
+
+            // Now target folder has customization
+            Assert.True(File.Exists(Path.Combine(targetFolder, "desktop.ini")));
+            Assert.True(File.Exists(Path.Combine(targetFolder, @".ornare\folder.ico")));
+        }
+        finally
+        {
+            if (File.Exists(sourceImage)) File.Delete(sourceImage);
+            if (File.Exists(stagedIco)) File.Delete(stagedIco);
+            CleanupFolder(targetFolder);
+        }
+    }
+
     private static void CleanupFolder(string path)
     {
         try

@@ -8,9 +8,11 @@ Secondary after Store path is stable: official website signed MSIX/AppInstaller 
 
 Potential discoverability channel after official package exists: WinGet.
 
-## 2. Package
+## 2. Package & Architecture Scope
 
-Produce MSIX bundle containing x64 and ARM64 application/shell components. Manifest declares only required capabilities/extensions.
+- **Initial Public Store Candidate:** `Ornare_1.0.0.0_x64.msix` targeting **Windows 11 x64**.
+- **Internal Multi-Arch Retention:** Multi-architecture MSIX bundle (`Ornare_1.0.0.0_x64_arm64.msixbundle`) containing native x64 and ARM64 packages is fully verified at build/AOT level and preserved in internal artifacts (`production_artifacts/release/arm64-validation/`). Public distribution of ARM64 is deferred to a subsequent release pending 100% PASS on genuine Windows 11 ARM64 hardware.
+- **Manifest Invariant:** Manifest declares only required capabilities (`runFullTrust`) and protocol/context-menu extensions without extraneous permissions.
 
 ## 3. Signing
 
@@ -49,7 +51,9 @@ Package update must preserve DB and existing folder customizations. Schema migra
 
 ## 7. Release artifacts
 
-- MSIX bundle;
+- Initial public Store candidate: `Ornare_1.0.0.0_x64.msix` (Windows 11 x64);
+- Retained multi-architecture bundle: `Ornare_1.0.0.0_x64_arm64.msixbundle` (internal qualification retention);
+- Standalone ARM64 candidate: `Ornare_1.0.0.0_arm64.msix` (internal qualification retention);
 - symbols/debug artifacts in secure retention;
 - SBOM/dependency inventory where tooling supports it;
 - `THIRD-PARTY-NOTICES`;

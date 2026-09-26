@@ -34,6 +34,7 @@
     <AppxManifest Include="Package.appxmanifest">
       <SubType>Designer</SubType>
     </AppxManifest>
+    <Content Include="Images\**" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Ornare.App\Ornare.App.csproj">

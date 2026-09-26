@@ -101,38 +101,52 @@ if ($null -ne $foundItem) {
     [ModernMenuClicker]::mouse_event([ModernMenuClicker]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
     Write-Host "Mouse click sent to Ornare context menu item."
 } else {
-    Write-Host "Menu item not indexed directly as top-level UIA item, testing shell command invocation via packaged protocol handler..."
-    # Shell protocol activation directly verifies packaged activation & AppInstance routing
-    Start-Process "ornare:" -ArgumentList "`"$targetFolder`""
+    Write-Error "FAIL: Ornare context menu item was not found in Explorer modern menu! Cannot proceed."
+    exit 1
 }
 
 Write-Host "=== 3. Verifying Packaged Activation & Quick Panel Visibility ==="
 $appLaunched = $false
 $targetAppHwnd = [IntPtr]::Zero
-for ($i = 0; $i -lt 15; $i++) {
+$targetAppPid = 0
+
+for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Milliseconds 500
     $appProcs = Get-Process -Name "Ornare.App" -ErrorAction SilentlyContinue
     if ($null -ne $appProcs -and $appProcs.Count -gt 0) {
-        foreach ($ap in $appProcs) {
-            if ($ap.MainWindowHandle -ne [IntPtr]::Zero) {
-                $targetAppHwnd = $ap.MainWindowHandle
-                $appLaunched = $true
-                break
-            }
-        }
+        $targetAppPid = $appProcs[0].Id
+        $appLaunched = $true
+        break
     }
-    if ($appLaunched) { break }
 }
 
-if ($appLaunched) {
-    Write-Host "SUCCESS: Ornare Quick Panel is running and visible! HWND: $targetAppHwnd"
-    $appEl = [System.Windows.Automation.AutomationElement]::FromHandle($targetAppHwnd)
-    Write-Host "Quick Panel Window Title: '$($appEl.Current.Name)'"
-} else {
-    Write-Host "Quick Panel handle check completed."
+if (-not $appLaunched) {
+    Write-Error "FAIL: Ornare.App process was NOT launched by Explorer context menu click!"
+    exit 1
 }
+
+Write-Host "Ornare.App process is running: PID $targetAppPid. Verifying visible WinUI 3 Quick Panel window..."
+powershell -ExecutionPolicy Bypass -File scripts/dump-windows.ps1 -TargetPid $targetAppPid
+
+# Check if dump-windows confirmed a visible window
+$winOutput = powershell -ExecutionPolicy Bypass -File scripts/dump-windows.ps1 -TargetPid $targetAppPid
+$hasVisWin = $false
+foreach ($line in $winOutput) {
+    if ($line -match "Vis: True" -and $line -match "WinUIDesktopWin32WindowClass") {
+        $hasVisWin = $true
+        Write-Host "CONFIRMED: $line"
+        break
+    }
+}
+
+if (-not $hasVisWin) {
+    Write-Error "FAIL: Ornare.App launched but no visible WinUI 3 window was found!"
+    exit 1
+}
+
+Write-Host "SUCCESS: True end-to-end Explorer click -> App activation -> Visible Quick Panel verified!"
 
 # Dismiss any remaining menu
 [ModernMenuClicker]::keybd_event(0x1B, 0, 0, 0)
 [ModernMenuClicker]::keybd_event(0x1B, 0, 2, 0)
-Write-Host "ACTIVATION TEST COMPLETE."
+Write-Host "ACTIVATION TEST COMPLETE: PASS"

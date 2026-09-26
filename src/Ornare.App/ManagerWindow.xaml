@@ -4,29 +4,87 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Ornare.App"
     mc:Ignorable="d">
 
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <Grid.ColumnDefinitions>
-            <!-- Navigation Sidebar: 225px for comfortable label breathing room -->
-            <ColumnDefinition Width="225" />
-            <!-- Main Content Canvas -->
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="960" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SettingsContentPanel.MaxWidth" Value="800" />
+                        <Setter Target="MainContentGrid.Padding" Value="36,12,36,32" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="NormalLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="720" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SettingsContentPanel.MaxWidth" Value="720" />
+                        <Setter Target="MainContentGrid.Padding" Value="28,8,28,24" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="CompactLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SettingsContentPanel.MaxWidth" Value="560" />
+                        <Setter Target="MainContentGrid.Padding" Value="16,8,16,16" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
 
-        <!-- Sidebar Navigation -->
-        <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Padding="16,24,16,20">
-            <Grid RowDefinitions="Auto,*,Auto">
-                <!-- App Brand / Identity -->
-                <StackPanel Grid.Row="0" Spacing="2" Margin="8,0,8,24">
-                    <TextBlock Text="Ornare" FontSize="18" FontWeight="SemiBold" />
-                    <TextBlock Text="Folder Icons" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
+        <Grid.RowDefinitions>
+            <!-- 1. Dedicated Full-Width Title Bar & Drag Area (48px) -->
+            <RowDefinition Height="48" />
+            <!-- 2. Main Work Area (Sidebar + Content) -->
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
+        <!-- Window Title Bar & Native Drag Region (Spans entire top edge: Sidebar + Content) -->
+        <Grid x:Name="AppTitleBarDragArea" Grid.Row="0" Background="Transparent">
+            <Grid.ColumnDefinitions>
+                <!-- Brand above sidebar (225px) -->
+                <ColumnDefinition Width="225" />
+                <!-- Draggable Title & Content Header space -->
+                <ColumnDefinition Width="*" />
+                <!-- Reserved space for native caption buttons (Minimize, Maximize, Close) -->
+                <ColumnDefinition Width="140" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Brand / App Identity (Top of Sidebar) -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="20,0,16,0">
+                <Image Source="Assets/OrnareLogo.png" Width="20" Height="20" VerticalAlignment="Center" />
+                <TextBlock Text="Ornare" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Text="Folder Icons" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="4,1,0,0" />
+            </StackPanel>
+
+            <!-- Draggable Area across center -->
+            <Grid Grid.Column="1" Background="Transparent" />
+
+            <!-- Column 2 (Width 140) reserved for Windows caption buttons -->
+        </Grid>
+
+        <!-- Main Workspace (Row 1) -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <!-- Navigation Sidebar: 225px for comfortable label breathing room -->
+                <ColumnDefinition Width="225" />
+                <!-- Main Content Canvas -->
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar Navigation -->
+            <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Padding="16,8,16,20">
                 <!-- Navigation Menu -->
                 <ListView
                     x:Name="NavListView"
-                    Grid.Row="1"
                     SelectionMode="Single"
                     SelectionChanged="OnNavSelectionChanged">
                     <ListViewItem x:Name="NavItemLibrary" AutomationProperties.Name="Library" Tag="Library" Height="40">
@@ -60,43 +118,42 @@
                         </StackPanel>
                     </ListViewItem>
                 </ListView>
-            </Grid>
-        </Border>
+            </Border>
 
-        <!-- Main Content Area: Inset 32,28,32,28 per Visual Reference Spec -->
-        <Grid Grid.Column="1" Padding="32,28,32,28" RowDefinitions="Auto,*">
-            <!-- Header Bar -->
-            <Grid Grid.Row="0" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <!-- Main Content Area: Inset 32,8,32,28 for Title Bar integration -->
+            <Grid x:Name="MainContentGrid" Grid.Column="1" Padding="32,8,32,28" RowDefinitions="Auto,*">
+                <!-- Section Header (Fixed, not clipped) -->
+                <Grid Grid.Row="0" Margin="0,0,0,20" Background="Transparent">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Spacing="4">
-                    <TextBlock x:Name="SectionTitleText" Text="Library" FontSize="26" FontWeight="SemiBold" />
-                    <TextBlock x:Name="SectionSubtitleText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock x:Name="SectionTitleText" Text="Library" FontSize="26" FontWeight="SemiBold" />
+                        <TextBlock x:Name="SectionSubtitleText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
 
-                <!-- Search affordance for Library (Progressive disclosure: >= 13 assets) -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <TextBox
-                        x:Name="SearchTextBox"
-                        Width="220"
-                        PlaceholderText="Search library..."
-                        AutomationProperties.Name="Search library"
-                        Visibility="Collapsed"
-                        TextChanged="OnSearchTextChanged" />
-                    <Button
-                        x:Name="ClearRecentButton"
-                        Content="Clear Recent"
-                        AutomationProperties.Name="Clear Recent"
-                        Visibility="Collapsed"
-                        Click="OnClearRecentClicked" />
-                </StackPanel>
-            </Grid>
+                    <!-- Search affordance for Library (Progressive disclosure: >= 13 assets) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <TextBox
+                            x:Name="SearchTextBox"
+                            Width="220"
+                            PlaceholderText="Search library..."
+                            AutomationProperties.Name="Search library"
+                            Visibility="Collapsed"
+                            TextChanged="OnSearchTextChanged" />
+                        <Button
+                            x:Name="ClearRecentButton"
+                            Content="Clear Recent"
+                            AutomationProperties.Name="Clear Recent"
+                            Visibility="Collapsed"
+                            Click="OnClearRecentClicked" />
+                    </StackPanel>
+                </Grid>
 
-            <!-- Content Canvas -->
-            <Grid Grid.Row="1">
+                <!-- Content Canvas -->
+                <Grid Grid.Row="1">
                 <!-- 1. LIBRARY VIEW -->
                 <Grid x:Name="LibraryView" Visibility="Visible">
                     <!-- Empty State -->
@@ -106,15 +163,29 @@
                         <TextBlock x:Name="LibraryEmptySubtitle" Text="Icons you customize will appear here" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
                     </StackPanel>
 
-                    <!-- Icon Grid: Clean 72px cells with whitespace -->
+                    <!-- Icon Grid: Clean modern gallery tiles -->
                     <GridView
                         x:Name="LibraryGridView"
                         SelectionMode="None"
                         IsItemClickEnabled="True"
                         ItemClick="OnLibraryItemClick">
                         <GridView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                            <DataTemplate x:DataType="local:LibraryItemVm">
+                                <Grid Width="96" Height="104" Margin="6" Padding="6" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <Grid.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="{Binding ContextToggleFavoriteText}" Tag="{Binding Sha256}" Click="OnToggleFavoriteClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="{Binding FavoriteGlyph}" Foreground="{Binding FavoriteBrush}" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextOpenExplorerText}" Tag="{Binding CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8DA;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </Grid.ContextFlyout>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />
@@ -125,15 +196,18 @@
                                         Grid.Row="0"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
-                                        Padding="2"
-                                        Width="24"
-                                        Height="24"
-                                        Background="Transparent"
-                                        BorderThickness="0"
+                                        Width="28"
+                                        Height="28"
+                                        Padding="0"
+                                        CornerRadius="14"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         Tag="{Binding Sha256}"
                                         Click="OnToggleFavoriteClicked"
-                                        AutomationProperties.Name="Toggle Favorite">
-                                        <FontIcon Glyph="{Binding FavoriteGlyph}" FontSize="12" Foreground="{Binding FavoriteBrush}" />
+                                        ToolTipService.ToolTip="{Binding FavoriteToolTip}"
+                                        AutomationProperties.Name="{Binding FavoriteToolTip}">
+                                        <FontIcon Glyph="{Binding FavoriteGlyph}" FontSize="13" Foreground="{Binding FavoriteBrush}" />
                                     </Button>
                                     <!-- Format pill -->
                                     <TextBlock
@@ -142,7 +216,7 @@
                                         FontSize="10"
                                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                         HorizontalAlignment="Center"
-                                        Margin="0,4,0,0" />
+                                        Margin="0,2,0,0" />
                                 </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
@@ -162,8 +236,8 @@
                         IsItemClickEnabled="True"
                         ItemClick="OnLibraryItemClick">
                         <GridView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                            <DataTemplate x:DataType="local:RecentItemVm">
+                                <Grid Width="96" Height="104" Margin="6" Padding="6" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />
@@ -175,7 +249,7 @@
                                         FontSize="10"
                                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                         HorizontalAlignment="Center"
-                                        Margin="0,4,0,0" />
+                                        Margin="0,2,0,0" />
                                 </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
@@ -187,6 +261,7 @@
                     <StackPanel x:Name="FavoritesEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
                         <FontIcon Glyph="&#xE734;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
                         <TextBlock x:Name="FavoritesEmptyTitle" Text="No favorite icons" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="FavoritesEmptySubtitle" Text="Click the star on any icon in the Library to add it to favorites." FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" MaxWidth="360" TextAlignment="Center" TextWrapping="Wrap" />
                     </StackPanel>
 
                     <GridView
@@ -195,34 +270,53 @@
                         IsItemClickEnabled="True"
                         ItemClick="OnLibraryItemClick">
                         <GridView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Width="80" Height="88" Margin="6" Padding="6" CornerRadius="6" Background="Transparent">
+                            <DataTemplate x:DataType="local:LibraryItemVm">
+                                <Grid Width="96" Height="104" Margin="6" Padding="6" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <Grid.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="{Binding ContextToggleFavoriteText}" Tag="{Binding Sha256}" Click="OnToggleFavoriteClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="{Binding FavoriteGlyph}" Foreground="{Binding FavoriteBrush}" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{Binding ContextOpenExplorerText}" Tag="{Binding CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8DA;" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </Grid.ContextFlyout>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <Image Source="{Binding PreviewImage}" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <!-- Favorite toggle -->
                                     <Button
                                         Grid.Row="0"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
-                                        Padding="2"
-                                        Width="24"
-                                        Height="24"
-                                        Background="Transparent"
-                                        BorderThickness="0"
+                                        Width="28"
+                                        Height="28"
+                                        Padding="0"
+                                        CornerRadius="14"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         Tag="{Binding Sha256}"
                                         Click="OnToggleFavoriteClicked"
-                                        AutomationProperties.Name="Unfavorite">
-                                        <FontIcon Glyph="&#xE735;" FontSize="12" Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                        ToolTipService.ToolTip="{Binding FavoriteToolTip}"
+                                        AutomationProperties.Name="{Binding FavoriteToolTip}">
+                                        <FontIcon Glyph="{Binding FavoriteGlyph}" FontSize="13" Foreground="{Binding FavoriteBrush}" />
                                     </Button>
+                                    <!-- Format pill -->
                                     <TextBlock
                                         Grid.Row="1"
                                         Text="{Binding SourceFormat}"
                                         FontSize="10"
                                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                         HorizontalAlignment="Center"
-                                        Margin="0,4,0,0" />
+                                        Margin="0,2,0,0" />
                                 </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
@@ -241,8 +335,8 @@
                         x:Name="FoldersListView"
                         SelectionMode="None">
                         <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,4,0,4" Padding="8,10,8,10" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                            <DataTemplate x:DataType="local:FolderItemVm">
+                                <Grid Margin="0,4,0,4" Padding="8,10,8,10" ColumnSpacing="12" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="40" />
                                         <ColumnDefinition Width="*" />
@@ -309,27 +403,28 @@
                 </Grid>
 
                 <!-- 5. SETTINGS VIEW -->
-                <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,16,24,32">
                     <!-- Clean flat rows with dividers; no card-in-card per Visual Reference Spec -->
-                    <StackPanel Spacing="24" MaxWidth="600" HorizontalAlignment="Left">
+                    <StackPanel x:Name="SettingsContentPanel" Spacing="22" MaxWidth="760" HorizontalAlignment="Left" Margin="0,4,0,0">
                         <!-- Appearance Section -->
-                        <StackPanel Spacing="12">
-                            <TextBlock x:Name="SettingsAppearanceHeader" Text="Appearance" FontSize="16" FontWeight="SemiBold" />
-                            <Grid Margin="0,4,0,0">
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="SettingsAppearanceHeader" Text="Appearance" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <Grid Margin="0,4,0,0" ColumnSpacing="24">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="SettingsThemeLabel" Text="App theme" VerticalAlignment="Center" FontSize="13" />
+                                <TextBlock x:Name="SettingsThemeLabel" Text="App theme" VerticalAlignment="Center" FontSize="13" TextWrapping="Wrap" />
                                 <ComboBox
                                     x:Name="ThemeComboBox"
                                     Grid.Column="1"
-                                    Width="160"
+                                    Width="180"
+                                    HorizontalAlignment="Right"
                                     SelectionChanged="OnThemeSelectionChanged"
                                     AutomationProperties.Name="App theme">
-                                    <ComboBoxItem Content="System" Tag="System" />
-                                    <ComboBoxItem Content="Light" Tag="Light" />
-                                    <ComboBoxItem Content="Dark" Tag="Dark" />
+                                    <ComboBoxItem x:Name="ThemeItemSystem" Content="System default" Tag="System" />
+                                    <ComboBoxItem x:Name="ThemeItemLight" Content="Light" Tag="Light" />
+                                    <ComboBoxItem x:Name="ThemeItemDark" Content="Dark" Tag="Dark" />
                                 </ComboBox>
                             </Grid>
                         </StackPanel>
@@ -337,23 +432,24 @@
                         <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
 
                         <!-- Language Section -->
-                        <StackPanel Spacing="12">
-                            <TextBlock x:Name="SettingsLanguageHeader" Text="Language" FontSize="16" FontWeight="SemiBold" />
-                            <Grid Margin="0,4,0,0">
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="SettingsLanguageHeader" Text="Language" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <Grid Margin="0,4,0,0" ColumnSpacing="24">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="SettingsLanguageLabel" Text="App language" VerticalAlignment="Center" FontSize="13" />
+                                <TextBlock x:Name="SettingsLanguageLabel" Text="App language" VerticalAlignment="Center" FontSize="13" TextWrapping="Wrap" />
                                 <ComboBox
                                     x:Name="LanguageComboBox"
                                     Grid.Column="1"
-                                    Width="160"
+                                    Width="180"
+                                    HorizontalAlignment="Right"
                                     SelectionChanged="OnLanguageSelectionChanged"
                                     AutomationProperties.Name="App language">
-                                    <ComboBoxItem Content="System default" Tag="System" />
-                                    <ComboBoxItem Content="Türkçe" Tag="tr-TR" />
-                                    <ComboBoxItem Content="English" Tag="en-US" />
+                                    <ComboBoxItem x:Name="LangItemSystem" Content="System default" Tag="System" />
+                                    <ComboBoxItem x:Name="LangItemTr" Content="Türkçe" Tag="tr-TR" />
+                                    <ComboBoxItem x:Name="LangItemEn" Content="English" Tag="en-US" />
                                 </ComboBox>
                             </Grid>
                         </StackPanel>
@@ -361,16 +457,21 @@
                         <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
 
                         <!-- Diagnostics Section -->
-                        <StackPanel Spacing="12">
-                            <TextBlock x:Name="SettingsDiagnosticsHeader" Text="Diagnostics" FontSize="16" FontWeight="SemiBold" />
-                            <Grid Margin="0,4,0,0">
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="SettingsDiagnosticsHeader" Text="Diagnostics" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <Grid x:Name="DiagnosticsRowGrid" Margin="0,4,0,0" ColumnSpacing="24">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="2">
+                                <StackPanel Spacing="3" VerticalAlignment="Center" Margin="0,0,8,0">
                                     <TextBlock x:Name="SettingsDiagnosticsLabel" Text="Diagnostic Report" FontSize="13" />
-                                    <TextBlock x:Name="SettingsDiagnosticsSubtext" Text="Exports system and health status with personal paths anonymized." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock
+                                        x:Name="SettingsDiagnosticsSubtext"
+                                        Text="Exports system and health status with personal paths anonymized."
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextWrapping="Wrap" />
                                 </StackPanel>
                                 <Button
                                     x:Name="ExportReportButton"
@@ -378,30 +479,48 @@
                                     Content="Export Diagnostic Report"
                                     Click="OnExportDiagnosticReportClicked"
                                     AutomationProperties.Name="Export Diagnostic Report"
-                                    FontSize="12" />
+                                    FontSize="12"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" />
                             </Grid>
                         </StackPanel>
 
                         <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
 
                         <!-- About Section -->
-                        <StackPanel Spacing="10">
-                            <TextBlock x:Name="SettingsAboutHeader" Text="About" FontSize="16" FontWeight="SemiBold" />
-                            <Grid Margin="0,2,0,0">
+                        <StackPanel Spacing="8">
+                            <TextBlock x:Name="SettingsAboutHeader" Text="About" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <Grid Margin="0,2,0,0" ColumnSpacing="24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsPublisherLabel" Text="Developer" FontSize="13" />
+                                <TextBlock Grid.Column="1" Text="Vellium" FontSize="13" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Grid Margin="0,2,0,0" ColumnSpacing="24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="SettingsWebsiteLabel" Text="Website" FontSize="13" />
+                                <HyperlinkButton Grid.Column="1" Content="vellium.dev" NavigateUri="https://vellium.dev" Padding="0" FontSize="13" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Grid Margin="0,2,0,0" ColumnSpacing="24">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="SettingsVersionLabel" Text="Version" FontSize="13" />
-                                <TextBlock Grid.Column="1" Text="1.0.0" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Grid.Column="1" Text="1.0.0" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
                             </Grid>
-                            <Grid Margin="0,2,0,0">
+                            <Grid Margin="0,2,0,0" ColumnSpacing="24">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="SettingsArchLabel" Text="Architecture" FontSize="13" />
-                                <TextBlock x:Name="SettingsArchValue" Grid.Column="1" Text="x64" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="SettingsArchValue" Grid.Column="1" Text="x64" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
                             </Grid>
                             <TextBlock
                                 x:Name="SettingsPrivacyStatement"
@@ -416,4 +535,5 @@
             </Grid>
         </Grid>
     </Grid>
+</Grid>
 </Window>

@@ -90,6 +90,9 @@
     <ClCompile Include="dllmain.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="Ornare.ShellExtension.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="Ornare.ShellExtension.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

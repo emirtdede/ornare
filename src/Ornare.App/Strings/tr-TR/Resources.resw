@@ -69,6 +69,54 @@
   <data name="ApplyFailed" xml:space="preserve">
     <value>Simge uygulanamadı</value>
   </data>
+  <data name="PreparingImage" xml:space="preserve">
+    <value>Görsel hazırlanıyor...</value>
+  </data>
+  <data name="GeneratingIcon" xml:space="preserve">
+    <value>Klasör simgesi oluşturuluyor...</value>
+  </data>
+  <data name="ApplyingIcon" xml:space="preserve">
+    <value>Simge uygulanıyor...</value>
+  </data>
+  <data name="RefreshingExplorer" xml:space="preserve">
+    <value>Dosya Gezgini yenileniyor...</value>
+  </data>
+  <data name="FolderIconUpdated" xml:space="preserve">
+    <value>Klasör simgesi güncellendi</value>
+  </data>
+  <data name="TryAgain" xml:space="preserve">
+    <value>Tekrar dene</value>
+  </data>
+  <data name="ErrorUnsupportedImageTitle" xml:space="preserve">
+    <value>Desteklenmeyen görsel</value>
+  </data>
+  <data name="ErrorUnsupportedImageMessage" xml:space="preserve">
+    <value>Lütfen PNG, JPG, WebP, BMP veya ICO formatında bir dosya seçin.</value>
+  </data>
+  <data name="ErrorImageReadTitle" xml:space="preserve">
+    <value>Görsel okunamadı</value>
+  </data>
+  <data name="ErrorImageReadMessage" xml:space="preserve">
+    <value>Seçilen görsel dosyası diskten okunamadı.</value>
+  </data>
+  <data name="ErrorIconGenerationTitle" xml:space="preserve">
+    <value>Simge oluşturulamadı</value>
+  </data>
+  <data name="ErrorIconGenerationMessage" xml:space="preserve">
+    <value>Klasör için çoklu çözünürlüklü simge oluşturulamadı.</value>
+  </data>
+  <data name="ErrorFolderApplyTitle" xml:space="preserve">
+    <value>Klasör simgesi uygulanamadı</value>
+  </data>
+  <data name="ErrorFolderApplyMessage" xml:space="preserve">
+    <value>Klasör öznitelikleri veya desktop.ini yapılandırılamadı.</value>
+  </data>
+  <data name="ErrorExplorerRefreshTitle" xml:space="preserve">
+    <value>Dosya Gezgini yenilenemedi</value>
+  </data>
+  <data name="ErrorExplorerRefreshMessage" xml:space="preserve">
+    <value>Dosya Gezgini klasör güncellemesi hakkında bilgilendirilemedi.</value>
+  </data>
   <data name="ExternalConflictMessage" xml:space="preserve">
     <value>Klasör simgesi Ornare dışında değiştirilmiş</value>
   </data>
@@ -182,5 +230,23 @@
   </data>
   <data name="ClearRecent" xml:space="preserve">
     <value>Son Kullanılanları Temizle</value>
+  </data>
+  <data name="PreviewTitle" xml:space="preserve">
+    <value>Simge önizlemesi</value>
+  </data>
+  <data name="PreviewSubtitle" xml:space="preserve">
+    <value>Klasöre uygulamak için onaylayın</value>
+  </data>
+  <data name="Apply" xml:space="preserve">
+    <value>Uygula</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Vazgeç</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Kapat</value>
+  </data>
+  <data name="SuccessSubtitle" xml:space="preserve">
+    <value>İşlem başarıyla tamamlandı</value>
   </data>
 </root>

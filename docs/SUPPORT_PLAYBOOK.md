@@ -12,7 +12,7 @@
 Request or export only what is necessary:
 
 - Ornare version;
-- Windows edition/build and architecture;
+- Windows edition/build and architecture (V1 initial release supports **Windows 11 x64**; ARM64 is pending physical hardware qualification);
 - packaged install source;
 - operation/error code;
 - target type (local/cloud/removable/protected/network) without raw path when not required;
@@ -21,7 +21,7 @@ Request or export only what is necessary:
 
 ## 3. Triage order
 
-1. Determine whether the location is in the supported matrix.
+1. Determine whether the OS and architecture are supported (**Windows 11 x64** on build 26100+).
 2. Confirm app/package/Windows versions.
 3. Reproduce on a disposable local folder.
 4. Inspect Ornare health state and exported diagnostics.

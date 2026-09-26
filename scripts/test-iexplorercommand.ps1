@@ -61,10 +61,14 @@ $comInstance = [Activator]::CreateInstance($type)
 Write-Host "Created COM instance of Ornare Shell Extension."
 $cmd = [IExplorerCommand]$comInstance
 
-# 1. GetTitle
+# 1. GetTitle & GetIcon
 $title = ""
 $hr = $cmd.GetTitle($null, [ref]$title)
 Write-Host "GetTitle HRESULT: $hr, Title: '$title'"
+
+$icon = ""
+$hrIcon = $cmd.GetIcon($null, [ref]$icon)
+Write-Host "GetIcon HRESULT: $hrIcon, Icon reference: '$icon'"
 
 # 2. GetCanonicalName
 $guid = [Guid]::Empty

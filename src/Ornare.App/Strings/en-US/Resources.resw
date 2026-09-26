@@ -69,6 +69,54 @@
   <data name="ApplyFailed" xml:space="preserve">
     <value>Could not apply icon</value>
   </data>
+  <data name="PreparingImage" xml:space="preserve">
+    <value>Preparing image...</value>
+  </data>
+  <data name="GeneratingIcon" xml:space="preserve">
+    <value>Generating folder icon...</value>
+  </data>
+  <data name="ApplyingIcon" xml:space="preserve">
+    <value>Applying icon...</value>
+  </data>
+  <data name="RefreshingExplorer" xml:space="preserve">
+    <value>Refreshing Explorer...</value>
+  </data>
+  <data name="FolderIconUpdated" xml:space="preserve">
+    <value>Folder icon updated</value>
+  </data>
+  <data name="TryAgain" xml:space="preserve">
+    <value>Try again</value>
+  </data>
+  <data name="ErrorUnsupportedImageTitle" xml:space="preserve">
+    <value>Unsupported image</value>
+  </data>
+  <data name="ErrorUnsupportedImageMessage" xml:space="preserve">
+    <value>Please select a PNG, JPG, WebP, BMP, or ICO file.</value>
+  </data>
+  <data name="ErrorImageReadTitle" xml:space="preserve">
+    <value>Image read failed</value>
+  </data>
+  <data name="ErrorImageReadMessage" xml:space="preserve">
+    <value>Could not read the selected image file from disk.</value>
+  </data>
+  <data name="ErrorIconGenerationTitle" xml:space="preserve">
+    <value>Icon generation failed</value>
+  </data>
+  <data name="ErrorIconGenerationMessage" xml:space="preserve">
+    <value>Failed to create multi-resolution folder icon.</value>
+  </data>
+  <data name="ErrorFolderApplyTitle" xml:space="preserve">
+    <value>Folder icon apply failed</value>
+  </data>
+  <data name="ErrorFolderApplyMessage" xml:space="preserve">
+    <value>Could not update folder attributes or desktop.ini.</value>
+  </data>
+  <data name="ErrorExplorerRefreshTitle" xml:space="preserve">
+    <value>Explorer refresh failed</value>
+  </data>
+  <data name="ErrorExplorerRefreshMessage" xml:space="preserve">
+    <value>Failed to notify File Explorer of the folder update.</value>
+  </data>
   <data name="ExternalConflictMessage" xml:space="preserve">
     <value>Folder icon was changed outside Ornare</value>
   </data>
@@ -182,5 +230,23 @@
   </data>
   <data name="ClearRecent" xml:space="preserve">
     <value>Clear Recent</value>
+  </data>
+  <data name="PreviewTitle" xml:space="preserve">
+    <value>Icon preview</value>
+  </data>
+  <data name="PreviewSubtitle" xml:space="preserve">
+    <value>Confirm to apply to folder</value>
+  </data>
+  <data name="Apply" xml:space="preserve">
+    <value>Apply</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="SuccessSubtitle" xml:space="preserve">
+    <value>Changes applied successfully</value>
   </data>
 </root>

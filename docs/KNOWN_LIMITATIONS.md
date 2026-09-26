@@ -26,17 +26,18 @@ This document outlines the architectural and operational boundaries of Ornare V1
 ## 2. Platform & Hardware Verification
 
 ### 2.1 x64 Architecture
-- **Status**: **VERIFIED**
-- Fully validated on Windows 11 Version 24H2 / 25H2 (Build 26100+) x64 across native Shell Extension, WinUI 3 UI surfaces, imaging engine, and persistent storage.
+- **Status**: **VERIFIED / SUPPORTED FOR V1 INITIAL RELEASE**
+- Fully validated on Windows 11 Version 24H2 / 25H2 (Build 26100+) x64 across native Shell Extension, WinUI 3 UI surfaces, imaging engine, persistent storage, and WACK certification.
+- Supported architecture for Ornare V1 initial public distribution: **Windows 11 x64**.
 
 ### 2.2 ARM64 Architecture
-- **Status**: **NOT PROVEN**
-- Managed .NET assemblies build cleanly for ARM64. However, native ARM64 C++ compilation and physical runtime execution have not been qualified due to lack of ARM64 build tools and physical hardware in the continuous integration environment.
-- Policy: ARM64 binary packages are not published until hardware verification is completed.
+- **Status**: **BUILD READY / PENDING PHYSICAL HARDWARE CERTIFICATION**
+- Implementation status: Toolchain (MSVC ARM64), native C++ ShellExtension, managed graph (.NET 10), Native AOT publish, and MSIX packaging are 100% verified with 0 errors.
+- Scope Decision: Per Product Owner release scope decision, ARM64 public release is deferred pending physical runtime verification on genuine Windows 11 ARM64 hardware (e.g., Qualcomm Snapdragon X Elite / Copilot+ PC) using the 19-point validation protocol. Scheduled for a subsequent certified release.
 
 ### 2.3 Physical Reboot Persistence
-- **Status**: **NOT PROVEN**
-- While relative folder icon architecture is the standard Windows mechanism and tested across Explorer process lifetimes, physical reboot verification cannot be executed autonomously in continuous agent environments without manual human test execution.
+- **Status**: **VERIFIED**
+- Formally verified on Windows 11: After physical OS reboot, folder ReadOnly attributes, desktop.ini (+H+S), and .ornare\folder.ico (+H+S) persist identically with matching SHA-256 hashes and passive Explorer icon rendering without Ornare processes running.
 
 ---
 

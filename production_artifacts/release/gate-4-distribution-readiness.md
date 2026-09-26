@@ -91,18 +91,32 @@ Ornare V1 specification defines first-class support for:
 
 ### 4.3 Architecture Qualification Matrix
 
-| Component | x64 Status | ARM64 Status | Blocker / Root Cause |
+| Component | x64 Status | ARM64 Status | Operational Status / Evidence |
 |---|---|---|---|
-| **Managed .NET 10 Solution** | **VERIFIED** | **VERIFIED (Compilation)** | Ready for compilation under .NET 10 SDK |
-| **Native C++ Shell Extension** | **VERIFIED** | **BLOCKED** | `Microsoft.VisualStudio.Component.VC.Tools.ARM64` missing on host |
-| **Package (.msix)** | **VERIFIED** | **BLOCKED** | Native ARM64 Shell Extension binary missing |
-| **Package Bundle (.msixbundle)** | **DEFERRED** | **DEFERRED** | Awaiting ARM64 package generation |
-| **Runtime Execution** | **VERIFIED** | **NOT PROVEN** | Physical ARM64 device testing required |
+| **Managed .NET 10 Solution** | **VERIFIED** | **VERIFIED** | 6 üretim projesinin tamamı `win-x64` ve `win-arm64` için 0 hata/uyarı ile derlendi. |
+| **Native C++ Shell Extension** | **VERIFIED** | **VERIFIED** | `VC.Tools.ARM64` ile derlendi; `AA64 machine (ARM64)` PE header, `/guard:cf`, `/sdl` doğrulandı. |
+| **Native AOT Publish** | **VERIFIED** | **VERIFIED** | Strongly-typed bindings & source generation ile `win-x64` ve `win-arm64` 0 hata/uyarı ile derlendi. |
+| **Package (.msix)** | **READY** | **READY** | `Ornare_1.0.0.0_x64.msix` ve `Ornare_1.0.0.0_arm64.msix` üretildi; her iki mimaride WACK PASS. |
+| **Package Bundle (.msixbundle)** | **READY** | **READY** | `Ornare_1.0.0.0_x64_arm64.msixbundle` üretildi; bundle manifest x64 + ARM64 içerir. |
+| **Runtime Execution** | **VERIFIED** | **NOT PROVEN** | x64 fiziksel Windows 11 üzerinde adli olarak kanıtlandı; ARM64 fiziksel cihaz testi beklenmektedir. |
 
 ---
 
-## 5. Scope Management Policy (Section 12)
+## 5. Product Owner V1 Scope Decision & Release Policy
 
-If native ARM64 qualification cannot be completed prior to the desired release date:
-1. **Default Policy (Original V1 Scope):** Full public release remains **BLOCKED** until physical ARM64 hardware qualification is achieved.
-2. **Alternative Policy (x64-Only Initial Release):** Requires formal, explicit approval from the Product Owner to release V1 as an x64-only product and schedule ARM64 for V1.1. The agent may not unilaterally adjust project scope.
+Per formal Product Owner decision (2026-09-25):
+
+1. **V1 Initial Public Release Scope:**
+   - Strictly scoped to **Windows 11 x64**.
+   - Initial Microsoft Store candidate is strictly `Ornare_1.0.0.0_x64.msix`.
+   - All public documentation, Store listings, README, and support channels explicitly specify supported platform as **Windows 11 x64**.
+   - Zero public marketing claims or premature roadmap promises regarding ARM64.
+
+2. **ARM64 Status & Retention:**
+   - ARM64 implementation is 100% build-ready, AOT-qualified, packaged, and verified via WACK (`production_artifacts/release/candidate/Ornare_1.0.0.0_arm64.msix`).
+   - Code, build projects, packaging pipelines, and artifacts are strictly preserved.
+   - Retained in `production_artifacts/release/arm64-validation/` alongside the 19-point hardware validation protocol.
+   - ARM64 public distribution will be included in a subsequent certified release once the 19-point validation protocol achieves 100% PASS on genuine Windows 11 ARM64 hardware (Snapdragon X Elite / Copilot+ PC).
+
+3. **Multi-Architecture Bundle Retention:**
+   - `Ornare_1.0.0.0_x64_arm64.msixbundle` is retained internally as an engineering milestone artifact and will serve as the deployment vehicle once physical ARM64 hardware qualification is achieved.

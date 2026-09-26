@@ -121,6 +121,25 @@ public sealed class FolderCustomizer : IFolderCustomizer
                 dirInfo.Attributes |= FileAttributes.ReadOnly;
             }
 
+            // Always touch timestamps and ensure ReadOnly attribute is asserted to trigger Shell invalidation
+            try
+            {
+                File.SetAttributes(folderPath, File.GetAttributes(folderPath) | FileAttributes.ReadOnly);
+                Directory.SetLastWriteTimeUtc(folderPath, DateTime.UtcNow);
+                if (File.Exists(iniPath))
+                {
+                    File.SetLastWriteTimeUtc(iniPath, DateTime.UtcNow);
+                }
+                if (File.Exists(targetIcoPath))
+                {
+                    File.SetLastWriteTimeUtc(targetIcoPath, DateTime.UtcNow);
+                }
+            }
+            catch
+            {
+                // Non-critical timestamp update failure
+            }
+
             onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);
 
             // 5. Targeted Shell Refresh
@@ -257,6 +276,15 @@ public sealed class FolderCustomizer : IFolderCustomizer
             {
                 DirectoryInfo dirInfo = new(folderPath);
                 dirInfo.Attributes &= ~FileAttributes.ReadOnly;
+            }
+
+            try
+            {
+                Directory.SetLastWriteTimeUtc(folderPath, DateTime.UtcNow);
+            }
+            catch
+            {
+                // Non-critical timestamp update failure
             }
 
             onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);

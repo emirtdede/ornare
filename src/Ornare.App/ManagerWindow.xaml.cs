@@ -33,7 +33,6 @@ public sealed partial class ManagerWindow : Window
     private List<LibraryAsset> _allAssets = new();
     private string _currentLanguage = "System";
     private string _currentTheme = "System";
-    private static readonly System.Text.Json.JsonSerializerOptions s_jsonOptions = new() { WriteIndented = true };
     private bool _isLoaded;
 
     public ManagerWindow(IStorageService storageService, IFolderCustomizer folderCustomizer)
@@ -44,14 +43,18 @@ public sealed partial class ManagerWindow : Window
         InitializeComponent();
         ConfigureWindow();
 
-        LibraryGridView.ItemsSource = _libraryItems;
-        RecentGridView.ItemsSource = _recentItems;
-        FavoritesGridView.ItemsSource = _favoriteItems;
-        FoldersListView.ItemsSource = _folderItems;
-
         SettingsArchValue.Text = RuntimeInformation.ProcessArchitecture.ToString();
 
         _ = LoadInitialDataAsync();
+    }
+
+    private static void SyncItems<T>(ItemsControl control, IEnumerable<T> items)
+    {
+        control.Items.Clear();
+        foreach (var item in items)
+        {
+            control.Items.Add(item);
+        }
     }
 
     private void ConfigureWindow()
@@ -65,28 +68,55 @@ public sealed partial class ManagerWindow : Window
 
         // Effective target: 920x640 per Visual Reference Spec
         appWindow.Resize(new global::Windows.Graphics.SizeInt32(920, 640));
+
+        string icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+        if (File.Exists(icoPath))
+        {
+            appWindow.SetIcon(icoPath);
+        }
+
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBarDragArea);
+
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = appWindow.TitleBar;
+            titleBar.ButtonBackgroundColor = Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+            titleBar.ButtonHoverBackgroundColor = global::Windows.UI.Color.FromArgb(20, 255, 255, 255);
+            titleBar.ButtonPressedBackgroundColor = global::Windows.UI.Color.FromArgb(40, 255, 255, 255);
+            titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        }
     }
 
     private async Task LoadInitialDataAsync()
     {
-        var settings = await _storageService.GetUserSettingsAsync();
-        _currentTheme = settings.Theme;
-        _currentLanguage = settings.Language;
+        try
+        {
+            var settings = await _storageService.GetUserSettingsAsync();
+            _currentTheme = settings.Theme;
+            _currentLanguage = settings.Language;
 
-        ApplyTheme(_currentTheme);
-        ApplyLanguage(_currentLanguage);
+            ApplyTheme(_currentTheme);
+            ApplyLanguage(_currentLanguage);
 
-        if (string.Equals(_currentTheme, "Light", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 1;
-        else if (string.Equals(_currentTheme, "Dark", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 2;
-        else ThemeComboBox.SelectedIndex = 0;
+            if (string.Equals(_currentTheme, "Light", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 1;
+            else if (string.Equals(_currentTheme, "Dark", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 2;
+            else ThemeComboBox.SelectedIndex = 0;
 
-        if (string.Equals(_currentLanguage, "tr-TR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "tr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 1;
-        else if (string.Equals(_currentLanguage, "en-US", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "en", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 2;
-        else LanguageComboBox.SelectedIndex = 0;
+            if (string.Equals(_currentLanguage, "tr-TR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "tr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 1;
+            else if (string.Equals(_currentLanguage, "en-US", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "en", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 2;
+            else LanguageComboBox.SelectedIndex = 0;
 
-        await RefreshAllDataAsync();
-        _isLoaded = true;
-        NavListView.SelectedIndex = 0;
+            await RefreshAllDataAsync();
+            _isLoaded = true;
+            NavListView.SelectedIndex = 0;
+            App.Log("LoadInitialDataAsync completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            App.Log($"EXCEPTION in LoadInitialDataAsync: {ex}");
+        }
     }
 
     public async Task RefreshAllDataAsync()
@@ -107,6 +137,7 @@ public sealed partial class ManagerWindow : Window
         {
             _libraryItems.Add(CreateLibraryVm(asset, favIds.Contains(asset.Sha256)));
         }
+        SyncItems(LibraryGridView, _libraryItems);
 
         LibraryEmptyPanel.Visibility = _libraryItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         LibraryGridView.Visibility = _libraryItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -131,6 +162,7 @@ public sealed partial class ManagerWindow : Window
                 TimeAgo = FormatTimeAgo(r.LastUsedAt)
             });
         }
+        SyncItems(RecentGridView, _recentItems);
 
         RecentEmptyPanel.Visibility = _recentItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentGridView.Visibility = _recentItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -145,6 +177,7 @@ public sealed partial class ManagerWindow : Window
         {
             _favoriteItems.Add(CreateLibraryVm(f, isFavorite: true));
         }
+        SyncItems(FavoritesGridView, _favoriteItems);
 
         FavoritesEmptyPanel.Visibility = _favoriteItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         FavoritesGridView.Visibility = _favoriteItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -211,13 +244,23 @@ public sealed partial class ManagerWindow : Window
                 ExpectedAssetHash = a.CurrentAssetHash
             });
         }
+        SyncItems(FoldersListView, _folderItems);
 
         FoldersEmptyPanel.Visibility = _folderItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         FoldersListView.Visibility = _folderItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private static LibraryItemVm CreateLibraryVm(LibraryAsset asset, bool isFavorite)
+    private LibraryItemVm CreateLibraryVm(LibraryAsset asset, bool isFavorite)
     {
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+        string favToolTip = isFavorite
+            ? (isTr ? "Favorilerden Kaldır" : "Remove from Favorites")
+            : (isTr ? "Favorilere Ekle" : "Add to Favorites");
+        string toggleText = isFavorite
+            ? (isTr ? "Favorilerden Kaldır" : "Remove from Favorites")
+            : (isTr ? "Favorilere Ekle" : "Add to Favorites");
+        string explorerText = isTr ? "Dosya Gezgini'nde Göster" : "Show in File Explorer";
+
         return new LibraryItemVm
         {
             Sha256 = asset.Sha256,
@@ -228,7 +271,10 @@ public sealed partial class ManagerWindow : Window
             FavoriteGlyph = isFavorite ? "\uE735" : "\uE734",
             FavoriteBrush = isFavorite
                 ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 234, 179, 8))
-                : new SolidColorBrush(global::Windows.UI.Color.FromArgb(120, 128, 128, 128))
+                : new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, 200, 200, 200)),
+            FavoriteToolTip = favToolTip,
+            ContextToggleFavoriteText = toggleText,
+            ContextOpenExplorerText = explorerText
         };
     }
 
@@ -305,6 +351,7 @@ public sealed partial class ManagerWindow : Window
             case "Settings":
                 SettingsView.Visibility = Visibility.Visible;
                 SectionTitleText.Text = isTr ? "Ayarlar" : "Settings";
+                SettingsView.ChangeView(null, 0, null, true);
                 break;
         }
 
@@ -332,15 +379,16 @@ public sealed partial class ManagerWindow : Window
         }
     }
 
-    private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+    private async void OnSearchTextChanged(object sender, TextChangedEventArgs e)
     {
         string query = SearchTextBox.Text?.Trim() ?? string.Empty;
+        var favIds = (await _storageService.GetFavoritesAsync()).Select(f => f.Sha256).ToHashSet();
         if (string.IsNullOrEmpty(query))
         {
             _libraryItems.Clear();
             foreach (var a in _allAssets)
             {
-                _libraryItems.Add(CreateLibraryVm(a, isFavorite: false));
+                _libraryItems.Add(CreateLibraryVm(a, favIds.Contains(a.Sha256)));
             }
         }
         else
@@ -349,15 +397,20 @@ public sealed partial class ManagerWindow : Window
             foreach (var a in _allAssets.Where(a => a.Sha256.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                                                    a.SourceFormat.Contains(query, StringComparison.OrdinalIgnoreCase)))
             {
-                _libraryItems.Add(CreateLibraryVm(a, isFavorite: false));
+                _libraryItems.Add(CreateLibraryVm(a, favIds.Contains(a.Sha256)));
             }
         }
+        SyncItems(LibraryGridView, _libraryItems);
         UpdateSubtitle();
     }
 
     private async void OnToggleFavoriteClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string sha256)
+        string? sha256 = null;
+        if (sender is Button btn && btn.Tag is string s1) sha256 = s1;
+        else if (sender is MenuFlyoutItem mfi && mfi.Tag is string s2) sha256 = s2;
+
+        if (!string.IsNullOrEmpty(sha256))
         {
             var favs = await _storageService.GetFavoritesAsync();
             bool isFav = favs.Any(f => f.Sha256 == sha256);
@@ -365,6 +418,24 @@ public sealed partial class ManagerWindow : Window
 
             await LoadLibraryAsync();
             await LoadFavoritesAsync();
+        }
+    }
+
+    private void OnOpenIcoInExplorerClicked(object sender, RoutedEventArgs e)
+    {
+        string? path = null;
+        if (sender is MenuFlyoutItem mfi && mfi.Tag is string p)
+        {
+            path = p;
+        }
+
+        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            }
+            catch { }
         }
     }
 
@@ -470,7 +541,7 @@ public sealed partial class ManagerWindow : Window
         Directory.CreateDirectory(reportDir);
         string reportFile = Path.Combine(reportDir, $"ornare-diag-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.json");
 
-        string json = System.Text.Json.JsonSerializer.Serialize(report, s_jsonOptions);
+        string json = System.Text.Json.JsonSerializer.Serialize(report, FolderJsonContext.Default.DiagnosticReport);
         await File.WriteAllTextAsync(reportFile, json);
 
         ExportReportButton.Content = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Rapor Kaydedildi!" : "Report Exported!";
@@ -515,6 +586,24 @@ public sealed partial class ManagerWindow : Window
                 root.RequestedTheme = ElementTheme.Default;
             }
         }
+        UpdateTitleBarTheme();
+    }
+
+    private void UpdateTitleBarTheme()
+    {
+        IntPtr hwnd = WindowNative.GetWindowHandle(this);
+        if (hwnd == IntPtr.Zero) return;
+        WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+        AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+        if (appWindow != null && AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = appWindow.TitleBar;
+            bool isDark = (Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+            var fgColor = isDark ? Colors.White : Colors.Black;
+            titleBar.ButtonForegroundColor = fgColor;
+            titleBar.ButtonHoverForegroundColor = fgColor;
+            titleBar.ButtonInactiveForegroundColor = isDark ? global::Windows.UI.Color.FromArgb(128, 255, 255, 255) : global::Windows.UI.Color.FromArgb(128, 0, 0, 0);
+        }
     }
 
     public void ApplyLanguage(string lang)
@@ -535,17 +624,28 @@ public sealed partial class ManagerWindow : Window
         LibraryEmptySubtitle.Text = isTr ? "Özelleştirdiğiniz simgeler burada görünecektir" : "Icons you customize will appear here";
         RecentEmptyTitle.Text = isTr ? "Son kullanılan simge yok" : "No recent icons";
         FavoritesEmptyTitle.Text = isTr ? "Favori simge yok" : "No favorite icons";
+        FavoritesEmptySubtitle.Text = isTr
+            ? "Kitaplık'taki simgelerin üzerindeki yıldıza tıklayarak veya sağ tıklayıp 'Favorilere Ekle'yi seçerek ekleyebilirsiniz."
+            : "Click the star on any icon in the Library or right-click and select 'Add to Favorites'.";
         FoldersEmptyTitle.Text = isTr ? "Özelleştirilmiş klasör yok" : "No customized folders";
 
         SettingsAppearanceHeader.Text = isTr ? "Görünüm" : "Appearance";
         SettingsThemeLabel.Text = isTr ? "Uygulama teması" : "App theme";
+        ThemeItemSystem.Content = isTr ? "Sistem varsayılanı" : "System default";
+        ThemeItemLight.Content = isTr ? "Açık" : "Light";
+        ThemeItemDark.Content = isTr ? "Koyu" : "Dark";
+
         SettingsLanguageHeader.Text = isTr ? "Dil" : "Language";
         SettingsLanguageLabel.Text = isTr ? "Uygulama dili" : "App language";
+        LangItemSystem.Content = isTr ? "Sistem varsayılanı" : "System default";
+
         SettingsDiagnosticsHeader.Text = isTr ? "Tanılama" : "Diagnostics";
         SettingsDiagnosticsLabel.Text = isTr ? "Tanılama Raporu" : "Diagnostic Report";
         SettingsDiagnosticsSubtext.Text = isTr ? "Kişisel yollar gizlenmiş sistem ve sağlık raporunu dışa aktarır." : "Exports system and health status with personal paths anonymized.";
         ExportReportButton.Content = isTr ? "Tanılama Raporunu Dışa Aktar" : "Export Diagnostic Report";
         SettingsAboutHeader.Text = isTr ? "Hakkında" : "About";
+        SettingsPublisherLabel.Text = isTr ? "Geliştirici & Yayıncı" : "Developer & Publisher";
+        SettingsWebsiteLabel.Text = isTr ? "Web Sitesi" : "Website";
         SettingsVersionLabel.Text = isTr ? "Sürüm" : "Version";
         SettingsArchLabel.Text = isTr ? "Mimari" : "Architecture";
         SettingsPrivacyStatement.Text = isTr ? "Ornare tamamen çevrimdışı çalışır. Sıfır telemetri, sıfır bulut takibi, sıfır veri toplama." : "Ornare works completely offline. Zero telemetry, zero cloud tracking, zero data collection.";
@@ -589,34 +689,40 @@ public sealed partial class ManagerWindow : Window
     }
 }
 
+[Microsoft.UI.Xaml.Data.Bindable]
 public class LibraryItemVm
 {
-    public required string Sha256 { get; init; }
-    public required string CanonicalIcoPath { get; init; }
-    public required string SourceFormat { get; init; }
-    public BitmapImage? PreviewImage { get; init; }
+    public string Sha256 { get; set; } = string.Empty;
+    public string CanonicalIcoPath { get; set; } = string.Empty;
+    public string SourceFormat { get; set; } = string.Empty;
+    public BitmapImage? PreviewImage { get; set; }
     public bool IsFavorite { get; set; }
     public string FavoriteGlyph { get; set; } = "\uE734";
     public SolidColorBrush? FavoriteBrush { get; set; }
+    public string FavoriteToolTip { get; set; } = "Favorilere Ekle";
+    public string ContextToggleFavoriteText { get; set; } = "Favorilere Ekle";
+    public string ContextOpenExplorerText { get; set; } = "Dosya Gezgini'nde Göster";
 }
 
+[Microsoft.UI.Xaml.Data.Bindable]
 public class RecentItemVm
 {
-    public required string Sha256 { get; init; }
-    public BitmapImage? PreviewImage { get; init; }
-    public string TimeAgo { get; init; } = string.Empty;
+    public string Sha256 { get; set; } = string.Empty;
+    public BitmapImage? PreviewImage { get; set; }
+    public string TimeAgo { get; set; } = string.Empty;
 }
 
+[Microsoft.UI.Xaml.Data.Bindable]
 public class FolderItemVm
 {
-    public required string FolderPath { get; init; }
-    public required string FolderName { get; init; }
-    public BitmapImage? IconPreview { get; init; }
-    public FolderCustomizationState HealthStatus { get; init; }
-    public string HealthGlyph { get; init; } = string.Empty;
-    public SolidColorBrush? HealthBrush { get; init; }
-    public string HealthLabel { get; init; } = string.Empty;
-    public Visibility RepairButtonVisibility { get; init; } = Visibility.Collapsed;
-    public Visibility KeepExternalButtonVisibility { get; init; } = Visibility.Collapsed;
-    public string? ExpectedAssetHash { get; init; }
+    public string FolderPath { get; set; } = string.Empty;
+    public string FolderName { get; set; } = string.Empty;
+    public BitmapImage? IconPreview { get; set; }
+    public FolderCustomizationState HealthStatus { get; set; }
+    public string HealthGlyph { get; set; } = string.Empty;
+    public SolidColorBrush? HealthBrush { get; set; }
+    public string HealthLabel { get; set; } = string.Empty;
+    public Visibility RepairButtonVisibility { get; set; } = Visibility.Collapsed;
+    public Visibility KeepExternalButtonVisibility { get; set; } = Visibility.Collapsed;
+    public string? ExpectedAssetHash { get; set; }
 }

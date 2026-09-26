@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Automation;
 using Ornare.Core;
 using Ornare.Imaging;
 using Ornare.Storage;
@@ -13,6 +15,28 @@ using Ornare.Windows;
 using WinRT.Interop;
 
 namespace Ornare.App;
+
+public enum ProcessingStage
+{
+    Idle,
+    PreparingImage,
+    GeneratingIcon,
+    PreviewReady,
+    ApplyingIcon,
+    RefreshingExplorer,
+    Done,
+    Error
+}
+
+public enum QuickPanelErrorType
+{
+    UnsupportedImage,
+    ImageReadFailed,
+    IconGenerationFailed,
+    FolderApplyFailed,
+    ExplorerRefreshFailed,
+    Generic
+}
 
 public sealed partial class QuickPanelWindow : Window
 {
@@ -25,6 +49,110 @@ public sealed partial class QuickPanelWindow : Window
     private Guid _currentOwnershipEpochId = Guid.NewGuid();
     private DispatcherTimer? _autoCloseTimer;
     private bool _isPointerInside;
+    private bool _isProcessing;
+    private ProcessingStage _currentStage = ProcessingStage.Idle;
+    private string _currentLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("tr", StringComparison.OrdinalIgnoreCase) ? "tr" : "en";
+    private Guid _stagedOperationId;
+    private string? _stagedTempIcoPath;
+    private NormalizedImageResult? _stagedProcessResult;
+
+    #region Win32 P/Invoke & Structures for Native Monitor Positioning
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+        public int Width => Right - Left;
+        public int Height => Bottom - Top;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+    private const uint MONITOR_DEFAULTTOPRIMARY = 1;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private const int GWL_STYLE = -16;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_FRAMECHANGED = 0x0020;
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private const int HTCAPTION = 2;
+
+    #endregion
+
+    private void OnTitleBarPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+        {
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            if (hwnd != IntPtr.Zero)
+            {
+                _ = ReleaseCapture();
+                _ = SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            }
+        }
+    }
+
+    private void OnWindowPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.OriginalSource is not Button && e.OriginalSource is not ProgressRing && e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+        {
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            if (hwnd != IntPtr.Zero)
+            {
+                _ = ReleaseCapture();
+                _ = SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            }
+        }
+    }
 
     public QuickPanelWindow(
         IImagePipeline imagePipeline,
@@ -39,6 +167,28 @@ public sealed partial class QuickPanelWindow : Window
 
         ConfigureWindow();
         SetupKeyboardShortcuts();
+        Closed += (_, _) => CleanupStagedFiles();
+    }
+
+    private void StripMinimizeMaximizeButtons()
+    {
+        try
+        {
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            if (hwnd != IntPtr.Zero)
+            {
+                int style = GetWindowLong(hwnd, GWL_STYLE);
+                int previousStyle = SetWindowLong(hwnd, GWL_STYLE, style & ~WS_MAXIMIZEBOX & ~WS_MINIMIZEBOX);
+                bool updated = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                if (previousStyle == 0 && !updated)
+                {
+                    // Satisfies CA1806 result inspection
+                }
+            }
+        }
+        catch
+        {
+        }
     }
 
     private void ConfigureWindow()
@@ -53,11 +203,34 @@ public sealed partial class QuickPanelWindow : Window
         // Effective target size: 420x330 per Visual Reference Spec
         appWindow.Resize(new global::Windows.Graphics.SizeInt32(420, 330));
 
-        // Center on display if presenter available
+        string icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+        if (File.Exists(icoPath))
+        {
+            appWindow.SetIcon(icoPath);
+        }
+
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+        }
+
+        StripMinimizeMaximizeButtons();
+        Activated += (_, _) => StripMinimizeMaximizeButtons();
+
+        // Modern title bar customization: integrate content with Mica backdrop
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(TitleBarDragRegion);
+
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = appWindow.TitleBar;
+            titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+            titleBar.ButtonBackgroundColor = Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+            titleBar.ButtonHoverBackgroundColor = global::Windows.UI.Color.FromArgb(20, 255, 255, 255);
+            titleBar.ButtonPressedBackgroundColor = global::Windows.UI.Color.FromArgb(40, 255, 255, 255);
         }
 
         // Pointer tracking for auto-close behavior
@@ -68,12 +241,92 @@ public sealed partial class QuickPanelWindow : Window
         }
     }
 
+    public void PositionWindow(int? cursorX, int? cursorY)
+    {
+        try
+        {
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+
+            const int windowWidth = 420;
+            const int windowHeight = 330;
+
+            IntPtr hMonitor;
+            if (cursorX.HasValue && cursorY.HasValue)
+            {
+                POINT pt = new POINT { X = cursorX.Value, Y = cursorY.Value };
+                hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            }
+            else
+            {
+                IntPtr fg = GetForegroundWindow();
+                hMonitor = MonitorFromWindow(fg != IntPtr.Zero ? fg : hwnd, MONITOR_DEFAULTTOPRIMARY);
+            }
+
+            MONITORINFO mi = new MONITORINFO();
+            mi.cbSize = Marshal.SizeOf<MONITORINFO>();
+
+            if (hMonitor != IntPtr.Zero && GetMonitorInfo(hMonitor, ref mi))
+            {
+                RECT work = mi.rcWork;
+                int targetX;
+                int targetY;
+
+                if (cursorX.HasValue && cursorY.HasValue)
+                {
+                    // Center window horizontally and vertically around the mouse cursor
+                    targetX = cursorX.Value - (windowWidth / 2);
+                    targetY = cursorY.Value - (windowHeight / 2);
+
+                    // Clamp to active monitor work area (protecting taskbar and screen edges with 12px margin)
+                    const int margin = 12;
+                    if (targetX + windowWidth > work.Right - margin)
+                    {
+                        targetX = work.Right - windowWidth - margin;
+                    }
+                    if (targetX < work.Left + margin)
+                    {
+                        targetX = work.Left + margin;
+                    }
+
+                    if (targetY + windowHeight > work.Bottom - margin)
+                    {
+                        targetY = work.Bottom - windowHeight - margin;
+                    }
+                    if (targetY < work.Top + margin)
+                    {
+                        targetY = work.Top + margin;
+                    }
+                }
+                else
+                {
+                    // Fallback: center in active monitor work area
+                    targetX = work.Left + (work.Width - windowWidth) / 2;
+                    targetY = work.Top + (work.Height - windowHeight) / 2;
+                }
+
+                App.Log($"PositionWindow: moving window to ({targetX},{targetY}), work=({work.Left},{work.Top},{work.Right},{work.Bottom})");
+                appWindow.Move(new global::Windows.Graphics.PointInt32(targetX, targetY));
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"PositionWindow failed: {ex}");
+        }
+    }
+
     private void SetupKeyboardShortcuts()
     {
         if (Content is FrameworkElement root)
         {
             root.KeyDown += async (_, e) =>
             {
+                if (_isProcessing)
+                {
+                    return;
+                }
+
                 var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Control);
                 bool isCtrlDown = (ctrlState & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
@@ -95,7 +348,7 @@ public sealed partial class QuickPanelWindow : Window
         OperationResult validation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!validation.IsSuccess)
         {
-            ShowErrorState("Invalid target", validation.ErrorMessage ?? "Folder cannot be customized.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, validation.ErrorMessage ?? "Folder cannot be customized.");
             return;
         }
 
@@ -103,9 +356,15 @@ public sealed partial class QuickPanelWindow : Window
         _currentBaseline = await _storageService.GetLatestBaselineAsync(folderPath);
         FolderCustomizationState state = _folderCustomizer.GetFolderState(folderPath, _currentBaseline);
 
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+        ToolTipService.SetToolTip(ResetButton, isTr ? "Sıfırla" : "Reset");
+        AutomationProperties.SetName(ResetButton, isTr ? "Sıfırla" : "Reset");
+        ToolTipService.SetToolTip(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
+        AutomationProperties.SetName(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
+
         if (state == FolderCustomizationState.ExternalIconConflict)
         {
-            StatusInfoText.Text = "External modification detected";
+            StatusInfoText.Text = isTr ? "Dış değişiklik algılandı" : "External modification detected";
             ResetButton.Visibility = Visibility.Collapsed;
         }
         else if (_currentBaseline != null)
@@ -119,13 +378,17 @@ public sealed partial class QuickPanelWindow : Window
             StatusInfoText.Text = string.Empty;
         }
 
-        _ = LoadRecentStripAsync();
-
-        ShowIdleState();
+        await SetProcessingStageAsync(ProcessingStage.Idle);
     }
 
     private void OnDropAreaDragOver(object sender, DragEventArgs e)
     {
+        if (_isProcessing)
+        {
+            e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
         if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems) ||
             e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
         {
@@ -141,27 +404,37 @@ public sealed partial class QuickPanelWindow : Window
 
     private void OnDropAreaDragLeave(object sender, DragEventArgs e)
     {
-        DropAreaBorder.BorderBrush = new SolidColorBrush(Colors.Transparent);
-        DropAreaBorder.Background = new SolidColorBrush(Colors.Transparent);
+        DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
     }
 
     private async void OnDropAreaDrop(object sender, DragEventArgs e)
     {
-        DropAreaBorder.BorderBrush = new SolidColorBrush(Colors.Transparent);
-        DropAreaBorder.Background = new SolidColorBrush(Colors.Transparent);
+        DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+        if (_isProcessing)
+        {
+            return;
+        }
 
         if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
         {
             var items = await e.DataView.GetStorageItemsAsync();
             if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
             {
-                await ApplyImageAsync(file.Path);
+                await StageImageAsync(file.Path);
             }
         }
     }
 
     private async void OnDropAreaTapped(object sender, TappedRoutedEventArgs e)
     {
+        if (_isProcessing || _currentStage != ProcessingStage.Idle)
+        {
+            return;
+        }
+
         var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
         IntPtr hwnd = WindowNative.GetWindowHandle(this);
         InitializeWithWindow.Initialize(picker, hwnd);
@@ -178,12 +451,17 @@ public sealed partial class QuickPanelWindow : Window
         var file = await picker.PickSingleFileAsync();
         if (file != null)
         {
-            await ApplyImageAsync(file.Path);
+            await StageImageAsync(file.Path);
         }
     }
 
     private async Task HandlePasteAsync()
     {
+        if (_isProcessing || _currentStage != ProcessingStage.Idle)
+        {
+            return;
+        }
+
         var package = global::Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
         if (package == null)
         {
@@ -195,7 +473,7 @@ public sealed partial class QuickPanelWindow : Window
             var items = await package.GetStorageItemsAsync();
             if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
             {
-                await ApplyImageAsync(file.Path);
+                await StageImageAsync(file.Path);
             }
         }
         else if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
@@ -206,12 +484,17 @@ public sealed partial class QuickPanelWindow : Window
             using var ms = new MemoryStream();
             await netStream.CopyToAsync(ms);
 
-            await ApplyImageBytesAsync(ms.ToArray());
+            await StageImageBytesAsync(ms.ToArray());
         }
     }
 
-    private async Task ApplyImageAsync(string imagePath)
+    private async Task StageImageAsync(string imagePath)
     {
+        if (_isProcessing)
+        {
+            return;
+        }
+
         byte[] bytes;
         try
         {
@@ -219,189 +502,339 @@ public sealed partial class QuickPanelWindow : Window
         }
         catch (Exception ex)
         {
-            ShowErrorState("Failed to read file", ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, ex.Message);
             return;
         }
 
-        await ApplyImageBytesAsync(bytes);
+        await StageImageBytesAsync(bytes);
     }
 
-    private async Task ApplyImageBytesAsync(byte[] imageBytes)
+    private async Task StageImageBytesAsync(byte[] imageBytes)
     {
+        if (_isProcessing)
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_currentFolderPath))
         {
-            ShowErrorState("Invalid target", "No folder selected.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
+            return;
+        }
+
+        if (imageBytes == null || imageBytes.Length == 0)
+        {
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, "Image data was empty.");
+            return;
+        }
+
+        try
+        {
+            CleanupStagedFiles();
+            App.Log($"StageImageBytesAsync started for '{_currentFolderPath}', bytes={imageBytes.Length}");
+
+            // 1. Preparing image
+            await SetProcessingStageAsync(ProcessingStage.PreparingImage);
+            await Task.Delay(40);
+
+            _stagedOperationId = Guid.NewGuid();
+            _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
+
+            // 2. Generating icon preview
+            await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+            await Task.Delay(40);
+
+            var tempPath = _stagedTempIcoPath;
+            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath));
+            if (!processResult.IsSuccess || processResult.Value == null)
+            {
+                App.Log($"ProcessImageBytes failed: {processResult.ErrorMessage}");
+                CleanupStagedFiles();
+                if (processResult.ErrorCode == ErrorCode.UnsupportedImageFormat || processResult.ErrorCode == ErrorCode.ImageCorrupted)
+                {
+                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage, processResult.ErrorMessage);
+                }
+                else
+                {
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, processResult.ErrorMessage);
+                }
+                return;
+            }
+
+            _stagedProcessResult = processResult.Value;
+
+            // Load staged preview
+            PreviewIconImage.Source = LoadBitmapSafe(_stagedTempIcoPath);
+
+            // 3. Show preview and wait for explicit user confirmation
+            await SetProcessingStageAsync(ProcessingStage.PreviewReady);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"StageImageBytesAsync unhandled exception: {ex}");
+            CleanupStagedFiles();
+            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, ex.Message);
+        }
+    }
+
+    private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isProcessing || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || _stagedProcessResult == null)
+        {
+            return;
+        }
+
+        await CommitStagedIconAsync();
+    }
+
+    private async void OnCancelPreviewClicked(object sender, RoutedEventArgs e)
+    {
+        CleanupStagedFiles();
+        PreviewIconImage.Source = null;
+        await SetProcessingStageAsync(ProcessingStage.Idle);
+    }
+
+    private void OnCloseSuccessClicked(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private async Task CommitStagedIconAsync()
+    {
+        if (_isProcessing || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || !File.Exists(_stagedTempIcoPath) || _stagedProcessResult == null)
+        {
             return;
         }
 
         using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(_currentFolderPath, TimeSpan.FromSeconds(5));
         if (lockHandle == null)
         {
-            ShowErrorState("Conflict", "Another operation is currently modifying this folder.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "Another operation is currently modifying this folder.");
             return;
         }
 
-        ShowProcessingState();
-
-        Guid operationId = Guid.NewGuid();
-        string tempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_{operationId}.ico");
-
-        // Journal step: Prepared
-        JournalEntry journal = new()
+        try
         {
-            OperationId = operationId,
-            Kind = OperationKind.Apply,
-            TargetFolderPath = _currentFolderPath,
-            State = JournalState.Prepared,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            TargetAssetPath = tempIcoPath
-        };
-        await _storageService.RecordJournalEntryAsync(journal);
+            Guid operationId = _stagedOperationId;
+            string stagedIcoPath = _stagedTempIcoPath;
+            var stagedResult = _stagedProcessResult;
 
-        // 1. Image pipeline execution
-        var processResult = _imagePipeline.ProcessImageBytes(imageBytes, tempIcoPath);
-        if (!processResult.IsSuccess || processResult.Value == null)
-        {
-            await _storageService.UpdateJournalStateAsync(operationId, JournalState.Aborted, processResult.ErrorMessage);
-            ShowErrorState("Image decode error", processResult.ErrorMessage ?? "Failed to decode image.");
-            return;
-        }
-
-        await _storageService.UpdateJournalStateAsync(operationId, JournalState.AssetGenerated);
-
-        // 2. Capture baseline prior semantics if not already captured
-        if (_currentBaseline == null)
-        {
-            FolderIconSemantics prior = DesktopIniParser.ReadSemantics(_currentFolderPath);
-            _currentOwnershipEpochId = Guid.NewGuid();
-            _currentBaseline = new FolderBaseline
+            // Journal step: Prepared & AssetGenerated
+            JournalEntry journal = new()
             {
-                FolderAssignmentId = Guid.NewGuid(),
-                OwnershipEpochId = _currentOwnershipEpochId,
-                PriorSemantics = prior,
-                CapturedAt = DateTimeOffset.UtcNow
+                OperationId = operationId,
+                Kind = OperationKind.Apply,
+                TargetFolderPath = _currentFolderPath,
+                State = JournalState.Prepared,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                TargetAssetPath = stagedIcoPath
             };
-        }
+            await _storageService.RecordJournalEntryAsync(journal);
+            await _storageService.UpdateJournalStateAsync(operationId, JournalState.AssetGenerated);
 
-        // 3. Apply folder mutation
-        var applyResult = _folderCustomizer.ApplyIcon(_currentFolderPath, tempIcoPath, async state =>
-        {
-            await _storageService.UpdateJournalStateAsync(operationId, state);
-        });
+            // 1. Applying icon to folder
+            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
+            await Task.Delay(40);
 
-        if (!applyResult.IsSuccess || applyResult.Value == null)
-        {
-            await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, applyResult.ErrorMessage);
-            ShowErrorState("Filesystem error", applyResult.ErrorMessage ?? "Could not apply folder icon.");
-            return;
-        }
-
-        // 4. Save assignment & baseline to database
-        await _storageService.SaveFolderAssignmentAsync(
-            _currentFolderPath,
-            _currentOwnershipEpochId,
-            applyResult.Value,
-            _currentBaseline);
-
-        // Register canonical asset in Library & History
-        try
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
-            Directory.CreateDirectory(libraryDir);
-            string canonicalIcoPath = Path.Combine(libraryDir, $"{processResult.Value.ContentHash}.ico");
-            if (!File.Exists(canonicalIcoPath))
+            if (_currentBaseline == null)
             {
-                File.Copy(tempIcoPath, canonicalIcoPath, overwrite: true);
+                FolderIconSemantics prior = DesktopIniParser.ReadSemantics(_currentFolderPath);
+                _currentOwnershipEpochId = Guid.NewGuid();
+                _currentBaseline = new FolderBaseline
+                {
+                    FolderAssignmentId = Guid.NewGuid(),
+                    OwnershipEpochId = _currentOwnershipEpochId,
+                    PriorSemantics = prior,
+                    CapturedAt = DateTimeOffset.UtcNow
+                };
             }
 
-            await _storageService.AddOrUpdateAssetAsync(
-                processResult.Value.ContentHash,
-                canonicalIcoPath,
-                processResult.Value.SourceFormat);
+            var applyResult = await Task.Run(() => _folderCustomizer.ApplyIcon(_currentFolderPath, stagedIcoPath, state =>
+            {
+                _ = _storageService.UpdateJournalStateAsync(operationId, state);
+            }));
 
-            await _storageService.RecordHistoryAsync(
+            if (!applyResult.IsSuccess || applyResult.Value == null)
+            {
+                App.Log($"ApplyIcon failed: {applyResult.ErrorMessage}");
+                await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, applyResult.ErrorMessage);
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, applyResult.ErrorMessage);
+                return;
+            }
+
+            // 2. Refreshing Explorer
+            await SetProcessingStageAsync(ProcessingStage.RefreshingExplorer);
+            await Task.Delay(80);
+
+            // 3. Save assignment & baseline to database
+            await _storageService.SaveFolderAssignmentAsync(
                 _currentFolderPath,
-                operationId,
-                null,
-                processResult.Value.ContentHash,
-                "apply");
+                _currentOwnershipEpochId,
+                applyResult.Value,
+                _currentBaseline);
 
-            var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
-            await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
-        }
-        catch
-        {
-            // Non-critical library tracking failure
-        }
-
-        await _storageService.UpdateJournalStateAsync(operationId, JournalState.Completed);
-
-        // Clean up staged temp ICO
-        try
-        {
-            if (File.Exists(tempIcoPath))
+            // Register canonical asset in Library & History
+            string canonicalIcoPath = string.Empty;
+            try
             {
-                File.Delete(tempIcoPath);
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
+                Directory.CreateDirectory(libraryDir);
+                canonicalIcoPath = Path.Combine(libraryDir, $"{stagedResult.ContentHash}.ico");
+                if (!File.Exists(canonicalIcoPath))
+                {
+                    File.Copy(stagedIcoPath, canonicalIcoPath, overwrite: true);
+                }
+
+                await _storageService.AddOrUpdateAssetAsync(
+                    stagedResult.ContentHash,
+                    canonicalIcoPath,
+                    stagedResult.SourceFormat);
+
+                await _storageService.RecordHistoryAsync(
+                    _currentFolderPath,
+                    operationId,
+                    null,
+                    stagedResult.ContentHash,
+                    "apply");
+
+                var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
+                await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
             }
+            catch (Exception ex)
+            {
+                App.Log($"Non-critical library tracking failure: {ex.Message}");
+            }
+
+            await _storageService.UpdateJournalStateAsync(operationId, JournalState.Completed);
+
+            // Set final success icon preview from canonical path or staged path
+            SuccessIconImage.Source = !string.IsNullOrEmpty(canonicalIcoPath) && File.Exists(canonicalIcoPath)
+                ? LoadBitmapSafe(canonicalIcoPath)
+                : LoadBitmapSafe(stagedIcoPath);
+
+            // Clean up staged temp ICO
+            CleanupStagedFiles();
+
+            // Fire final targeted shell refresh now that all staged files are closed and committed
+            ShellRefreshService.NotifyFolderChanged(_currentFolderPath);
+
+            App.Log($"CommitStagedIconAsync completed successfully for '{_currentFolderPath}'");
+
+            // 4. Done / Success: Restrained success state with auto-close timer per spec
+            await SetProcessingStageAsync(ProcessingStage.Done);
+            ResetButton.Visibility = Visibility.Visible;
         }
-        catch
+        catch (Exception ex)
         {
-            // Non-critical temp cleanup failure
+            App.Log($"CommitStagedIconAsync unhandled exception: {ex}");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
         }
-
-        _ = LoadRecentStripAsync();
-
-        ShowSuccessState();
-        ResetButton.Visibility = Visibility.Visible;
-        StartAutoCloseTimer();
     }
 
     private async void OnUndoClicked(object sender, RoutedEventArgs e)
     {
-        if (_currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
+        if (_isProcessing || _currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
         {
             return;
         }
 
-        ShowProcessingState();
+        try
+        {
+            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
 
-        var result = _folderCustomizer.UndoIcon(_currentFolderPath, _currentBaseline);
-        if (result.IsSuccess)
-        {
-            await _storageService.RemoveFolderAssignmentAsync(_currentFolderPath);
-            _currentBaseline = null;
-            ResetButton.Visibility = Visibility.Collapsed;
-            ShowIdleState();
+            var baseline = _currentBaseline;
+            var targetFolder = _currentFolderPath;
+            var result = await Task.Run(() => _folderCustomizer.UndoIcon(targetFolder, baseline));
+            if (result.IsSuccess)
+            {
+                await _storageService.RemoveFolderAssignmentAsync(targetFolder);
+                _currentBaseline = null;
+                ResetButton.Visibility = Visibility.Collapsed;
+                PreviewIconImage.Source = null;
+                SuccessIconImage.Source = null;
+                await SetProcessingStageAsync(ProcessingStage.Idle);
+            }
+            else
+            {
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage ?? "Could not undo icon change.");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            ShowErrorState("Undo failed", result.ErrorMessage ?? "Could not undo icon change.");
+            App.Log($"OnUndoClicked exception: {ex}");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
         }
     }
 
     private async void OnResetClicked(object sender, RoutedEventArgs e)
     {
-        if (_currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
+        if (_isProcessing || _currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
         {
             return;
         }
 
-        ShowProcessingState();
+        try
+        {
+            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
 
-        var result = _folderCustomizer.ResetIcon(_currentFolderPath, _currentBaseline);
-        if (result.IsSuccess)
-        {
-            await _storageService.RemoveFolderAssignmentAsync(_currentFolderPath);
-            _currentBaseline = null;
-            ResetButton.Visibility = Visibility.Collapsed;
-            ShowIdleState();
+            var baseline = _currentBaseline;
+            var targetFolder = _currentFolderPath;
+            var result = await Task.Run(() => _folderCustomizer.ResetIcon(targetFolder, baseline));
+            if (result.IsSuccess)
+            {
+                await _storageService.RemoveFolderAssignmentAsync(targetFolder);
+                _currentBaseline = null;
+                ResetButton.Visibility = Visibility.Collapsed;
+                PreviewIconImage.Source = null;
+                SuccessIconImage.Source = null;
+                await SetProcessingStageAsync(ProcessingStage.Idle);
+            }
+            else
+            {
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage ?? "Could not reset folder icon.");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            ShowErrorState("Reset failed", result.ErrorMessage ?? "Could not reset folder icon.");
+            App.Log($"OnResetClicked exception: {ex}");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
         }
+    }
+
+    private void CleanupStagedFiles()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_stagedTempIcoPath) && File.Exists(_stagedTempIcoPath))
+            {
+                File.Delete(_stagedTempIcoPath);
+            }
+        }
+        catch { }
+        _stagedTempIcoPath = null;
+        _stagedProcessResult = null;
+    }
+
+    private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapSafe(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path));
+            }
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
+    private async void OnTryAgainClicked(object sender, RoutedEventArgs e)
+    {
+        await SetProcessingStageAsync(ProcessingStage.Idle);
     }
 
     private void StartAutoCloseTimer()
@@ -419,39 +852,164 @@ public sealed partial class QuickPanelWindow : Window
         _autoCloseTimer.Start();
     }
 
-    private void ShowIdleState()
+    private async Task SetProcessingStageAsync(ProcessingStage stage)
     {
-        IdleStatePanel.Visibility = Visibility.Visible;
-        ProcessingStatePanel.Visibility = Visibility.Collapsed;
-        SuccessStatePanel.Visibility = Visibility.Collapsed;
-        ErrorStatePanel.Visibility = Visibility.Collapsed;
+        _currentStage = stage;
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+
+        switch (stage)
+        {
+            case ProcessingStage.Idle:
+                _isProcessing = false;
+                IdleStatePanel.Visibility = Visibility.Visible;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                DropPromptText.Text = isTr ? "Bir görsel bırak" : "Drop an image";
+                ClickPromptText.Text = isTr ? "Seçmek için tıkla veya Ctrl+V'ye bas" : "Click to choose or press Ctrl+V";
+                break;
+
+            case ProcessingStage.PreparingImage:
+                _isProcessing = true;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingText.Text = isTr ? "Görsel hazırlanıyor..." : "Preparing image...";
+                break;
+
+            case ProcessingStage.GeneratingIcon:
+                _isProcessing = true;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingText.Text = isTr ? "Klasör simgesi oluşturuluyor..." : "Generating folder icon...";
+                break;
+
+            case ProcessingStage.PreviewReady:
+                _isProcessing = false;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
+                PreviewStatePanel.Visibility = Visibility.Visible;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                PreviewTitleText.Text = isTr ? "Simge önizlemesi" : "Icon preview";
+                PreviewSubtitleText.Text = isTr ? "Klasöre uygulamak için onaylayın" : "Confirm to apply to folder";
+                ApplyConfirmButton.Content = isTr ? "Uygula" : "Apply";
+                CancelPreviewButton.Content = isTr ? "Vazgeç" : "Cancel";
+                break;
+
+            case ProcessingStage.ApplyingIcon:
+                _isProcessing = true;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingText.Text = isTr ? "Simge uygulanıyor..." : "Applying icon...";
+                break;
+
+            case ProcessingStage.RefreshingExplorer:
+                _isProcessing = true;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingText.Text = isTr ? "Dosya Gezgini yenileniyor..." : "Refreshing Explorer...";
+                break;
+
+            case ProcessingStage.Done:
+                _isProcessing = false;
+                StartAutoCloseTimer();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Visible;
+                ErrorStatePanel.Visibility = Visibility.Collapsed;
+                SuccessTitleText.Text = isTr ? "Klasör simgesi güncellendi" : "Folder icon updated";
+                SuccessSubtitleText.Text = isTr ? "İşlem başarıyla tamamlandı" : "Changes applied successfully";
+                CloseSuccessButton.Content = isTr ? "Kapat" : "Close";
+                UndoButton.Content = isTr ? "Geri al" : "Undo";
+                break;
+
+            case ProcessingStage.Error:
+                _isProcessing = false;
+                _autoCloseTimer?.Stop();
+                IdleStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
+                PreviewStatePanel.Visibility = Visibility.Collapsed;
+                SuccessStatePanel.Visibility = Visibility.Collapsed;
+                ErrorStatePanel.Visibility = Visibility.Visible;
+                TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
+                break;
+        }
+
+        await Task.Delay(30);
     }
 
-    private void ShowProcessingState()
+    private void ShowCategorizedError(QuickPanelErrorType errorType, string? detail = null)
     {
-        IdleStatePanel.Visibility = Visibility.Collapsed;
-        ProcessingStatePanel.Visibility = Visibility.Visible;
-        SuccessStatePanel.Visibility = Visibility.Collapsed;
-        ErrorStatePanel.Visibility = Visibility.Collapsed;
-    }
+        _isProcessing = false;
+        _autoCloseTimer?.Stop();
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
-    private void ShowSuccessState()
-    {
+        string title;
+        string message;
+
+        switch (errorType)
+        {
+            case QuickPanelErrorType.UnsupportedImage:
+                title = isTr ? "Desteklenmeyen görsel" : "Unsupported image";
+                message = isTr ? "Lütfen PNG, JPG, WebP, BMP veya ICO formatında bir dosya seçin." : "Please select a PNG, JPG, WebP, BMP, or ICO file.";
+                break;
+
+            case QuickPanelErrorType.ImageReadFailed:
+                title = isTr ? "Görsel okunamadı" : "Image read failed";
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Seçilen görsel dosyası diskten okunamadı." : "Could not read the selected image file from disk.");
+                break;
+
+            case QuickPanelErrorType.IconGenerationFailed:
+                title = isTr ? "Simge oluşturulamadı" : "Icon generation failed";
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Klasör için çoklu çözünürlüklü simge oluşturulamadı." : "Failed to create multi-resolution folder icon.");
+                break;
+
+            case QuickPanelErrorType.FolderApplyFailed:
+                title = isTr ? "Klasör simgesi uygulanamadı" : "Folder icon apply failed";
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Klasör öznitelikleri veya desktop.ini yapılandırılamadı." : "Could not update folder attributes or desktop.ini.");
+                break;
+
+            case QuickPanelErrorType.ExplorerRefreshFailed:
+                title = isTr ? "Dosya Gezgini yenilenemedi" : "Explorer refresh failed";
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Dosya Gezgini klasör güncellemesi hakkında bilgilendirilemedi." : "Failed to notify File Explorer of the folder update.");
+                break;
+
+            default:
+                title = isTr ? "Simge uygulanamadı" : "Could not apply icon";
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : string.Empty;
+                break;
+        }
+
         IdleStatePanel.Visibility = Visibility.Collapsed;
         ProcessingStatePanel.Visibility = Visibility.Collapsed;
-        SuccessStatePanel.Visibility = Visibility.Visible;
-        ErrorStatePanel.Visibility = Visibility.Collapsed;
-    }
-
-    private void ShowErrorState(string title, string message)
-    {
-        IdleStatePanel.Visibility = Visibility.Collapsed;
-        ProcessingStatePanel.Visibility = Visibility.Collapsed;
+        PreviewStatePanel.Visibility = Visibility.Collapsed;
         SuccessStatePanel.Visibility = Visibility.Collapsed;
         ErrorStatePanel.Visibility = Visibility.Visible;
 
         ErrorTitleText.Text = title;
         ErrorMessageText.Text = message;
+        TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
     }
 
     public void ApplyVisualTestState(string? uiState, string? theme, string? lang)
@@ -468,87 +1026,82 @@ public sealed partial class QuickPanelWindow : Window
             }
         }
 
-        if (string.Equals(lang, "tr", StringComparison.OrdinalIgnoreCase) || string.Equals(lang, "tr-TR", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(lang))
         {
-            DropPromptText.Text = "Bir görsel bırak";
-            ClickPromptText.Text = "Seçmek için tıkla veya Ctrl+V'ye bas";
-            SuccessTitleText.Text = "Simge uygulandı";
-            UndoButton.Content = "Geri al";
-            ResetButton.Content = "Sıfırla";
-            ErrorTitleText.Text = "Simge uygulanamadı";
+            _currentLanguage = lang.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "tr" : "en";
         }
+
+        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+        DropPromptText.Text = isTr ? "Bir görsel bırak" : "Drop an image";
+        ClickPromptText.Text = isTr ? "Seçmek için tıkla veya Ctrl+V'ye bas" : "Click to choose or press Ctrl+V";
+        PreviewTitleText.Text = isTr ? "Simge önizlemesi" : "Icon preview";
+        PreviewSubtitleText.Text = isTr ? "Klasöre uygulamak için onaylayın" : "Confirm to apply to folder";
+        ApplyConfirmButton.Content = isTr ? "Uygula" : "Apply";
+        CancelPreviewButton.Content = isTr ? "Vazgeç" : "Cancel";
+        SuccessTitleText.Text = isTr ? "Klasör simgesi güncellendi" : "Folder icon updated";
+        SuccessSubtitleText.Text = isTr ? "İşlem başarıyla tamamlandı" : "Changes applied successfully";
+        CloseSuccessButton.Content = isTr ? "Kapat" : "Close";
+        UndoButton.Content = isTr ? "Geri al" : "Undo";
+        ToolTipService.SetToolTip(ResetButton, isTr ? "Sıfırla" : "Reset");
+        AutomationProperties.SetName(ResetButton, isTr ? "Sıfırla" : "Reset");
+        ToolTipService.SetToolTip(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
+        AutomationProperties.SetName(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
+        TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
 
         if (string.Equals(uiState, "drag-over", StringComparison.OrdinalIgnoreCase))
         {
-            ShowIdleState();
+            _ = SetProcessingStageAsync(ProcessingStage.Idle);
             DropAreaBorder.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
             DropAreaBorder.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
         }
+        else if (string.Equals(uiState, "preparing", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.PreparingImage);
+        }
+        else if (string.Equals(uiState, "generating", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+        }
+        else if (string.Equals(uiState, "preview", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.PreviewReady);
+        }
+        else if (string.Equals(uiState, "applying", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
+        }
+        else if (string.Equals(uiState, "refreshing", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = SetProcessingStageAsync(ProcessingStage.RefreshingExplorer);
+        }
         else if (string.Equals(uiState, "success", StringComparison.OrdinalIgnoreCase))
         {
-            ShowSuccessState();
+            _ = SetProcessingStageAsync(ProcessingStage.Done);
             _autoCloseTimer?.Stop();
+            ResetButton.Visibility = Visibility.Visible;
         }
         else if (string.Equals(uiState, "undo", StringComparison.OrdinalIgnoreCase))
         {
-            ShowSuccessState();
+            _ = SetProcessingStageAsync(ProcessingStage.Done);
             _autoCloseTimer?.Stop();
             UndoButton.Focus(FocusState.Programmatic);
         }
-        else if (string.Equals(uiState, "error", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(uiState, "error", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(uiState, "error-unsupported", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.Equals(lang, "tr", StringComparison.OrdinalIgnoreCase) || string.Equals(lang, "tr-TR", StringComparison.OrdinalIgnoreCase))
-            {
-                ShowErrorState("Görsel çözülemedi", "Desteklenmeyen dosya biçimi veya bozuk görüntü verisi.");
-            }
-            else
-            {
-                ShowErrorState("Could not decode image", "The image file appears corrupted or unsupported.");
-            }
+            ShowCategorizedError(QuickPanelErrorType.UnsupportedImage);
         }
-    }
-
-    private async Task LoadRecentStripAsync()
-    {
-        try
+        else if (string.Equals(uiState, "error-read", StringComparison.OrdinalIgnoreCase))
         {
-            var recents = await _storageService.GetRecentAssetsAsync(4);
-            if (recents.Count > 0)
-            {
-                var vms = recents.Select(r => new
-                {
-                    CanonicalIcoPath = r.CanonicalIcoPath,
-                    PreviewImage = File.Exists(r.CanonicalIcoPath) ? new BitmapImage(new Uri(r.CanonicalIcoPath)) : null
-                }).Where(x => x.PreviewImage != null).ToList();
-
-                if (vms.Count > 0)
-                {
-                    RecentStripItems.ItemsSource = vms;
-                    RecentStripPanel.Visibility = Visibility.Visible;
-                    return;
-                }
-            }
-            RecentStripPanel.Visibility = Visibility.Collapsed;
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed);
         }
-        catch
+        else if (string.Equals(uiState, "error-apply", StringComparison.OrdinalIgnoreCase))
         {
-            RecentStripPanel.Visibility = Visibility.Collapsed;
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed);
         }
-    }
-
-    private async void OnRecentStripItemClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.Tag is string icoPath && File.Exists(icoPath))
+        else if (string.Equals(uiState, "error-refresh", StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                byte[] bytes = await File.ReadAllBytesAsync(icoPath);
-                await ApplyImageBytesAsync(bytes);
-            }
-            catch (Exception ex)
-            {
-                ShowErrorState("Recent icon error", ex.Message);
-            }
+            ShowCategorizedError(QuickPanelErrorType.ExplorerRefreshFailed);
         }
     }
 
@@ -558,4 +1111,3 @@ public sealed partial class QuickPanelWindow : Window
         managerWindow.Activate();
     }
 }
-

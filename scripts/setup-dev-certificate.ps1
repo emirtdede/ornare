@@ -3,7 +3,7 @@
 # This script does NOT alter security policies, disable Defender, or bypass any OS protections.
 
 param(
-    [string]$CerPath = "production_artifacts/release/OrnareDevCert.cer"
+    [string]$CerPath = "production_artifacts/release/VelliumDevCert.cer"
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,16 +36,21 @@ if (!$isAdmin) {
     }
 }
 
-# Verify certificate exists in LocalMachine\TrustedPeople
-$store = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
-$store.Open("ReadOnly")
-$found = $store.Certificates | Where-Object { $_.Subject -eq "CN=Ornare" }
-$store.Close()
+# Verify certificate exists in LocalMachine\TrustedPeople or CurrentUser\TrustedPeople
+$storeLM = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
+$storeLM.Open("ReadOnly")
+$foundLM = $storeLM.Certificates | Where-Object { $_.Subject -eq "CN=Vellium" }
+$storeLM.Close()
 
-if ($found) {
-    Write-Host "VERIFIED: CN=Ornare is trusted in LocalMachine\TrustedPeople."
+$storeCU = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "CurrentUser")
+$storeCU.Open("ReadOnly")
+$foundCU = $storeCU.Certificates | Where-Object { $_.Subject -eq "CN=Vellium" }
+$storeCU.Close()
+
+if ($foundLM -or $foundCU) {
+    Write-Host "VERIFIED: CN=Vellium is trusted in TrustedPeople."
     exit 0
 } else {
-    Write-Warning "CN=Ornare was not found in LocalMachine\TrustedPeople."
+    Write-Warning "CN=Vellium was not found in TrustedPeople."
     exit 1
 }

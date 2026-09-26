@@ -19,6 +19,7 @@ static const CLSID CLSID_OrnareCommand =
 static const IID IID_IExplorerCommand_Explicit =
     { 0xa08ce4d0, 0xfa25, 0x44ab, { 0xb5, 0x7c, 0xc7, 0xb1, 0xc3, 0x23, 0xe0, 0xdb } };
 
+static HMODULE g_hModule = nullptr;
 static std::atomic<LONG> g_moduleRefCount{ 0 };
 
 class OrnareExplorerCommand final : public IExplorerCommand
@@ -104,8 +105,28 @@ public:
             return E_POINTER;
         }
         *ppszIcon = nullptr;
-        // Use default shell command icon or return not implemented
-        return E_NOTIMPL;
+
+        wchar_t modulePath[MAX_PATH];
+        DWORD len = GetModuleFileNameW(g_hModule, modulePath, MAX_PATH);
+        if (len == 0 || len >= MAX_PATH)
+        {
+            return E_FAIL;
+        }
+
+        // Return path to embedded icon resource 101 in this DLL: "<modulePath>,-101"
+        wchar_t iconRef[MAX_PATH + 16];
+        swprintf_s(iconRef, MAX_PATH + 16, L"%s,-101", modulePath);
+
+        size_t strLen = wcslen(iconRef) + 1;
+        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(strLen * sizeof(wchar_t)));
+        if (buffer == nullptr)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        wcscpy_s(buffer, strLen, iconRef);
+        *ppszIcon = buffer;
+        return S_OK;
     }
 
     IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
@@ -217,15 +238,18 @@ public:
             return S_OK;
         }
 
+        POINT cursorPos = {};
+        GetCursorPos(&cursorPos);
+
         // Canonicalize/validate path
         wchar_t canonicalPath[MAX_PATH];
         if (PathCanonicalizeW(canonicalPath, filePath))
         {
-            LaunchOrnareApp(canonicalPath);
+            LaunchOrnareApp(canonicalPath, cursorPos.x, cursorPos.y);
         }
         else
         {
-            LaunchOrnareApp(filePath);
+            LaunchOrnareApp(filePath, cursorPos.x, cursorPos.y);
         }
 
         CoTaskMemFree(filePath);
@@ -253,13 +277,79 @@ public:
     }
 
 private:
-    static void LaunchOrnareApp(const wchar_t* folderPath) noexcept
+    static std::wstring UrlEncode(const wchar_t* str) noexcept
+    {
+        if (str == nullptr)
+        {
+            return std::wstring();
+        }
+
+        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, str, -1, nullptr, 0, nullptr, nullptr);
+        if (utf8Len <= 1)
+        {
+            return std::wstring();
+        }
+
+        std::string utf8Str(utf8Len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, str, -1, &utf8Str[0], utf8Len, nullptr, nullptr);
+        utf8Str.pop_back(); // Remove null terminator
+
+        std::wstring encoded;
+        encoded.reserve(utf8Str.size() * 3);
+
+        const char hexChars[] = "0123456789ABCDEF";
+
+        for (unsigned char c : utf8Str)
+        {
+            // RFC 3986 unreserved characters: ALPHA / DIGIT / "-" / "." / "_" / "~"
+            if ((c >= 'a' && c <= 'z') ||
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') ||
+                c == '-' || c == '_' || c == '.' || c == '~')
+            {
+                encoded.push_back(static_cast<wchar_t>(c));
+            }
+            else
+            {
+                encoded.push_back(L'%');
+                encoded.push_back(static_cast<wchar_t>(hexChars[(c >> 4) & 0x0F]));
+                encoded.push_back(static_cast<wchar_t>(hexChars[c & 0x0F]));
+            }
+        }
+
+        return encoded;
+    }
+
+    static void LaunchOrnareApp(const wchar_t* folderPath, int cursorX, int cursorY) noexcept
     {
         if (folderPath == nullptr || *folderPath == L'\0')
         {
             return;
         }
 
+        // 1. Primary supported packaged application activation path:
+        // Registered protocol handler: ornare://set-folder?v=1&path=<url_encoded_path>&x=<cursorX>&y=<cursorY>
+        std::wstring uri = L"ornare://set-folder?v=1&path=";
+        uri += UrlEncode(folderPath);
+        uri += L"&x=" + std::to_wstring(cursorX);
+        uri += L"&y=" + std::to_wstring(cursorY);
+
+        SHELLEXECUTEINFOW sei = {};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = uri.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+
+        BOOL protocolSuccess = ShellExecuteExW(&sei);
+        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
+        {
+            // Successfully dispatched via AppModel protocol activation
+            return;
+        }
+
+        // 2. Secondary fallback for unpackaged development/testing environments:
+        // Locate Ornare.App.exe from adjacent or local source build output
         wchar_t appExePath[MAX_PATH] = {};
         HMODULE hModule = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -312,7 +402,10 @@ private:
         {
             std::wstring args = L"--set-folder \"";
             args += folderPath;
-            args += L"\"";
+            args += L"\" --x ";
+            args += std::to_wstring(cursorX);
+            args += L" --y ";
+            args += std::to_wstring(cursorY);
 
             SHELLEXECUTEINFOW exeSei = {};
             exeSei.cbSize = sizeof(exeSei);
@@ -322,20 +415,7 @@ private:
             exeSei.lpParameters = args.c_str();
             exeSei.nShow = SW_SHOWNORMAL;
             ShellExecuteExW(&exeSei);
-            return;
         }
-
-        // Protocol fallback: ornare://set-folder?v=1&path=...
-        std::wstring uri = L"ornare://set-folder?v=1&path=";
-        uri += folderPath;
-
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.lpVerb = L"open";
-        sei.lpFile = uri.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-        ShellExecuteExW(&sei);
     }
 
     LONG m_refCount;
@@ -430,11 +510,14 @@ private:
     LONG m_refCount;
 };
 
-BOOL APIENTRY DllMain(HMODULE /*hModule*/, DWORD ul_reason_for_call, LPVOID /*lpReserved*/)
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpReserved*/)
 {
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
+        g_hModule = hModule;
+        DisableThreadLibraryCalls(hModule);
+        break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
     case DLL_PROCESS_DETACH:
