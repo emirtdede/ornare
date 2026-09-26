@@ -56,6 +56,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F19 | Portable folder mode with folder-owned relative icon semantics, stable NTFS identity (VolumeSerialNumber, FileId64), open-by-ID relocation reconciliation, migration V6, and zero universal portability claims | F19_portable-folder-mode, FOLDER_CUSTOMIZATION, STORAGE_DATA_MODEL, WINDOWS_SHELL | unit/integration/E2E tests |
 | ORN-EXP-F20 | Folder drag and drop into Manager with Target Tray staging, zero disk or database mutation on drop, 1000 item limit, bounded concurrency, alias/NTFS identity coalescence, and bilingual localization | F20_folder-drag-and-drop-into-manager, UX_UI_SPEC, WINDOWS_SHELL, STORAGE_DATA_MODEL | unit/integration/E2E tests |
 | ORN-EXP-F21 | Apply last icon via Explorer context menu flyout, command line (--apply-last), and custom URI protocol (ornare://apply-last), with resilient recipe-based cache rebuilding, durable journal, and relative folder icon semantics | F21_apply-last-icon, WINDOWS_SHELL, STORAGE_DATA_MODEL, IMAGE_PIPELINE | unit/integration/E2E tests |
+| ORN-EXP-F22 | Undo from Explorer context menu flyout, command line (--undo), and custom URI protocol (ornare://undo), with durable journal baseline restoration, NTFS rename reconciliation, rapid duplicate serialization, and external conflict safety | F22_undo-from-explorer, WINDOWS_SHELL, STORAGE_DATA_MODEL, FOLDER_CUSTOMIZATION | unit/integration/E2E tests |
 
 
 ## Traceability rule

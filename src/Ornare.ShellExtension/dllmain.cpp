@@ -637,6 +637,194 @@ private:
 };
 
 // -----------------------------------------------------------------------------------------
+// Subcommand 2: "Undo" / "Geri Al"
+// -----------------------------------------------------------------------------------------
+class OrnareUndoCommand final : public IExplorerCommand
+{
+public:
+    OrnareUndoCommand() : m_refCount(1)
+    {
+        g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    ~OrnareUndoCommand()
+    {
+        g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    // IUnknown
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) noexcept override
+    {
+        if (ppv == nullptr)
+        {
+            return E_POINTER;
+        }
+
+        if (InlineIsEqualGUID(riid, IID_IUnknown) ||
+            InlineIsEqualGUID(riid, __uuidof(IExplorerCommand)) ||
+            InlineIsEqualGUID(riid, IID_IExplorerCommand_Explicit))
+        {
+            *ppv = static_cast<IExplorerCommand*>(this);
+            AddRef();
+            return S_OK;
+        }
+
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() noexcept override
+    {
+        return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
+    }
+
+    IFACEMETHODIMP_(ULONG) Release() noexcept override
+    {
+        ULONG count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
+        if (count == 0)
+        {
+            delete this;
+        }
+        return count;
+    }
+
+    // IExplorerCommand
+    IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
+    {
+        if (ppszName == nullptr)
+        {
+            return E_POINTER;
+        }
+
+        const wchar_t* title = L"Undo";
+        LANGID langId = GetUserDefaultUILanguage();
+        if (PRIMARYLANGID(langId) == LANG_TURKISH)
+        {
+            title = L"Geri Al";
+        }
+
+        size_t len = wcslen(title) + 1;
+        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
+        if (buffer == nullptr)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        wcscpy_s(buffer, len, title);
+        *ppszName = buffer;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
+    {
+        return GetAppIconPath(ppszIcon);
+    }
+
+    IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
+    {
+        if (ppszInfoTip == nullptr)
+        {
+            return E_POINTER;
+        }
+        *ppszInfoTip = nullptr;
+        return E_NOTIMPL;
+    }
+
+    IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
+    {
+        if (pguidCommandName == nullptr)
+        {
+            return E_POINTER;
+        }
+        *pguidCommandName = GUID_NULL;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
+    {
+        return CheckTargetFolderState(psiItemArray, pcmdState);
+    }
+
+    IFACEMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) noexcept override
+    {
+        std::wstring folderPath;
+        if (!GetSingleFolderPath(psiItemArray, folderPath))
+        {
+            return S_OK;
+        }
+
+        LaunchUndo(folderPath.c_str());
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) noexcept override
+    {
+        if (pFlags == nullptr)
+        {
+            return E_POINTER;
+        }
+        *pFlags = ECF_DEFAULT;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) noexcept override
+    {
+        if (ppEnum == nullptr)
+        {
+            return E_POINTER;
+        }
+        *ppEnum = nullptr;
+        return E_NOTIMPL;
+    }
+
+private:
+    static void LaunchUndo(const wchar_t* folderPath) noexcept
+    {
+        if (folderPath == nullptr || *folderPath == L'\0')
+        {
+            return;
+        }
+
+        // 1. Packaged protocol activation: ornare://undo?v=1&path=<url_encoded_path>
+        std::wstring uri = L"ornare://undo?v=1&path=";
+        uri += UrlEncode(folderPath);
+
+        SHELLEXECUTEINFOW sei = {};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = uri.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+
+        BOOL protocolSuccess = ShellExecuteExW(&sei);
+        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
+        {
+            return;
+        }
+
+        // 2. Unpackaged CLI fallback: Ornare.App.exe --undo "<folderPath>"
+        wchar_t appExePath[MAX_PATH] = {};
+        if (FindAppExe(appExePath, MAX_PATH))
+        {
+            std::wstring args = L"--undo \"";
+            args += folderPath;
+            args += L"\"";
+
+            SHELLEXECUTEINFOW exeSei = {};
+            exeSei.cbSize = sizeof(exeSei);
+            exeSei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+            exeSei.lpVerb = L"open";
+            exeSei.lpFile = appExePath;
+            exeSei.lpParameters = args.c_str();
+            exeSei.nShow = SW_SHOWNORMAL;
+            ShellExecuteExW(&exeSei);
+        }
+    }
+
+    LONG m_refCount;
+};
+
+// -----------------------------------------------------------------------------------------
 // Subcommand Enumerator: IEnumExplorerCommand
 // -----------------------------------------------------------------------------------------
 class OrnareSubCommandEnumerator final : public IEnumExplorerCommand
@@ -922,17 +1110,26 @@ public:
         }
         *ppEnum = nullptr;
 
-        // In F21, exactly one implemented child command: "Apply last icon".
-        // No future placeholder or disabled items.
+        // In F22, exactly two implemented child commands in fixed order:
+        // 1. "Apply last icon" ("Son simgeyi uygula")
+        // 2. "Undo" ("Geri Al")
         OrnareApplyLastCommand* applyLastCmd = new (std::nothrow) OrnareApplyLastCommand();
         if (applyLastCmd == nullptr)
         {
             return E_OUTOFMEMORY;
         }
 
-        IExplorerCommand* commands[1] = { applyLastCmd };
-        OrnareSubCommandEnumerator* enumerator = new (std::nothrow) OrnareSubCommandEnumerator(commands, 1);
+        OrnareUndoCommand* undoCmd = new (std::nothrow) OrnareUndoCommand();
+        if (undoCmd == nullptr)
+        {
+            applyLastCmd->Release();
+            return E_OUTOFMEMORY;
+        }
+
+        IExplorerCommand* commands[2] = { applyLastCmd, undoCmd };
+        OrnareSubCommandEnumerator* enumerator = new (std::nothrow) OrnareSubCommandEnumerator(commands, 2);
         applyLastCmd->Release();
+        undoCmd->Release();
 
         if (enumerator == nullptr)
         {

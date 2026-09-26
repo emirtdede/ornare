@@ -128,24 +128,45 @@ public class ShellExtensionFlyoutTests
             IEnumExplorerCommand enumCmd = (IEnumExplorerCommand)Marshal.GetObjectForIUnknown(pEnumPtr);
             Marshal.Release(pEnumPtr);
 
-            // F21 requirement: Exactly one child command ("Apply last icon" / "Son simgeyi uygula")
-            hr = enumCmd.Next(1, out IntPtr pChild, out uint fetched);
+            // F22 requirement: Exactly two child commands in fixed order:
+            // 1. "Apply last icon" ("Son simgeyi uygula")
+            // 2. "Undo" ("Geri Al")
+
+            // Child 1: Apply last icon
+            hr = enumCmd.Next(1, out IntPtr pChild1, out uint fetched1);
             Assert.Equal(0, hr); // S_OK
-            Assert.Equal(1u, fetched);
-            Assert.NotEqual(IntPtr.Zero, pChild);
+            Assert.Equal(1u, fetched1);
+            Assert.NotEqual(IntPtr.Zero, pChild1);
 
-            IFlyoutExplorerCommand childCmd = (IFlyoutExplorerCommand)Marshal.GetObjectForIUnknown(pChild);
-            Marshal.Release(pChild);
+            IFlyoutExplorerCommand childCmd1 = (IFlyoutExplorerCommand)Marshal.GetObjectForIUnknown(pChild1);
+            Marshal.Release(pChild1);
 
-            hr = childCmd.GetTitle(null, out string? childTitle);
+            hr = childCmd1.GetTitle(null, out string? childTitle1);
             Assert.Equal(0, hr);
-            Assert.True(childTitle == "Apply last icon" || childTitle == "Son simgeyi uygula", $"Unexpected child title: {childTitle}");
+            Assert.True(childTitle1 == "Apply last icon" || childTitle1 == "Son simgeyi uygula", $"Unexpected child 1 title: {childTitle1}");
 
-            hr = childCmd.GetFlags(out int childFlags);
+            hr = childCmd1.GetFlags(out int childFlags1);
             Assert.Equal(0, hr);
-            Assert.Equal(ECF_DEFAULT, childFlags);
+            Assert.Equal(ECF_DEFAULT, childFlags1);
 
-            // Verify no additional children in F21
+            // Child 2: Undo
+            hr = enumCmd.Next(1, out IntPtr pChild2, out uint fetched2);
+            Assert.Equal(0, hr); // S_OK
+            Assert.Equal(1u, fetched2);
+            Assert.NotEqual(IntPtr.Zero, pChild2);
+
+            IFlyoutExplorerCommand childCmd2 = (IFlyoutExplorerCommand)Marshal.GetObjectForIUnknown(pChild2);
+            Marshal.Release(pChild2);
+
+            hr = childCmd2.GetTitle(null, out string? childTitle2);
+            Assert.Equal(0, hr);
+            Assert.True(childTitle2 == "Undo" || childTitle2 == "Geri Al", $"Unexpected child 2 title: {childTitle2}");
+
+            hr = childCmd2.GetFlags(out int childFlags2);
+            Assert.Equal(0, hr);
+            Assert.Equal(ECF_DEFAULT, childFlags2);
+
+            // Verify no additional children in F22
             hr = enumCmd.Next(1, out IntPtr pExtra, out uint extraFetched);
             Assert.Equal(1, hr); // S_FALSE
             Assert.Equal(0u, extraFetched);
@@ -154,7 +175,8 @@ public class ShellExtensionFlyoutTests
                 Marshal.Release(pExtra);
             }
 
-            Marshal.ReleaseComObject(childCmd);
+            Marshal.ReleaseComObject(childCmd1);
+            Marshal.ReleaseComObject(childCmd2);
             Marshal.ReleaseComObject(enumCmd);
             Marshal.ReleaseComObject(flyoutCommand);
             Marshal.ReleaseComObject(factory);

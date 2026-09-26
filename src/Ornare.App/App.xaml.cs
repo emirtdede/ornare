@@ -81,6 +81,7 @@ public partial class App : Application, IDisposable
         public int? CursorY { get; set; }
         public bool IsManager { get; set; }
         public bool IsApplyLast { get; set; }
+        public bool IsUndo { get; set; }
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -156,6 +157,11 @@ public partial class App : Application, IDisposable
                     else if (string.Equals(cmdLineArgs[i], "--apply-last", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
                     {
                         request.IsApplyLast = true;
+                        request.TargetFolder = cmdLineArgs[i + 1];
+                    }
+                    else if (string.Equals(cmdLineArgs[i], "--undo", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
+                    {
+                        request.IsUndo = true;
                         request.TargetFolder = cmdLineArgs[i + 1];
                     }
                     else if (string.Equals(cmdLineArgs[i], "--set-folder", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
@@ -253,6 +259,10 @@ public partial class App : Application, IDisposable
                     {
                         request.IsApplyLast = true;
                     }
+                    else if (uriString.StartsWith("ornare://undo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        request.IsUndo = true;
+                    }
 
                     if (string.IsNullOrWhiteSpace(request.TargetFolder))
                     {
@@ -287,6 +297,17 @@ public partial class App : Application, IDisposable
                 _folderCustomizer,
                 rebuildIcoFunc: async entry => await RebuildIcoFromRecipeAsync(entry));
             Log($"ApplyLast result: IsSuccess={result.IsSuccess}, ErrorCode={result.ErrorCode}, Message={result.ErrorMessage}");
+            return;
+        }
+
+        if (request.IsUndo && !string.IsNullOrWhiteSpace(request.TargetFolder))
+        {
+            Log($"Executing UndoAsync for '{request.TargetFolder}'...");
+            var result = await UndoService.UndoAsync(
+                request.TargetFolder,
+                _storageService,
+                _folderCustomizer);
+            Log($"Undo result: IsSuccess={result.IsSuccess}, ErrorCode={result.ErrorCode}, Message={result.ErrorMessage}");
             return;
         }
 

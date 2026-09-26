@@ -423,6 +423,46 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
+    public async Task<FolderBaseline?> GetLatestBaselineForAssignmentAsync(string assignmentId)
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT a.id, b.ownership_epoch_id, b.prior_semantics_json, b.captured_at
+                FROM folder_assignments a
+                JOIN folder_baselines b ON a.id = b.folder_assignment_id AND a.ownership_epoch_id = b.ownership_epoch_id
+                WHERE a.id = @assignmentId
+                ORDER BY b.captured_at DESC
+                LIMIT 1;
+            ";
+            command.Parameters.AddWithValue("@assignmentId", assignmentId);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new FolderBaseline
+                {
+                    FolderAssignmentId = Guid.Parse(reader.GetString(0)),
+                    OwnershipEpochId = Guid.Parse(reader.GetString(1)),
+                    PriorSemantics = FolderIconSemantics.FromJson(reader.GetString(2)),
+                    CapturedAt = DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture)
+                };
+            }
+
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
     public async Task RemoveFolderAssignmentAsync(string folderPath)
     {
         EnsureInitialized();
@@ -558,16 +598,28 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         uint? volNum = null;
         ulong? fileId64 = null;
 
-        if (!string.IsNullOrWhiteSpace(volumeSerial) &&
-            uint.TryParse(volumeSerial, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVol))
+        if (!string.IsNullOrWhiteSpace(volumeSerial))
         {
-            volNum = parsedVol;
+            if (uint.TryParse(volumeSerial, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVolHex))
+            {
+                volNum = parsedVolHex;
+            }
+            else if (uint.TryParse(volumeSerial, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint parsedVolDec))
+            {
+                volNum = parsedVolDec;
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(fileId) &&
-            ulong.TryParse(fileId, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFid))
+        if (!string.IsNullOrWhiteSpace(fileId))
         {
-            fileId64 = parsedFid;
+            if (ulong.TryParse(fileId, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFidHex))
+            {
+                fileId64 = parsedFidHex;
+            }
+            else if (ulong.TryParse(fileId, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong parsedFidDec))
+            {
+                fileId64 = parsedFidDec;
+            }
         }
 
         await UpdateAssignmentIdentityAsync(folderPath, volNum, fileId64);

@@ -25,7 +25,9 @@ public enum ErrorCode
     UnsupportedExportDestination,
     DropLimitExceeded,
     ItemIsFileNotFolder,
-    NoLastAppliedRecipe
+    NoLastAppliedRecipe,
+    NoUndoAvailable,
+    TargetChanged
 }
 
 public sealed class OperationResult

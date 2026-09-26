@@ -2,7 +2,7 @@ using Ornare.Core;
 
 namespace Ornare.Storage;
 
-public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage
+public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage, IUndoStorage
 {
     bool IsInitialized { get; }
     Task InitializeAsync(string? dbPath = null);
@@ -10,14 +10,11 @@ public interface IStorageService : IFolderAssignmentLookup, IApplyLastStorage
     // Journal (additional methods; RecordJournalEntryAsync and UpdateJournalStateAsync inherited from IApplyLastStorage)
     Task<IReadOnlyList<JournalEntry>> GetPendingJournalEntriesAsync();
 
-    // Assignment & Baselines (SaveFolderAssignmentAsync, GetLatestBaselineAsync, and UpdateAssignmentIdentityAsync(string, string, string) inherited from IApplyLastStorage)
-    Task RemoveFolderAssignmentAsync(string folderPath);
+    // Assignment & Baselines (SaveFolderAssignmentAsync, GetLatestBaselineAsync, and UpdateAssignmentIdentityAsync(string, string, string) inherited from IApplyLastStorage; GetLatestBaselineForAssignmentAsync, RemoveFolderAssignmentAsync, UpdateAssignmentHealthAsync, UpdateAssignmentPathAsync inherited from IUndoStorage)
     Task<IReadOnlyList<FolderAssignment>> GetAllFolderAssignmentsAsync();
-    Task UpdateAssignmentHealthAsync(string folderPath, FolderCustomizationState status, string? conflictState = null);
     Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64);
     Task<FolderAssignment?> GetAssignmentByIdentityAsync(uint volumeSerialNumber, ulong fileId64);
     Task<FolderAssignment?> GetAssignmentByPathAsync(string folderPath);
-    Task UpdateAssignmentPathAsync(string oldFolderPath, string newFolderPath);
 
     // Startup reconciliation
     Task<int> ReconcileStartupAsync(Func<JournalEntry, Task<bool>>? customReconciler = null);
