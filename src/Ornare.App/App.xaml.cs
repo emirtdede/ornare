@@ -82,6 +82,7 @@ public partial class App : Application, IDisposable
         public bool IsManager { get; set; }
         public bool IsApplyLast { get; set; }
         public bool IsUndo { get; set; }
+        public bool IsReset { get; set; }
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -162,6 +163,11 @@ public partial class App : Application, IDisposable
                     else if (string.Equals(cmdLineArgs[i], "--undo", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
                     {
                         request.IsUndo = true;
+                        request.TargetFolder = cmdLineArgs[i + 1];
+                    }
+                    else if (string.Equals(cmdLineArgs[i], "--reset", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
+                    {
+                        request.IsReset = true;
                         request.TargetFolder = cmdLineArgs[i + 1];
                     }
                     else if (string.Equals(cmdLineArgs[i], "--set-folder", StringComparison.OrdinalIgnoreCase) && i + 1 < cmdLineArgs.Length)
@@ -263,6 +269,10 @@ public partial class App : Application, IDisposable
                     {
                         request.IsUndo = true;
                     }
+                    else if (uriString.StartsWith("ornare://reset", StringComparison.OrdinalIgnoreCase))
+                    {
+                        request.IsReset = true;
+                    }
 
                     if (string.IsNullOrWhiteSpace(request.TargetFolder))
                     {
@@ -308,6 +318,17 @@ public partial class App : Application, IDisposable
                 _storageService,
                 _folderCustomizer);
             Log($"Undo result: IsSuccess={result.IsSuccess}, ErrorCode={result.ErrorCode}, Message={result.ErrorMessage}");
+            return;
+        }
+
+        if (request.IsReset && !string.IsNullOrWhiteSpace(request.TargetFolder))
+        {
+            Log($"Executing ResetAsync for '{request.TargetFolder}'...");
+            var result = await ResetService.ResetAsync(
+                request.TargetFolder,
+                _storageService,
+                _folderCustomizer);
+            Log($"Reset result: IsSuccess={result.IsSuccess}, ErrorCode={result.ErrorCode}, Message={result.ErrorMessage}");
             return;
         }
 

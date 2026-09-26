@@ -107,9 +107,9 @@ public class ExplorerCommandStressTests
 
             _output.WriteLine($"Post 1,000 cycles Private Bytes: {finalPrivateBytes / 1024} KB, Handles: {finalHandleCount}");
 
-            // Verify no runaway handle leak (handles within +/- 50 tolerance of initial)
-            int handleDiff = Math.Abs(finalHandleCount - initialHandleCount);
-            Assert.True(handleDiff < 100, $"Handle leak detected: delta is {handleDiff}");
+            // Verify no runaway handle leak (handles should not grow substantially)
+            int handleIncrease = finalHandleCount - initialHandleCount;
+            Assert.True(handleIncrease < 100, $"Handle leak detected: handle increase is {handleIncrease}");
 
             Marshal.FinalReleaseComObject(dirArray);
             Marshal.FinalReleaseComObject(dirItem);

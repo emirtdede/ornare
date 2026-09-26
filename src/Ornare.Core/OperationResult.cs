@@ -27,7 +27,9 @@ public enum ErrorCode
     ItemIsFileNotFolder,
     NoLastAppliedRecipe,
     NoUndoAvailable,
-    TargetChanged
+    TargetChanged,
+    NotCustomized,
+    UnsupportedTarget
 }
 
 public sealed class OperationResult

@@ -128,9 +128,10 @@ public class ShellExtensionFlyoutTests
             IEnumExplorerCommand enumCmd = (IEnumExplorerCommand)Marshal.GetObjectForIUnknown(pEnumPtr);
             Marshal.Release(pEnumPtr);
 
-            // F22 requirement: Exactly two child commands in fixed order:
+            // F23 requirement: Exactly three child commands in fixed order:
             // 1. "Apply last icon" ("Son simgeyi uygula")
             // 2. "Undo" ("Geri Al")
+            // 3. "Reset" ("Sıfırla")
 
             // Child 1: Apply last icon
             hr = enumCmd.Next(1, out IntPtr pChild1, out uint fetched1);
@@ -166,7 +167,24 @@ public class ShellExtensionFlyoutTests
             Assert.Equal(0, hr);
             Assert.Equal(ECF_DEFAULT, childFlags2);
 
-            // Verify no additional children in F22
+            // Child 3: Reset
+            hr = enumCmd.Next(1, out IntPtr pChild3, out uint fetched3);
+            Assert.Equal(0, hr); // S_OK
+            Assert.Equal(1u, fetched3);
+            Assert.NotEqual(IntPtr.Zero, pChild3);
+
+            IFlyoutExplorerCommand childCmd3 = (IFlyoutExplorerCommand)Marshal.GetObjectForIUnknown(pChild3);
+            Marshal.Release(pChild3);
+
+            hr = childCmd3.GetTitle(null, out string? childTitle3);
+            Assert.Equal(0, hr);
+            Assert.True(childTitle3 == "Reset" || childTitle3 == "Sıfırla", $"Unexpected child 3 title: {childTitle3}");
+
+            hr = childCmd3.GetFlags(out int childFlags3);
+            Assert.Equal(0, hr);
+            Assert.Equal(ECF_DEFAULT, childFlags3);
+
+            // Verify no additional children in F23
             hr = enumCmd.Next(1, out IntPtr pExtra, out uint extraFetched);
             Assert.Equal(1, hr); // S_FALSE
             Assert.Equal(0u, extraFetched);
@@ -177,6 +195,7 @@ public class ShellExtensionFlyoutTests
 
             Marshal.ReleaseComObject(childCmd1);
             Marshal.ReleaseComObject(childCmd2);
+            Marshal.ReleaseComObject(childCmd3);
             Marshal.ReleaseComObject(enumCmd);
             Marshal.ReleaseComObject(flyoutCommand);
             Marshal.ReleaseComObject(factory);
