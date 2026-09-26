@@ -14,7 +14,41 @@ public static class ShellRefreshService
 
     private const uint ShcnfIdList = 0x0000;
     private const uint ShcnfPathW = 0x0005;
-    private const uint ShcnfFlushNoWait = 0x3000; // SHCNF_FLUSH (0x1000) | SHCNF_FLUSHNOWAIT (0x2000)
+    private const uint ShcnfFlush = 0x1000; // SHCNF_FLUSH synchronous delivery
+
+    private const int CSIDL_DESKTOP = 0x0000;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct SHFOLDERCUSTOMSETTINGS
+    {
+        public uint dwSize;
+        public uint dwMask;
+        public IntPtr pvid;
+        public string? pszWebViewTemplate;
+        public uint cchWebViewTemplate;
+        public string? pszWebViewTemplateVersion;
+        public string? pszInfoTip;
+        public uint cchInfoTip;
+        public IntPtr pclsid;
+        public uint dwFlags;
+        public string? pszIconFile;
+        public uint cchIconFile;
+        public int iIconIndex;
+        public string? pszLogo;
+        public uint cchLogo;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern int SHGetSetFolderCustomSettings(ref SHFOLDERCUSTOMSETTINGS pfcs, string pszPath, uint dwReadWrite);
+
+    [DllImport("shell32.dll")]
+    private static extern int SHGetSpecialFolderLocation(IntPtr hwnd, int csidl, out IntPtr ppidl);
+
+    [DllImport("ole32.dll")]
+    private static extern void CoTaskMemFree(IntPtr pv);
+
+    internal const uint FcsForceWrite = 0x00000002;
+    internal const uint FcsmIconFile = 0x00000010;
 
     public static void NotifyFolderChanged(string folderPath)
     {
@@ -25,8 +59,8 @@ public static class ShellRefreshService
 
         try
         {
-            uint pathFlags = ShcnfPathW | ShcnfFlushNoWait;
-            uint idFlags = ShcnfIdList | ShcnfFlushNoWait;
+            uint pathFlags = ShcnfPathW | ShcnfFlush;
+            uint idFlags = ShcnfIdList | ShcnfFlush;
 
             unsafe
             {
@@ -57,7 +91,26 @@ public static class ShellRefreshService
                     }
                 }
 
-                // 4. Invalidate Shell icon and thumbnail cache so Explorer views (including Desktop) redraw immediately
+                // 4. Invalidate desktop view directly if folder resides on desktop
+                string desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                if (!string.IsNullOrEmpty(parentDir) &&
+                    (string.Equals(parentDir, desktopDir, StringComparison.OrdinalIgnoreCase) ||
+                     parentDir.EndsWith(@"\Desktop", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (SHGetSpecialFolderLocation(IntPtr.Zero, CSIDL_DESKTOP, out IntPtr desktopPidl) == 0 && desktopPidl != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            PInvoke.SHChangeNotify((SHCNE_ID)ShcneUpdateDir, (SHCNF_FLAGS)idFlags, (void*)desktopPidl, null);
+                        }
+                        finally
+                        {
+                            CoTaskMemFree(desktopPidl);
+                        }
+                    }
+                }
+
+                // 5. Invalidate Shell icon and thumbnail cache so Explorer views (including Desktop) redraw immediately
                 PInvoke.SHChangeNotify((SHCNE_ID)ShcneAssocChanged, (SHCNF_FLAGS)idFlags, null, null);
             }
         }

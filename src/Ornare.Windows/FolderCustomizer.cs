@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using Ornare.Core;
 
 namespace Ornare.Windows;
@@ -138,6 +139,27 @@ public sealed class FolderCustomizer : IFolderCustomizer
             catch
             {
                 // Non-critical timestamp update failure
+            }
+
+            // 4b. Invoke native shell folder settings hook
+            try
+            {
+                ShellRefreshService.SHFOLDERCUSTOMSETTINGS fcs = new()
+                {
+                    dwSize = (uint)Marshal.SizeOf<ShellRefreshService.SHFOLDERCUSTOMSETTINGS>(),
+                    dwMask = ShellRefreshService.FcsmIconFile,
+                    pszIconFile = RelativeIconSubPath,
+                    iIconIndex = 0
+                };
+                int hr = ShellRefreshService.SHGetSetFolderCustomSettings(ref fcs, folderPath, ShellRefreshService.FcsForceWrite);
+                if (hr != 0)
+                {
+                    // Non-zero HRESULT is acceptable as desktop.ini was already committed
+                }
+            }
+            catch
+            {
+                // Non-critical native hook invocation
             }
 
             onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);

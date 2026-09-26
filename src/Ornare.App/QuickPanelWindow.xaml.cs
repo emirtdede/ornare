@@ -932,7 +932,7 @@ public sealed partial class QuickPanelWindow : Window
 
             case ProcessingStage.Done:
                 _isProcessing = false;
-                StartAutoCloseTimer();
+                _autoCloseTimer?.Stop();
                 IdleStatePanel.Visibility = Visibility.Collapsed;
                 ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;

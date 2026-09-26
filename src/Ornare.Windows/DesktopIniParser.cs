@@ -237,6 +237,8 @@ public sealed class DesktopIniParser
     {
         sb.AppendLine(ShellClassInfoSection);
         sb.AppendLine(CultureInfo.InvariantCulture, $"{IconResourceKey}={relativeIcoPath},0");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"{IconFileKey}={relativeIcoPath}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"{IconIndexKey}=0");
         foreach (string line in preservedLines)
         {
             sb.AppendLine(line);
