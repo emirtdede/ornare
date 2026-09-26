@@ -360,4 +360,16 @@
   <data name="Background_ChooseColor_ToolTip" xml:space="preserve">
     <value>Select background color</value>
   </data>
+  <data name="Template_Title" xml:space="preserve">
+    <value>Style</value>
+  </data>
+  <data name="Template_Classic" xml:space="preserve">
+    <value>Classic</value>
+  </data>
+  <data name="Template_Soft" xml:space="preserve">
+    <value>Soft</value>
+  </data>
+  <data name="Template_Flat" xml:space="preserve">
+    <value>Flat</value>
+  </data>
 </root>

@@ -21,23 +21,24 @@ public static class FolderTemplateRenderer
     /// </summary>
     public static RenderRecipe CreateRecipe(
         string baseHex,
-        string templateId = OrnareClassicTemplate.TemplateId,
-        int templateVersion = OrnareClassicTemplate.TemplateVersion)
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
     {
         if (!ColorConversion.TryParseHex(baseHex, out byte r, out byte g, out byte b))
         {
             throw new ArgumentException($"Invalid 6-character hex color '{baseHex}'.", nameof(baseHex));
         }
 
+        var descriptor = FolderTemplateCatalog.GetTemplate(templateId, templateVersion);
         string normalizedHex = ColorConversion.ToHex(r, g, b);
-        byte[] templateBytes = OrnareClassicTemplate.GetTemplateBytes();
+        byte[] templateBytes = descriptor.GetBytes();
         string sourceAssetHash = ImagePipeline.ComputeSourceHashStatic(templateBytes);
 
         return new RenderRecipe
         {
             SourceAssetHash = sourceAssetHash,
-            TemplateId = templateId,
-            TemplateVersion = templateVersion,
+            TemplateId = descriptor.Id,
+            TemplateVersion = descriptor.Version,
             PaletteAlgorithmVersion = FolderPaletteGenerator.PaletteAlgorithmVersion,
             PaletteParameters = normalizedHex,
             SvgRecolorMode = 1, // SemanticTemplate
@@ -55,6 +56,8 @@ public static class FolderTemplateRenderer
         ImagePipeline pipeline,
         string baseHex,
         string outputIcoPath,
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
         string? cacheDirectory = null,
         Func<string, RenderCacheEntry?>? cacheLookup = null,
         Action<RenderCacheEntry>? cacheStore = null,
@@ -66,14 +69,15 @@ public static class FolderTemplateRenderer
         RenderRecipe recipe;
         try
         {
-            recipe = CreateRecipe(baseHex);
+            recipe = CreateRecipe(baseHex, templateId, templateVersion);
         }
         catch (Exception ex)
         {
             return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, ex.Message);
         }
 
-        byte[] templateBytes = OrnareClassicTemplate.GetTemplateBytes();
+        var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
+        byte[] templateBytes = descriptor.GetBytes();
         return pipeline.ProcessRecipe(
             recipe,
             templateBytes,
@@ -89,18 +93,20 @@ public static class FolderTemplateRenderer
     /// </summary>
     public static OperationResult<byte[]> RenderPreviewPng(
         string baseHex,
-        string templateId = OrnareClassicTemplate.TemplateId)
+        string templateId = FolderTemplateCatalog.DefaultTemplateId,
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
     {
         if (!ColorConversion.TryParseHex(baseHex, out byte r, out byte g, out byte b))
         {
             return OperationResult.Failure<byte[]>(ErrorCode.InvalidTarget, $"Invalid 6-character hex color '{baseHex}'.");
         }
 
+        var descriptor = FolderTemplateCatalog.GetTemplate(templateId, templateVersion);
         string normalizedHex = ColorConversion.ToHex(r, g, b);
         var folderPalette = FolderPaletteGenerator.GenerateFromRgb(r, g, b);
         var semanticPalette = folderPalette.ToSemanticColorPalette();
 
-        string templateSvg = OrnareClassicTemplate.SvgContent;
+        string templateSvg = descriptor.SvgContent;
         var recolorResult = SvgRecolorService.RecolorSemanticTemplate(templateSvg, semanticPalette);
         if (!recolorResult.IsSuccess || string.IsNullOrEmpty(recolorResult.Value))
         {

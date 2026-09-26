@@ -9,6 +9,8 @@ public sealed record UserSettings
 
     public string Theme { get; init; } = "System"; // System, Light, Dark
     public string Language { get; init; } = "System"; // System, tr-TR, en-US
+    public string DefaultTemplateId { get; init; } = "ornare-classic";
+    public int DefaultTemplateVersion { get; init; } = 1;
     public IReadOnlyList<string> RecentCustomColors { get; init; } = Array.Empty<string>();
 
     /// <summary>

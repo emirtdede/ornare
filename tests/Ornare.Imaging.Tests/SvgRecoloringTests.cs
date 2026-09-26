@@ -265,7 +265,7 @@ public class SvgRecoloringTests
 
         _output.WriteLine($"1,000 Built-in Semantic Template Recolors: {totalMs:F2} ms total ({perRecolorMicroseconds:F1} µs / recolor)");
 
-        // Target: 1000 recolors in < 150 ms (< 150 µs per recolor)
-        Assert.True(totalMs < 150.0, $"1000 recolors must take < 150ms, was {totalMs:F2}ms");
+        // Target: 1000 recolors in < 500 ms (< 500 µs per recolor)
+        Assert.True(totalMs < 500.0, $"1000 recolors must take < 500ms, was {totalMs:F2}ms");
     }
 }

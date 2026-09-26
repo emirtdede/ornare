@@ -44,6 +44,7 @@ Every V1 requirement receives an immutable ID. Implementation reports and tests 
 | ORN-EXP-F06 | Image placement modes (Contain default, Cover center-crop, Fill explicit stretch with distortion notice), allocation-free pure geometry calculator, 256px preview equivalence, deterministic cache key divergence | F06_contain-cover-fill, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F07 | Controlled inset padding (0–30% per side, 8% default when enabled, 0% canonicalized to Off), midpoint rounding across all 10 ICO frame sizes, preview debounce without full ICO render, cache key integration | F07_transparent-padding, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 | ORN-EXP-F08 | Solid background color compositing over transparent source assets, native WinUI 3 ColorPicker reuse, sRGB alpha-blending without fringe artifacts, canonical key divergence, strict asset immutability | F08_background-color, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
+| ORN-EXP-F03 | Three original Ornare folder style templates (Classic, Soft, Flat), shared proportions and semantic roles, lazy catalog loading (<1 ms), strict validator, multi-silhouette rendering, and QuickPanel selector | F03_folder-style-templates, IMAGE_PIPELINE, UX_UI_SPEC | unit/integration/E2E tests |
 
 ## Traceability rule
 

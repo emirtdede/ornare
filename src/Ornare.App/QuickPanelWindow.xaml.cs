@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Automation;
 using Ornare.Core;
 using Ornare.Imaging;
+using Ornare.Imaging.Templates;
 using Ornare.Storage;
 using Ornare.Windows;
 using WinRT.Interop;
@@ -69,6 +70,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private Microsoft.UI.Xaml.Media.ImageSource? _snapshotPreviewImageSource;
     private ProcessingStage _snapshotStage;
     private bool _isCustomColorCommitted;
+    private string _selectedTemplateId = FolderTemplateCatalog.DefaultTemplateId;
+    private int _selectedTemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion;
 
     #region Win32 P/Invoke & Structures for Native Monitor Positioning
 
@@ -673,7 +676,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ => isTr ? "Renk" : "Color"
     };
 
-    private async Task StageColorAsync(string hexColor, bool isCustom = false)
+    private async Task StageColorAsync(string hexColor, bool isCustom = false, string? templateId = null, int? templateVersion = null)
     {
         if (_isProcessing) return;
 
@@ -688,7 +691,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             CleanupStagedFiles();
             _stagedCustomColorHex = isCustom ? hexColor : null;
             if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Collapsed;
-            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}, isCustom={isCustom}");
+
+            string targetTemplateId = templateId ?? _selectedTemplateId;
+            int targetTemplateVersion = templateVersion ?? _selectedTemplateVersion;
+
+            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}, isCustom={isCustom}, template={targetTemplateId}v{targetTemplateVersion}");
 
             await SetProcessingStageAsync(ProcessingStage.PreparingImage);
             await Task.Delay(20);
@@ -703,7 +710,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             var renderResult = await Task.Run(() =>
             {
                 var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
-                return FolderTemplateRenderer.RenderColoredTemplateIco(pipeline, hexColor, tempPath);
+                return FolderTemplateRenderer.RenderColoredTemplateIco(pipeline, hexColor, tempPath, targetTemplateId, targetTemplateVersion);
             });
 
             if (!renderResult.IsSuccess || renderResult.Value == null)
@@ -737,13 +744,30 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
         if (CustomColorTitleText != null) CustomColorTitleText.Text = isTr ? "Özel Renk" : "Custom Color";
         if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = isTr ? "Herhangi bir klasör rengi seçin" : "Select any folder color";
+        if (TemplateTitleText != null) TemplateTitleText.Text = isTr ? "Stil" : "Style";
+        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = isTr ? "Klasik" : "Classic";
+        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = isTr ? "Yumuşak" : "Soft";
+        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = isTr ? "Düz" : "Flat";
         if (RecentColorsTitle != null) RecentColorsTitle.Text = isTr ? "Son Kullanılan Renkler" : "Recent Colors";
         if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = isTr ? "Rengi Uygula" : "Apply Color";
         if (CancelCustomColorButton != null) CancelCustomColorButton.Content = isTr ? "İptal" : "Cancel";
 
+        if (string.Equals(_selectedTemplateId, OrnareSoftTemplate.TemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (RadioTemplateSoft != null) RadioTemplateSoft.IsChecked = true;
+        }
+        else if (string.Equals(_selectedTemplateId, OrnareFlatTemplate.TemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (RadioTemplateFlat != null) RadioTemplateFlat.IsChecked = true;
+        }
+        else
+        {
+            if (RadioTemplateClassic != null) RadioTemplateClassic.IsChecked = true;
+        }
+
         var currentColor = CustomColorPicker.Color;
         string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
-        var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex);
+        var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _selectedTemplateId, _selectedTemplateVersion);
         if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
         {
             FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
@@ -771,13 +795,31 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
+    private void OnTemplateSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TemplateRadioButtons?.SelectedItem is RadioButton rb && rb.Tag is string tid)
+        {
+            _selectedTemplateId = tid;
+            _selectedTemplateVersion = 1;
+            TriggerCustomColorPreview();
+        }
+    }
+
     private void OnCustomColorPickerColorChanged(ColorPicker sender, ColorChangedEventArgs args)
     {
-        var newColor = args.NewColor;
+        TriggerCustomColorPreview();
+    }
+
+    private void TriggerCustomColorPreview()
+    {
+        var newColor = CustomColorPicker.Color;
         _previewDebounceCts?.Cancel();
         _previewDebounceCts?.Dispose();
         _previewDebounceCts = new CancellationTokenSource();
         var token = _previewDebounceCts.Token;
+
+        string templateId = _selectedTemplateId;
+        int templateVersion = _selectedTemplateVersion;
 
         _ = Task.Run(async () =>
         {
@@ -787,7 +829,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 if (token.IsCancellationRequested) return;
 
                 string hex = ColorConversion.ToHex(newColor.R, newColor.G, newColor.B);
-                var previewResult = FolderTemplateRenderer.RenderPreviewPng(hex);
+                var previewResult = FolderTemplateRenderer.RenderPreviewPng(hex, templateId, templateVersion);
                 if (!previewResult.IsSuccess || previewResult.Value == null || token.IsCancellationRequested) return;
 
                 byte[] pngBytes = previewResult.Value;
@@ -825,7 +867,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _isCustomColorCommitted = true;
         CustomColorFlyout.Hide();
 
-        await StageColorAsync(hex, isCustom: true);
+        await StageColorAsync(hex, isCustom: true, templateId: _selectedTemplateId, templateVersion: _selectedTemplateVersion);
     }
 
     private void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)

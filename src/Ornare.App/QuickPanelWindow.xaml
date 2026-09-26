@@ -180,6 +180,23 @@
                                                 </StackPanel>
                                             </Grid>
 
+                                            <!-- Folder Style Template Selection (F03) -->
+                                            <StackPanel Spacing="4">
+                                                <TextBlock
+                                                    x:Name="TemplateTitleText"
+                                                    Text="Style"
+                                                    FontSize="11"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <RadioButtons
+                                                    x:Name="TemplateRadioButtons"
+                                                    SelectedIndex="0"
+                                                    SelectionChanged="OnTemplateSelectionChanged">
+                                                    <RadioButton x:Name="RadioTemplateClassic" Content="Classic" Tag="ornare-classic" IsChecked="True" />
+                                                    <RadioButton x:Name="RadioTemplateSoft" Content="Soft" Tag="ornare-soft" />
+                                                    <RadioButton x:Name="RadioTemplateFlat" Content="Flat" Tag="ornare-flat" />
+                                                </RadioButtons>
+                                            </StackPanel>
+
                                             <!-- ColorPicker Control -->
                                             <ColorPicker
                                                 x:Name="CustomColorPicker"
