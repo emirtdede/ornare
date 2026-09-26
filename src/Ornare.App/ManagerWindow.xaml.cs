@@ -224,11 +224,37 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         foreach (var a in assignments)
         {
-            string folderName = Path.GetFileName(a.FolderPath.TrimEnd('\\', '/'));
-            string iconPath = Path.Combine(a.FolderPath, OrnareConstants.CanonicalFolderName, OrnareConstants.CustomIconFileName);
+            var currentAssignment = a;
+            string folderName = Path.GetFileName(currentAssignment.FolderPath.TrimEnd('\\', '/'));
+            string iconPath = Path.Combine(currentAssignment.FolderPath, OrnareConstants.CanonicalFolderName, OrnareConstants.CustomIconFileName);
 
             // Read-only health check
-            var health = FolderHealthEngine.CheckHealth(a.FolderPath, a);
+            var health = FolderHealthEngine.CheckHealth(currentAssignment.FolderPath, currentAssignment);
+
+            // F19: If folder is missing on disk, evaluate NTFS identity reconciliation (moved folder)
+            if (health.State == FolderCustomizationState.MissingTarget)
+            {
+                var decision = FolderReconciliationService.EvaluateAssignment(currentAssignment);
+                if (decision.Outcome == ReconciliationOutcome.Relocated && !string.IsNullOrEmpty(decision.RelocatedPath))
+                {
+                    await _storageService.UpdateAssignmentPathAsync(currentAssignment.FolderPath, decision.RelocatedPath);
+                    await _storageService.UpdateAssignmentHealthAsync(decision.RelocatedPath, decision.RecommendedState);
+                    currentAssignment = currentAssignment with { FolderPath = decision.RelocatedPath, Status = decision.RecommendedState };
+                    folderName = Path.GetFileName(decision.RelocatedPath.TrimEnd('\\', '/'));
+                    iconPath = Path.Combine(decision.RelocatedPath, OrnareConstants.CanonicalFolderName, OrnareConstants.CustomIconFileName);
+                    health = FolderHealthEngine.CheckHealth(decision.RelocatedPath, currentAssignment);
+                }
+                else if (decision.Outcome == ReconciliationOutcome.LocationUnknown)
+                {
+                    health = new FolderHealthCheckResult
+                    {
+                        FolderPath = currentAssignment.FolderPath,
+                        State = FolderCustomizationState.LocationUnknown,
+                        ConflictDetails = decision.Reason,
+                        CanAutoRepair = false
+                    };
+                }
+            }
 
             string glyph;
             SolidColorBrush brush;
@@ -257,6 +283,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
                     label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Dış Değişiklik Çakışması" : "External Icon Conflict";
                     keepExtVis = Visibility.Visible;
                     break;
+                case FolderCustomizationState.LocationUnknown:
+                    glyph = "\uE711"; // Question / Error
+                    brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 120, 113, 108));
+                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Konum Bilinmiyor" : "Location Unknown";
+                    break;
                 default:
                     glyph = "\uE711"; // Error
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 220, 38, 38));
@@ -264,9 +295,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
                     break;
             }
 
+            bool isNtfs = FolderIdentityService.IsSupportedFixedNtfsVolume(currentAssignment.FolderPath);
+            string portText = isNtfs
+                ? (_currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Desteklenen NTFS üzerinde taşınabilir" : "Portable on supported NTFS")
+                : string.Empty;
+            Visibility portVis = isNtfs ? Visibility.Visible : Visibility.Collapsed;
+
             _folderItems.Add(new FolderItemVm
             {
-                FolderPath = a.FolderPath,
+                FolderPath = currentAssignment.FolderPath,
                 FolderName = folderName,
                 IconPreview = LoadBitmapSafe(iconPath),
                 HealthStatus = health.State,
@@ -275,7 +312,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 HealthLabel = label,
                 RepairButtonVisibility = repairVis,
                 KeepExternalButtonVisibility = keepExtVis,
-                ExpectedAssetHash = a.CurrentAssetHash
+                ExpectedAssetHash = currentAssignment.CurrentAssetHash,
+                PortabilityLabel = portText,
+                PortabilityVisibility = portVis
             });
         }
         SyncItems(FoldersListView, _folderItems);
@@ -2011,4 +2050,6 @@ public class FolderItemVm
     public Visibility RepairButtonVisibility { get; set; } = Visibility.Collapsed;
     public Visibility KeepExternalButtonVisibility { get; set; } = Visibility.Collapsed;
     public string? ExpectedAssetHash { get; set; }
+    public string PortabilityLabel { get; set; } = string.Empty;
+    public Visibility PortabilityVisibility { get; set; } = Visibility.Collapsed;
 }

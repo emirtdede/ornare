@@ -6,6 +6,9 @@ public sealed record FolderAssignment
     public required string FolderPath { get; init; }
     public string? VolumeSerial { get; init; }
     public string? FileId { get; init; }
+    public uint? VolumeSerialNumber { get; init; }
+    public ulong? FileId64 { get; init; }
+    public byte[]? FileIdBlob { get; init; }
     public string? CurrentAssetHash { get; init; }
     public required Guid OwnershipEpochId { get; init; }
     public required string IconRelativePath { get; init; }

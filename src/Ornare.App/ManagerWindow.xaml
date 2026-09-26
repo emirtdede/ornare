@@ -426,6 +426,7 @@
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Margin="8,0,16,0">
                                         <TextBlock Text="{Binding FolderName}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding FolderPath}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding PortabilityLabel}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Visibility="{Binding PortabilityVisibility}" />
                                     </StackPanel>
 
                                     <!-- Health Status Indicator -->

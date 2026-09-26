@@ -82,7 +82,9 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                         volume_serial TEXT,
                         file_id TEXT,
                         current_asset_hash TEXT,
-                        conflict_state TEXT
+                        conflict_state TEXT,
+                        volume_serial_number INTEGER,
+                        file_id_blob BLOB
                     );
 
                     CREATE TABLE IF NOT EXISTS folder_baselines (
@@ -186,6 +188,11 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             if (currentVersion < 5)
             {
                 await ApplyMigrationV5InternalAsync(connection, injectFailure: false);
+            }
+
+            if (currentVersion < 6)
+            {
+                await ApplyMigrationV6InternalAsync(connection, injectFailure: false);
             }
 
             _isInitialized = true;
@@ -498,7 +505,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             command.CommandText = @"
                 SELECT id, folder_path, volume_serial, file_id, current_asset_hash,
                        ownership_epoch_id, icon_relative_path, status, conflict_state,
-                       created_at, updated_at
+                       created_at, updated_at, volume_serial_number, file_id_blob
                 FROM folder_assignments
                 ORDER BY updated_at DESC;
             ";
@@ -507,20 +514,7 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                list.Add(new FolderAssignment
-                {
-                    Id = reader.GetString(0),
-                    FolderPath = reader.GetString(1),
-                    VolumeSerial = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    FileId = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    CurrentAssetHash = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    OwnershipEpochId = Guid.Parse(reader.GetString(5)),
-                    IconRelativePath = reader.GetString(6),
-                    Status = (FolderCustomizationState)reader.GetInt32(7),
-                    ConflictState = reader.IsDBNull(8) ? null : reader.GetString(8),
-                    CreatedAt = DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
-                    UpdatedAt = DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture)
-                });
+                list.Add(MapFolderAssignment(reader));
             }
 
             return list;
@@ -561,6 +555,26 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task UpdateAssignmentIdentityAsync(string folderPath, string? volumeSerial, string? fileId)
     {
+        uint? volNum = null;
+        ulong? fileId64 = null;
+
+        if (!string.IsNullOrWhiteSpace(volumeSerial) &&
+            uint.TryParse(volumeSerial, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVol))
+        {
+            volNum = parsedVol;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fileId) &&
+            ulong.TryParse(fileId, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFid))
+        {
+            fileId64 = parsedFid;
+        }
+
+        await UpdateAssignmentIdentityAsync(folderPath, volNum, fileId64);
+    }
+
+    public async Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64)
+    {
         EnsureInitialized();
         await _dbLock.WaitAsync();
         try
@@ -571,11 +585,21 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             using var command = connection.CreateCommand();
             command.CommandText = @"
                 UPDATE folder_assignments
-                SET volume_serial = @volumeSerial, file_id = @fileId, updated_at = @now
+                SET volume_serial = @volumeSerial,
+                    file_id = @fileId,
+                    volume_serial_number = @volNum,
+                    file_id_blob = @fileBlob,
+                    updated_at = @now
                 WHERE folder_path = @path;
             ";
-            command.Parameters.AddWithValue("@volumeSerial", (object?)volumeSerial ?? DBNull.Value);
-            command.Parameters.AddWithValue("@fileId", (object?)fileId ?? DBNull.Value);
+            string? volHex = volumeSerialNumber?.ToString("X8", CultureInfo.InvariantCulture);
+            string? fidHex = fileId64?.ToString("X16", CultureInfo.InvariantCulture);
+            byte[]? fileBlob = fileId64.HasValue ? BitConverter.GetBytes(fileId64.Value) : null;
+
+            command.Parameters.AddWithValue("@volumeSerial", (object?)volHex ?? DBNull.Value);
+            command.Parameters.AddWithValue("@fileId", (object?)fidHex ?? DBNull.Value);
+            command.Parameters.AddWithValue("@volNum", (object?)volumeSerialNumber ?? DBNull.Value);
+            command.Parameters.AddWithValue("@fileBlob", (object?)fileBlob ?? DBNull.Value);
             command.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue("@path", folderPath);
 
@@ -585,6 +609,146 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         {
             _dbLock.Release();
         }
+    }
+
+    public async Task<FolderAssignment?> GetAssignmentByIdentityAsync(uint volumeSerialNumber, ulong fileId64)
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT id, folder_path, volume_serial, file_id, current_asset_hash,
+                       ownership_epoch_id, icon_relative_path, status, conflict_state,
+                       created_at, updated_at, volume_serial_number, file_id_blob
+                FROM folder_assignments
+                WHERE volume_serial_number = @volNum AND file_id_blob = @fileBlob
+                LIMIT 1;
+            ";
+            byte[] fileBlob = BitConverter.GetBytes(fileId64);
+            command.Parameters.AddWithValue("@volNum", (long)volumeSerialNumber);
+            command.Parameters.AddWithValue("@fileBlob", fileBlob);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return MapFolderAssignment(reader);
+            }
+
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task<FolderAssignment?> GetAssignmentByPathAsync(string folderPath)
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT id, folder_path, volume_serial, file_id, current_asset_hash,
+                       ownership_epoch_id, icon_relative_path, status, conflict_state,
+                       created_at, updated_at, volume_serial_number, file_id_blob
+                FROM folder_assignments
+                WHERE folder_path = @path
+                LIMIT 1;
+            ";
+            command.Parameters.AddWithValue("@path", folderPath);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return MapFolderAssignment(reader);
+            }
+
+            return null;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    public async Task UpdateAssignmentPathAsync(string oldFolderPath, string newFolderPath)
+    {
+        EnsureInitialized();
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldFolderPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newFolderPath);
+
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                UPDATE folder_assignments
+                SET folder_path = @newPath, updated_at = @now
+                WHERE folder_path = @oldPath;
+            ";
+            command.Parameters.AddWithValue("@newPath", newFolderPath);
+            command.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("@oldPath", oldFolderPath);
+
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    private static FolderAssignment MapFolderAssignment(SqliteDataReader reader)
+    {
+        string? volHex = reader.IsDBNull(2) ? null : reader.GetString(2);
+        string? fidHex = reader.IsDBNull(3) ? null : reader.GetString(3);
+        uint? volNum = reader.IsDBNull(11) ? null : (uint)reader.GetInt64(11);
+        byte[]? blob = reader.IsDBNull(12) ? null : (byte[])reader.GetValue(12);
+        ulong? fileId64 = (blob != null && blob.Length == 8) ? BitConverter.ToUInt64(blob) : null;
+
+        if (!volNum.HasValue && !string.IsNullOrWhiteSpace(volHex) &&
+            uint.TryParse(volHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVol))
+        {
+            volNum = parsedVol;
+        }
+
+        if (!fileId64.HasValue && !string.IsNullOrWhiteSpace(fidHex) &&
+            ulong.TryParse(fidHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFid))
+        {
+            fileId64 = parsedFid;
+            blob = BitConverter.GetBytes(parsedFid);
+        }
+
+        return new FolderAssignment
+        {
+            Id = reader.GetString(0),
+            FolderPath = reader.GetString(1),
+            VolumeSerial = volHex,
+            FileId = fidHex,
+            CurrentAssetHash = reader.IsDBNull(4) ? null : reader.GetString(4),
+            OwnershipEpochId = Guid.Parse(reader.GetString(5)),
+            IconRelativePath = reader.GetString(6),
+            Status = (FolderCustomizationState)reader.GetInt32(7),
+            ConflictState = reader.IsDBNull(8) ? null : reader.GetString(8),
+            CreatedAt = DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture),
+            VolumeSerialNumber = volNum,
+            FileId64 = fileId64,
+            FileIdBlob = blob
+        };
     }
 
     public async Task<LibraryAsset> AddOrUpdateAssetAsync(string sha256, string canonicalIcoPath, string sourceFormat, DateTimeOffset? now = null)
@@ -1409,6 +1573,10 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         {
             await ApplyMigrationV5InternalAsync(connection, injectFailure);
         }
+        else if (targetVersion == 6)
+        {
+            await ApplyMigrationV6InternalAsync(connection, injectFailure);
+        }
     }
 
     private static async Task ApplyMigrationV2InternalAsync(SqliteConnection connection, bool injectFailure)
@@ -1631,6 +1799,139 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             using var setVersionCmd = connection.CreateCommand();
             setVersionCmd.Transaction = tx;
             setVersionCmd.CommandText = "PRAGMA user_version = 5;";
+            await setVersionCmd.ExecuteNonQueryAsync();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private static async Task ApplyMigrationV6InternalAsync(SqliteConnection connection, bool injectFailure)
+    {
+        using var tx = connection.BeginTransaction();
+        try
+        {
+            // 1. Add volume_serial_number (INTEGER) and file_id_blob (BLOB) to folder_assignments
+            try
+            {
+                using var alterCmd1 = connection.CreateCommand();
+                alterCmd1.Transaction = tx;
+                alterCmd1.CommandText = "ALTER TABLE folder_assignments ADD COLUMN volume_serial_number INTEGER;";
+                await alterCmd1.ExecuteNonQueryAsync();
+            }
+            catch (SqliteException)
+            {
+                // Column may already exist
+            }
+
+            try
+            {
+                using var alterCmd2 = connection.CreateCommand();
+                alterCmd2.Transaction = tx;
+                alterCmd2.CommandText = "ALTER TABLE folder_assignments ADD COLUMN file_id_blob BLOB;";
+                await alterCmd2.ExecuteNonQueryAsync();
+            }
+            catch (SqliteException)
+            {
+                // Column may already exist
+            }
+
+            // 2. Convert any existing legacy hex strings (volume_serial and file_id) to typed columns
+            bool hasLegacyVolSerial = false;
+            bool hasLegacyFileId = false;
+
+            using (var infoCmd = connection.CreateCommand())
+            {
+                infoCmd.Transaction = tx;
+                infoCmd.CommandText = "PRAGMA table_info(folder_assignments);";
+                using var infoReader = await infoCmd.ExecuteReaderAsync();
+                while (await infoReader.ReadAsync())
+                {
+                    string colName = infoReader.GetString(1);
+                    if (string.Equals(colName, "volume_serial", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasLegacyVolSerial = true;
+                    }
+                    else if (string.Equals(colName, "file_id", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasLegacyFileId = true;
+                    }
+                }
+            }
+
+            var existingRows = new List<(string id, string? volHex, string? fidHex)>();
+            if (hasLegacyVolSerial || hasLegacyFileId)
+            {
+                string volCol = hasLegacyVolSerial ? "volume_serial" : "NULL";
+                string fidCol = hasLegacyFileId ? "file_id" : "NULL";
+                using var selectCmd = connection.CreateCommand();
+                selectCmd.Transaction = tx;
+                selectCmd.CommandText = $"SELECT id, {volCol}, {fidCol} FROM folder_assignments WHERE {volCol} IS NOT NULL OR {fidCol} IS NOT NULL;";
+                using var reader = await selectCmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    existingRows.Add((
+                        reader.GetString(0),
+                        reader.IsDBNull(1) ? null : reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2)
+                    ));
+                }
+            }
+
+            foreach (var row in existingRows)
+            {
+                uint? volNum = null;
+                byte[]? fidBlob = null;
+
+                if (!string.IsNullOrWhiteSpace(row.volHex) &&
+                    uint.TryParse(row.volHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVol))
+                {
+                    volNum = parsedVol;
+                }
+
+                if (!string.IsNullOrWhiteSpace(row.fidHex) &&
+                    ulong.TryParse(row.fidHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFid))
+                {
+                    fidBlob = BitConverter.GetBytes(parsedFid);
+                }
+
+                if (volNum.HasValue || fidBlob != null)
+                {
+                    using var updateCmd = connection.CreateCommand();
+                    updateCmd.Transaction = tx;
+                    updateCmd.CommandText = @"
+                        UPDATE folder_assignments
+                        SET volume_serial_number = COALESCE(@volNum, volume_serial_number),
+                            file_id_blob = COALESCE(@blob, file_id_blob)
+                        WHERE id = @id;
+                    ";
+                    updateCmd.Parameters.AddWithValue("@volNum", (object?)volNum ?? DBNull.Value);
+                    updateCmd.Parameters.AddWithValue("@blob", (object?)fidBlob ?? DBNull.Value);
+                    updateCmd.Parameters.AddWithValue("@id", row.id);
+                    await updateCmd.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 3. Create compound index on (volume_serial_number, file_id_blob)
+            using (var indexCmd = connection.CreateCommand())
+            {
+                indexCmd.Transaction = tx;
+                indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS idx_folder_assignments_identity ON folder_assignments(volume_serial_number, file_id_blob);";
+                await indexCmd.ExecuteNonQueryAsync();
+            }
+
+            if (injectFailure)
+            {
+                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
+            }
+
+            using var setVersionCmd = connection.CreateCommand();
+            setVersionCmd.Transaction = tx;
+            setVersionCmd.CommandText = "PRAGMA user_version = 6;";
             await setVersionCmd.ExecuteNonQueryAsync();
 
             tx.Commit();

@@ -19,6 +19,10 @@ public interface IStorageService
     Task<IReadOnlyList<FolderAssignment>> GetAllFolderAssignmentsAsync();
     Task UpdateAssignmentHealthAsync(string folderPath, FolderCustomizationState status, string? conflictState = null);
     Task UpdateAssignmentIdentityAsync(string folderPath, string? volumeSerial, string? fileId);
+    Task UpdateAssignmentIdentityAsync(string folderPath, uint? volumeSerialNumber, ulong? fileId64);
+    Task<FolderAssignment?> GetAssignmentByIdentityAsync(uint volumeSerialNumber, ulong fileId64);
+    Task<FolderAssignment?> GetAssignmentByPathAsync(string folderPath);
+    Task UpdateAssignmentPathAsync(string oldFolderPath, string newFolderPath);
 
     // Startup reconciliation
     Task<int> ReconcileStartupAsync(Func<JournalEntry, Task<bool>>? customReconciler = null);

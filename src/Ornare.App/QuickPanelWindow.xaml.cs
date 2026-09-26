@@ -1311,8 +1311,16 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                     stagedResult.ContentHash,
                     "apply");
 
-                var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
-                await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
+                var ntfsId = FolderIdentityService.GetNtfsIdentity(_currentFolderPath);
+                if (ntfsId.HasValue)
+                {
+                    await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, ntfsId.Value.VolumeSerialNumber, ntfsId.Value.FileId64);
+                }
+                else
+                {
+                    var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
+                    await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
+                }
             }
             catch (Exception ex)
             {

@@ -37,7 +37,7 @@ public sealed class LibrarySearchStorageTests
             await service.AddAssetToCollectionAsync(col.Id, asset.Sha256);
 
             int version = await service.GetCurrentSchemaVersionAsync();
-            Assert.Equal(5, version);
+            Assert.True(version >= 5, $"Expected schema version >= 5, got {version}");
 
             var loadedAsset = await service.GetAssetByHashAsync(asset.Sha256);
             Assert.NotNull(loadedAsset);

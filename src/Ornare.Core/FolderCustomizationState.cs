@@ -10,5 +10,6 @@ public enum FolderCustomizationState
     MissingTarget,
     AccessUnavailable,
     NeedsReconciliation,
-    UnsupportedLocation
+    UnsupportedLocation,
+    LocationUnknown
 }
