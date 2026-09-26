@@ -37,4 +37,14 @@ public interface IImagePipeline
         Action<RenderCacheEntry>? cacheStore = null,
         Action<string>? cacheInvalidate = null,
         string? cacheDirectory = null);
+
+    // F12: ICO Import and Preview
+    OperationResult<IcoImportResult> ImportIco(
+        byte[] icoBytes,
+        string outputIcoPath,
+        string? cacheDirectory = null,
+        Func<string, RenderCacheEntry?>? cacheLookup = null,
+        Action<RenderCacheEntry>? cacheStore = null);
+
+    OperationResult<byte[]> ExtractIcoPreviewPng(byte[] icoBytes, int targetSize = 256);
 }

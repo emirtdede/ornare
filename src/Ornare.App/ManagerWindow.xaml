@@ -140,8 +140,14 @@
                         <TextBlock x:Name="SectionSubtitleText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
 
-                    <!-- Search affordance for Library (Progressive disclosure: >= 13 assets) -->
+                    <!-- Actions and Search affordances -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Button
+                            x:Name="ImportIconButton"
+                            Content="Import Icon..."
+                            AutomationProperties.Name="Import Icon"
+                            Visibility="Visible"
+                            Click="OnImportIconClicked" />
                         <TextBox
                             x:Name="SearchTextBox"
                             Width="220"

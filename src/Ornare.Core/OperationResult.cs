@@ -20,7 +20,8 @@ public enum ErrorCode
     ReconciliationFailed,
     ConcurrencyConflict,
     SvgNotThemeable,
-    SvgSecurityViolation
+    SvgSecurityViolation,
+    IcoMalformed
 }
 
 public sealed class OperationResult

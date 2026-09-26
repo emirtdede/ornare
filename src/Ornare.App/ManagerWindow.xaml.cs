@@ -332,6 +332,7 @@ public sealed partial class ManagerWindow : Window
 
         SearchTextBox.Visibility = Visibility.Collapsed;
         ClearRecentButton.Visibility = Visibility.Collapsed;
+        if (ImportIconButton != null) ImportIconButton.Visibility = Visibility.Collapsed;
 
         bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
@@ -340,6 +341,7 @@ public sealed partial class ManagerWindow : Window
             case "Library":
                 LibraryView.Visibility = Visibility.Visible;
                 SectionTitleText.Text = isTr ? "Kitaplık" : "Library";
+                if (ImportIconButton != null) ImportIconButton.Visibility = Visibility.Visible;
                 if (_allAssets.Count >= 13) SearchTextBox.Visibility = Visibility.Visible;
                 break;
             case "Recent":
@@ -682,6 +684,7 @@ public sealed partial class ManagerWindow : Window
         SettingsPrivacyStatement.Text = isTr ? "Ornare tamamen çevrimdışı çalışır. Sıfır telemetri, sıfır bulut takibi, sıfır veri toplama." : "Ornare works completely offline. Zero telemetry, zero cloud tracking, zero data collection.";
         ClearRecentButton.Content = isTr ? "Son Kullanılanları Temizle" : "Clear Recent";
         SearchTextBox.PlaceholderText = isTr ? "Kitaplıkta ara..." : "Search library...";
+        if (ImportIconButton != null) ImportIconButton.Content = isTr ? "Simge İçe Aktar..." : "Import Icon...";
 
         if (NavListView.SelectedItem is ListViewItem cur)
         {
@@ -717,6 +720,72 @@ public sealed partial class ManagerWindow : Window
     private void OnLibraryItemClick(object sender, ItemClickEventArgs e)
     {
         // Reserved for future selection/details if needed
+    }
+
+    private async void OnImportIconClicked(object sender, RoutedEventArgs e)
+    {
+        var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
+        IntPtr hwnd = WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        picker.ViewMode = global::Windows.Storage.Pickers.PickerViewMode.Thumbnail;
+        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+        picker.FileTypeFilter.Add(".ico");
+        picker.FileTypeFilter.Add(".png");
+        picker.FileTypeFilter.Add(".jpg");
+        picker.FileTypeFilter.Add(".jpeg");
+        picker.FileTypeFilter.Add(".webp");
+        picker.FileTypeFilter.Add(".bmp");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null) return;
+
+        try
+        {
+            byte[] fileBytes = await File.ReadAllBytesAsync(file.Path);
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string iconsDir = Path.Combine(appData, "Ornare", "icons");
+            Directory.CreateDirectory(iconsDir);
+
+            string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+            if (ext == ".ico" || (fileBytes.Length >= 4 && fileBytes[0] == 0 && fileBytes[1] == 0 && fileBytes[2] == 1 && fileBytes[3] == 0))
+            {
+                string sha256 = IcoImportService.ComputeSourceHash(fileBytes);
+                string canonicalIco = Path.Combine(iconsDir, $"{sha256}.ico");
+
+                var importResult = _imagePipeline.ImportIco(fileBytes, canonicalIco);
+                if (importResult.IsSuccess && importResult.Value != null)
+                {
+                    await _storageService.AddOrUpdateAssetAsync(
+                        importResult.Value.CanonicalHash,
+                        importResult.Value.CanonicalPath,
+                        "ico");
+                    await LoadLibraryAsync();
+                }
+                else
+                {
+                    App.Log($"ICO import failed: {importResult.ErrorMessage}");
+                }
+            }
+            else
+            {
+                string sha256 = _imagePipeline.ComputeSourceHash(fileBytes);
+                string canonicalIco = Path.Combine(iconsDir, $"{sha256}.ico");
+                var result = _imagePipeline.ProcessImageBytes(fileBytes, canonicalIco);
+                if (result.IsSuccess && result.Value != null)
+                {
+                    await _storageService.AddOrUpdateAssetAsync(
+                        result.Value.ContentHash,
+                        result.Value.GeneratedIcoPath,
+                        result.Value.SourceFormat);
+                    await LoadLibraryAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Import icon failed: {ex.Message}");
+        }
     }
 
     private void LoadPresetsView()

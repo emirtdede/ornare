@@ -270,6 +270,38 @@ public sealed class ImagePipeline : IImagePipeline
             ? recipe.SourceAssetHash
             : ComputeSourceHash(sourceBytes);
 
+        // F12: If input is an ICO and recipe specifies default placement/padding/background/recolor,
+        // route directly through IcoImportService for fast-path preservation or deterministic multi-frame normalization.
+        bool isRawIco = sourceBytes.Length >= 4 && sourceBytes[0] == 0 && sourceBytes[1] == 0 && sourceBytes[2] == 1 && sourceBytes[3] == 0;
+        if (isRawIco &&
+            recipe.SvgRecolorMode == 0 &&
+            recipe.PlacementMode == (int)ImagePlacementMode.Contain &&
+            recipe.PaddingPercent == 0 &&
+            recipe.BackgroundMode == (int)BackgroundMode.Transparent &&
+            string.IsNullOrEmpty(recipe.BadgeAssetId))
+        {
+            var importResult = IcoImportService.ImportIco(sourceBytes, outputIcoPath, cacheDirectory, cacheLookup, cacheStore);
+            if (importResult.IsSuccess && importResult.Value != null)
+            {
+                var val = importResult.Value;
+                return OperationResult.Success(new NormalizedImageResult
+                {
+                    ContentHash = val.CanonicalHash,
+                    SourceWidth = 256,
+                    SourceHeight = 256,
+                    SourceFormat = "ico",
+                    GeneratedIcoPath = val.CanonicalPath,
+                    FrameSizes = val.AvailableSizes,
+                    RenderKey = val.RenderKey,
+                    IsFromCache = false
+                });
+            }
+            else if (!importResult.IsSuccess)
+            {
+                return OperationResult.Failure<NormalizedImageResult>(importResult.ErrorCode, importResult.ErrorMessage ?? "ICO import failed.");
+            }
+        }
+
         if (recipe.SvgRecolorMode != 0)
         {
             var secCheck = SvgSecurityValidator.Validate(sourceBytes);
@@ -623,6 +655,21 @@ public sealed class ImagePipeline : IImagePipeline
         {
             return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"Preview generation failed: {ex.Message}");
         }
+    }
+
+    public OperationResult<IcoImportResult> ImportIco(
+        byte[] icoBytes,
+        string outputIcoPath,
+        string? cacheDirectory = null,
+        Func<string, RenderCacheEntry?>? cacheLookup = null,
+        Action<RenderCacheEntry>? cacheStore = null)
+    {
+        return IcoImportService.ImportIco(icoBytes, outputIcoPath, cacheDirectory, cacheLookup, cacheStore);
+    }
+
+    public OperationResult<byte[]> ExtractIcoPreviewPng(byte[] icoBytes, int targetSize = 256)
+    {
+        return IcoImportService.ExtractPreviewPng(icoBytes, targetSize);
     }
 
     private static MagickImage ReadSvgGated(byte[] bytes, MagickReadSettings settings)
