@@ -1,0 +1,636 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="0" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="ApplicationTitle" xml:space="preserve">
+    <value>Ornare</value>
+  </data>
+  <data name="SetFolderIcon" xml:space="preserve">
+    <value>Définir l'icône du dossier</value>
+  </data>
+  <data name="DropAnImage" xml:space="preserve">
+    <value>Déposer une image</value>
+  </data>
+  <data name="ClickOrPastePrompt" xml:space="preserve">
+    <value>Cliquer pour choisir ou appuyer sur Ctrl+V</value>
+  </data>
+  <data name="ReleaseToApply" xml:space="preserve">
+    <value>Relâcher pour appliquer</value>
+  </data>
+  <data name="Processing" xml:space="preserve">
+    <value>Traitement de l'image...</value>
+  </data>
+  <data name="IconApplied" xml:space="preserve">
+    <value>Icône appliquée</value>
+  </data>
+  <data name="Undo" xml:space="preserve">
+    <value>Annuler</value>
+  </data>
+  <data name="Reset" xml:space="preserve">
+    <value>Réinitialiser</value>
+  </data>
+  <data name="ApplyFailed" xml:space="preserve">
+    <value>Impossible d'appliquer l'icône</value>
+  </data>
+  <data name="PreparingImage" xml:space="preserve">
+    <value>Préparation de l'image...</value>
+  </data>
+  <data name="GeneratingIcon" xml:space="preserve">
+    <value>Génération de l'icône du dossier...</value>
+  </data>
+  <data name="ApplyingIcon" xml:space="preserve">
+    <value>Application de l'icône...</value>
+  </data>
+  <data name="RefreshingExplorer" xml:space="preserve">
+    <value>Actualisation de l'Explorateur de fichiers...</value>
+  </data>
+  <data name="FolderIconUpdated" xml:space="preserve">
+    <value>Icône du dossier mise à jour</value>
+  </data>
+  <data name="TryAgain" xml:space="preserve">
+    <value>Réessayer</value>
+  </data>
+  <data name="ErrorUnsupportedImageTitle" xml:space="preserve">
+    <value>Image non prise en charge</value>
+  </data>
+  <data name="ErrorUnsupportedImageMessage" xml:space="preserve">
+    <value>Veuillez sélectionner un fichier PNG, JPG, WebP, BMP ou ICO.</value>
+  </data>
+  <data name="ErrorImageReadTitle" xml:space="preserve">
+    <value>Échec de lecture de l'image</value>
+  </data>
+  <data name="ErrorImageReadMessage" xml:space="preserve">
+    <value>Impossible de lire le fichier image sélectionné sur le disque.</value>
+  </data>
+  <data name="ErrorIconGenerationTitle" xml:space="preserve">
+    <value>Échec de la génération de l'icône</value>
+  </data>
+  <data name="ErrorIconGenerationMessage" xml:space="preserve">
+    <value>Impossible de créer l'icône de dossier multi-résolution.</value>
+  </data>
+  <data name="ErrorFolderApplyTitle" xml:space="preserve">
+    <value>Échec de l'application de l'icône de dossier</value>
+  </data>
+  <data name="ErrorFolderApplyMessage" xml:space="preserve">
+    <value>Impossible de mettre à jour les attributs du dossier ou desktop.ini.</value>
+  </data>
+  <data name="ErrorExplorerRefreshTitle" xml:space="preserve">
+    <value>Échec de l'actualisation de l'Explorateur</value>
+  </data>
+  <data name="ErrorExplorerRefreshMessage" xml:space="preserve">
+    <value>Impossible d'informer l'Explorateur de fichiers de la mise à jour du dossier.</value>
+  </data>
+  <data name="ExternalConflictMessage" xml:space="preserve">
+    <value>L'icône du dossier a été modifiée en dehors d'Ornare</value>
+  </data>
+  <data name="InvalidTargetMessage" xml:space="preserve">
+    <value>Dossier non pris en charge ou non valide</value>
+  </data>
+  <data name="Recent" xml:space="preserve">
+    <value>Récents</value>
+  </data>
+  <data name="Favorites" xml:space="preserve">
+    <value>Favoris</value>
+  </data>
+  <data name="Library" xml:space="preserve">
+    <value>Bibliothèque</value>
+  </data>
+  <data name="Folders" xml:space="preserve">
+    <value>Dossiers</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>Paramètres</value>
+  </data>
+  <data name="SystemDefault" xml:space="preserve">
+    <value>Paramètre par défaut du système</value>
+  </data>
+  <data name="Light" xml:space="preserve">
+    <value>Clair</value>
+  </data>
+  <data name="Dark" xml:space="preserve">
+    <value>Sombre</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Langue</value>
+  </data>
+  <data name="Appearance" xml:space="preserve">
+    <value>Apparence</value>
+  </data>
+  <data name="CustomizedFolders" xml:space="preserve">
+    <value>Dossiers personnalisés</value>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Diagnostics</value>
+  </data>
+  <data name="ExportDiagnosticReport" xml:space="preserve">
+    <value>Exporter le rapport de diagnostic</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>À propos</value>
+  </data>
+  <data name="Version" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="Architecture" xml:space="preserve">
+    <value>Architecture</value>
+  </data>
+  <data name="PrivacyStatement" xml:space="preserve">
+    <value>Ornare fonctionne entièrement hors ligne. Zéro télémétrie, zéro suivi cloud, zéro collecte de données.</value>
+  </data>
+  <data name="Healthy" xml:space="preserve">
+    <value>Sain</value>
+  </data>
+  <data name="NeedsAttention" xml:space="preserve">
+    <value>Attention requise</value>
+  </data>
+  <data name="ExternalConflict" xml:space="preserve">
+    <value>Conflit d'icône externe</value>
+  </data>
+  <data name="MissingTarget" xml:space="preserve">
+    <value>Dossier manquant</value>
+  </data>
+  <data name="Repair" xml:space="preserve">
+    <value>Réparer</value>
+  </data>
+  <data name="KeepExternal" xml:space="preserve">
+    <value>Conserver l'externe</value>
+  </data>
+  <data name="SearchLibrary" xml:space="preserve">
+    <value>Rechercher dans la bibliothèque</value>
+  </data>
+  <data name="EmptyLibraryTitle" xml:space="preserve">
+    <value>Aucune icône dans la bibliothèque</value>
+  </data>
+  <data name="EmptyLibrarySubtitle" xml:space="preserve">
+    <value>Les icônes que vous personnalisez apparaîtront ici</value>
+  </data>
+  <data name="EmptyRecentTitle" xml:space="preserve">
+    <value>Aucune icône récente</value>
+  </data>
+  <data name="EmptyFavoritesTitle" xml:space="preserve">
+    <value>Aucune icône favorite</value>
+  </data>
+  <data name="EmptyFoldersTitle" xml:space="preserve">
+    <value>Aucun dossier personnalisé</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>Supprimer</value>
+  </data>
+  <data name="Favorite" xml:space="preserve">
+    <value>Favori</value>
+  </data>
+  <data name="Unfavorite" xml:space="preserve">
+    <value>Retirer des favoris</value>
+  </data>
+  <data name="ApplyToFolder" xml:space="preserve">
+    <value>Appliquer au dossier</value>
+  </data>
+  <data name="OpenManager" xml:space="preserve">
+    <value>Gestionnaire</value>
+  </data>
+  <data name="OpenInExplorer" xml:space="preserve">
+    <value>Ouvrir dans l'Explorateur</value>
+  </data>
+  <data name="ClearRecent" xml:space="preserve">
+    <value>Effacer les récents</value>
+  </data>
+  <data name="PreviewTitle" xml:space="preserve">
+    <value>Aperçu de l'icône</value>
+  </data>
+  <data name="PreviewSubtitle" xml:space="preserve">
+    <value>Confirmer pour appliquer au dossier</value>
+  </data>
+  <data name="Apply" xml:space="preserve">
+    <value>Appliquer</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Annuler</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Fermer</value>
+  </data>
+  <data name="SuccessSubtitle" xml:space="preserve">
+    <value>Modifications appliquées avec succès</value>
+  </data>
+  <data name="Colors" xml:space="preserve">
+    <value>Couleurs</value>
+  </data>
+  <data name="ColorCustom" xml:space="preserve">
+    <value>Couleur personnalisée</value>
+  </data>
+  <data name="Color_Amber" xml:space="preserve">
+    <value>Ambre</value>
+  </data>
+  <data name="Color_Orange" xml:space="preserve">
+    <value>Orange</value>
+  </data>
+  <data name="Color_Red" xml:space="preserve">
+    <value>Rouge</value>
+  </data>
+  <data name="Color_Rose" xml:space="preserve">
+    <value>Rose</value>
+  </data>
+  <data name="Color_Magenta" xml:space="preserve">
+    <value>Magenta</value>
+  </data>
+  <data name="Color_Purple" xml:space="preserve">
+    <value>Violet</value>
+  </data>
+  <data name="Color_Indigo" xml:space="preserve">
+    <value>Indigo</value>
+  </data>
+  <data name="Color_Blue" xml:space="preserve">
+    <value>Bleu</value>
+  </data>
+  <data name="Color_Cyan" xml:space="preserve">
+    <value>Cyan</value>
+  </data>
+  <data name="Color_Teal" xml:space="preserve">
+    <value>Sarcelle</value>
+  </data>
+  <data name="Color_Green" xml:space="preserve">
+    <value>Vert</value>
+  </data>
+  <data name="Color_Slate" xml:space="preserve">
+    <value>Ardoise</value>
+  </data>
+  <data name="ColorPicker_CustomColor" xml:space="preserve">
+    <value>Couleur personnalisée</value>
+  </data>
+  <data name="ColorPicker_RecentColors" xml:space="preserve">
+    <value>Couleurs récentes</value>
+  </data>
+  <data name="ColorPicker_Apply" xml:space="preserve">
+    <value>Appliquer la couleur</value>
+  </data>
+  <data name="ColorPicker_Cancel" xml:space="preserve">
+    <value>Annuler</value>
+  </data>
+  <data name="Placement_Options" xml:space="preserve">
+    <value>Options...</value>
+  </data>
+  <data name="Placement_Title" xml:space="preserve">
+    <value>Positionnement de l'image</value>
+  </data>
+  <data name="Placement_Contain" xml:space="preserve">
+    <value>Ajuster (Contain)</value>
+  </data>
+  <data name="Placement_Cover" xml:space="preserve">
+    <value>Remplir (Cover)</value>
+  </data>
+  <data name="Placement_Fill" xml:space="preserve">
+    <value>Étirer (Fill)</value>
+  </data>
+  <data name="Placement_Fill_Warning" xml:space="preserve">
+    <value>Avertissement : Le mode étirer déforme l'image et modifie ses proportions.</value>
+  </data>
+  <data name="Placement_Contain_ToolTip" xml:space="preserve">
+    <value>Préserve le rapport hauteur/largeur et s'adapte à l'intérieur de la zone</value>
+  </data>
+  <data name="Placement_Cover_ToolTip" xml:space="preserve">
+    <value>Préserve le rapport hauteur/largeur et rogne au centre pour remplir la zone</value>
+  </data>
+  <data name="Placement_Fill_ToolTip" xml:space="preserve">
+    <value>Étire sur la zone (peut déformer le rapport hauteur/largeur)</value>
+  </data>
+  <data name="Padding_Title" xml:space="preserve">
+    <value>Marge intérieure</value>
+  </data>
+  <data name="Padding_Label" xml:space="preserve">
+    <value>Marge : {0}%</value>
+  </data>
+  <data name="Padding_ToolTip" xml:space="preserve">
+    <value>Marge intérieure par côté (0–30%)</value>
+  </data>
+  <data name="Background_Title" xml:space="preserve">
+    <value>Arrière-plan</value>
+  </data>
+  <data name="Background_Transparent" xml:space="preserve">
+    <value>Transparent</value>
+  </data>
+  <data name="Background_Transparent_ToolTip" xml:space="preserve">
+    <value>Préserve l'arrière-plan transparent</value>
+  </data>
+  <data name="Background_Solid" xml:space="preserve">
+    <value>Couleur unie</value>
+  </data>
+  <data name="Background_Solid_ToolTip" xml:space="preserve">
+    <value>Applique une couleur d'arrière-plan unie</value>
+  </data>
+  <data name="Background_ChooseColor" xml:space="preserve">
+    <value>Choisir la couleur...</value>
+  </data>
+  <data name="Background_ChooseColor_ToolTip" xml:space="preserve">
+    <value>Sélectionner la couleur d'arrière-plan</value>
+  </data>
+  <data name="Template_Title" xml:space="preserve">
+    <value>Style</value>
+  </data>
+  <data name="Template_Classic" xml:space="preserve">
+    <value>Classique</value>
+  </data>
+  <data name="Template_Soft" xml:space="preserve">
+    <value>Doux</value>
+  </data>
+  <data name="Template_Flat" xml:space="preserve">
+    <value>Plat</value>
+  </data>
+  <data name="Nav_Presets" xml:space="preserve">
+    <value>Modèles d'état</value>
+  </data>
+  <data name="Presets_TemplateLabel" xml:space="preserve">
+    <value>Modèle de style :</value>
+  </data>
+  <data name="Presets_ApplyButton" xml:space="preserve">
+    <value>Appliquer au dossier...</value>
+  </data>
+  <data name="Preset_InProgress" xml:space="preserve">
+    <value>En cours</value>
+  </data>
+  <data name="Preset_InProgress_Desc" xml:space="preserve">
+    <value>Suit les tâches actives et en cours</value>
+  </data>
+  <data name="Preset_Done" xml:space="preserve">
+    <value>Terminé</value>
+  </data>
+  <data name="Preset_Done_Desc" xml:space="preserve">
+    <value>Marque les tâches et projets terminés</value>
+  </data>
+  <data name="Preset_Archive" xml:space="preserve">
+    <value>Archive</value>
+  </data>
+  <data name="Preset_Archive_Desc" xml:space="preserve">
+    <value>Stocke des documents historiques ou de référence</value>
+  </data>
+  <data name="Preset_Important" xml:space="preserve">
+    <value>Important</value>
+  </data>
+  <data name="Preset_Important_Desc" xml:space="preserve">
+    <value>Met en évidence les dossiers urgents ou critiques</value>
+  </data>
+  <data name="Preset_PriorityHigh" xml:space="preserve">
+    <value>Haute priorité</value>
+  </data>
+  <data name="Preset_PriorityHigh_Desc" xml:space="preserve">
+    <value>Marque les éléments très urgents (organisation visuelle uniquement)</value>
+  </data>
+  <data name="Preset_PriorityMedium" xml:space="preserve">
+    <value>Priorité moyenne</value>
+  </data>
+  <data name="Preset_PriorityMedium_Desc" xml:space="preserve">
+    <value>Marque les éléments de priorité normale (organisation visuelle uniquement)</value>
+  </data>
+  <data name="Preset_PriorityLow" xml:space="preserve">
+    <value>Basse priorité</value>
+  </data>
+  <data name="Preset_PriorityLow_Desc" xml:space="preserve">
+    <value>Marque les éléments de faible urgence (organisation visuelle uniquement)</value>
+  </data>
+  <data name="Presets_PriorityDisclaimer" xml:space="preserve">
+    <value>Les modèles de priorité fournissent des badges visuels de dossier pour l'organisation et ne modifient pas la priorité du système de fichiers Windows ni le tri de l'Explorateur.</value>
+  </data>
+  <data name="Presets_StatusHeader" xml:space="preserve">
+    <value>État du flux de travail</value>
+  </data>
+  <data name="Presets_PriorityHeader" xml:space="preserve">
+    <value>Priorité visuelle</value>
+  </data>
+  <data name="ExportIcon" xml:space="preserve">
+    <value>Exporter l'icône (.ico)...</value>
+  </data>
+  <data name="ExportPng" xml:space="preserve">
+    <value>Exporter PNG (.png)</value>
+  </data>
+  <data name="ManageTags" xml:space="preserve">
+    <value>Gérer les balises...</value>
+  </data>
+  <data name="TagFilter_All" xml:space="preserve">
+    <value>Tous</value>
+  </data>
+  <data name="ManageTags_Title" xml:space="preserve">
+    <value>Gérer les balises de l'élément</value>
+  </data>
+  <data name="ManageTags_AddPlaceholder" xml:space="preserve">
+    <value>Ajouter une balise (1 à 40 caractères)...</value>
+  </data>
+  <data name="ManageTags_AddButton" xml:space="preserve">
+    <value>Ajouter</value>
+  </data>
+  <data name="ManageTags_CloseButton" xml:space="preserve">
+    <value>Fermer</value>
+  </data>
+  <data name="ManageTags_NoTags" xml:space="preserve">
+    <value>Aucune balise assignée à cet élément pour le moment.</value>
+  </data>
+  <data name="ManageTags_LimitReached" xml:space="preserve">
+    <value>Maximum de 32 balises par élément autorisé.</value>
+  </data>
+  <data name="Nav_Collections" xml:space="preserve">
+    <value>Collections</value>
+  </data>
+  <data name="ManageCollections" xml:space="preserve">
+    <value>Gérer les collections...</value>
+  </data>
+  <data name="ManageCollections_Title" xml:space="preserve">
+    <value>Gérer les collections d'éléments</value>
+  </data>
+  <data name="Collections_NewCollection" xml:space="preserve">
+    <value>Nouvelle collection</value>
+  </data>
+  <data name="Collections_NewCollectionTitle" xml:space="preserve">
+    <value>Créer une collection</value>
+  </data>
+  <data name="Collections_NamePlaceholder" xml:space="preserve">
+    <value>Nom de la collection (1 à 80 caractères)...</value>
+  </data>
+  <data name="Collections_RenameTitle" xml:space="preserve">
+    <value>Renommer la collection</value>
+  </data>
+  <data name="Collections_DeleteTitle" xml:space="preserve">
+    <value>Supprimer la collection</value>
+  </data>
+  <data name="Collections_DeleteConfirm" xml:space="preserve">
+    <value>Voulez-vous vraiment supprimer cette collection ? Ses icônes resteront dans votre bibliothèque.</value>
+  </data>
+  <data name="Collections_MoveUp" xml:space="preserve">
+    <value>Monter</value>
+  </data>
+  <data name="Collections_MoveDown" xml:space="preserve">
+    <value>Descendre</value>
+  </data>
+  <data name="Collections_EmptyTitle" xml:space="preserve">
+    <value>Aucune collection pour le moment</value>
+  </data>
+  <data name="Collections_EmptySubtitle" xml:space="preserve">
+    <value>Créez des collections pour organiser votre bibliothèque d'icônes.</value>
+  </data>
+  <data name="Collections_NoAssetsTitle" xml:space="preserve">
+    <value>La collection est vide</value>
+  </data>
+  <data name="Collections_NoAssetsSubtitle" xml:space="preserve">
+    <value>Faites un clic droit sur n'importe quelle icône de votre bibliothèque pour l'ajouter ici.</value>
+  </data>
+  <data name="Collections_RemoveAsset" xml:space="preserve">
+    <value>Retirer de la collection</value>
+  </data>
+  <data name="SearchBox_Placeholder" xml:space="preserve">
+    <value>Rechercher dans la bibliothèque... (Ctrl+F)</value>
+  </data>
+  <data name="KeyboardShortcuts_Help" xml:space="preserve">
+    <value>Raccourcis clavier</value>
+  </data>
+  <data name="Shortcut_Search" xml:space="preserve">
+    <value>Rechercher dans la bibliothèque (Ctrl+F)</value>
+  </data>
+  <data name="Shortcut_QuickPanel" xml:space="preserve">
+    <value>Ouvrir le gestionnaire (Ctrl+M)</value>
+  </data>
+  <data name="Shortcut_Inspect" xml:space="preserve">
+    <value>Inspecter l'icône (Entrée, Espace)</value>
+  </data>
+  <data name="Shortcut_Apply" xml:space="preserve">
+    <value>Appliquer l'icône (Entrée, Espace)</value>
+  </data>
+  <data name="Shortcut_Reset" xml:space="preserve">
+    <value>Réinitialiser l'icône du dossier (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Undo" xml:space="preserve">
+    <value>Annuler la modification de l'icône (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Escape" xml:space="preserve">
+    <value>Fermer ou annuler (Échap)</value>
+  </data>
+  <data name="Shortcut_SelectAll" xml:space="preserve">
+    <value>Tout sélectionner (Ctrl+A)</value>
+  </data>
+  <data name="Shortcut_DeleteStaged" xml:space="preserve">
+    <value>Effacer les dossiers préparés (Suppr, Retour arrière)</value>
+  </data>
+  <data name="StagedFolders_DropHint" xml:space="preserve">
+    <value>Glissez-déposez des dossiers ici pour les inspecter ou les préparer sans modifier le disque.</value>
+  </data>
+  <data name="StagedFolders_PortableNtfs" xml:space="preserve">
+    <value>Portable sur NTFS pris en charge</value>
+  </data>
+  <data name="StagedFolders_AlreadyCustomized" xml:space="preserve">
+    <value>Déjà personnalisé par Ornare</value>
+  </data>
+  <data name="StatusHealthy" xml:space="preserve">
+    <value>Sain</value>
+  </data>
+  <data name="StatusNeedsAttention" xml:space="preserve">
+    <value>Attention requise</value>
+  </data>
+  <data name="StatusConflict" xml:space="preserve">
+    <value>Conflit d'icône externe</value>
+  </data>
+  <data name="StatusUnknown" xml:space="preserve">
+    <value>Emplacement inconnu</value>
+  </data>
+  <data name="StatusMissing" xml:space="preserve">
+    <value>Dossier manquant</value>
+  </data>
+  <data name="StatusPortable" xml:space="preserve">
+    <value>Portable sur NTFS pris en charge</value>
+  </data>
+  <data name="SearchIndexingTitle" xml:space="preserve">
+    <value>Préparation de l'index de recherche…</value>
+  </data>
+  <data name="SearchIndexingSubtitle" xml:space="preserve">
+    <value>Les résultats apparaîtront automatiquement une fois l'indexation terminée.</value>
+  </data>
+  <data name="SearchIndexingStatus" xml:space="preserve">
+    <value>Indexation en cours…</value>
+  </data>
+  <data name="SearchNoResultsTitle" xml:space="preserve">
+    <value>Aucun résultat trouvé</value>
+  </data>
+  <data name="SearchNoResultsSubtitle" xml:space="preserve">
+    <value>Aucune icône ne correspond à '{0}'.</value>
+  </data>
+  <data name="SearchResultsZero" xml:space="preserve">
+    <value>0 résultat</value>
+  </data>
+  <data name="SearchResultSingle" xml:space="preserve">
+    <value>1 résultat pour '{0}'</value>
+  </data>
+  <data name="SearchResultsCount" xml:space="preserve">
+    <value>{0} résultats pour '{1}'</value>
+  </data>
+  <data name="Staging_ClearStaging" xml:space="preserve">
+    <value>Effacer la préparation</value>
+  </data>
+  <data name="Staging_TrayTitle" xml:space="preserve">
+    <value>Zone de préparation des dossiers</value>
+  </data>
+  <data name="Staging_TraySubtitle" xml:space="preserve">
+    <value>Glissez-déposez des dossiers ici pour les inspecter ou les préparer sans modifier le disque.</value>
+  </data>
+  <data name="Settings_ThemeLabel" xml:space="preserve">
+    <value>Thème de l'application</value>
+  </data>
+  <data name="Settings_LanguageLabel" xml:space="preserve">
+    <value>Langue de l'application</value>
+  </data>
+  <data name="Settings_DiagnosticsLabel" xml:space="preserve">
+    <value>Rapport de diagnostic</value>
+  </data>
+  <data name="Settings_DiagnosticsSubtext" xml:space="preserve">
+    <value>Exporte l'état du système et de santé avec des chemins anonymisés.</value>
+  </data>
+  <data name="Settings_PublisherLabel" xml:space="preserve">
+    <value>Développeur et éditeur</value>
+  </data>
+  <data name="Settings_WebsiteLabel" xml:space="preserve">
+    <value>Site web</value>
+  </data>
+  <data name="ImportIcon" xml:space="preserve">
+    <value>Importer une icône...</value>
+  </data>
+  <data name="Favorites_EmptySubtitle" xml:space="preserve">
+    <value>Cliquez sur l'étoile d'une icône dans la bibliothèque ou faites un clic droit et sélectionnez 'Ajouter aux favoris'.</value>
+  </data>
+  <data name="ReportSaved" xml:space="preserve">
+    <value>Rapport exporté !</value>
+  </data>
+  <data name="StagedFolders_Count" xml:space="preserve">
+    <value>Dossiers préparés ({0})</value>
+  </data>
+</root>

@@ -52,7 +52,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private bool _isPointerInside;
     private bool _isProcessing;
     private ProcessingStage _currentStage = ProcessingStage.Idle;
-    private string _currentLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("tr", StringComparison.OrdinalIgnoreCase) ? "tr" : "en";
+    private string _currentLanguage = AppResources.NormalizeLocale(null);
     private Guid _stagedOperationId;
     private string? _stagedTempIcoPath;
     private NormalizedImageResult? _stagedProcessResult;
@@ -569,15 +569,21 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _currentBaseline = await _storageService.GetLatestBaselineAsync(folderPath);
         FolderCustomizationState state = _folderCustomizer.GetFolderState(folderPath, _currentBaseline);
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        ToolTipService.SetToolTip(ResetButton, isTr ? "Sıfırla" : "Reset");
-        AutomationProperties.SetName(ResetButton, isTr ? "Sıfırla" : "Reset");
-        ToolTipService.SetToolTip(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
-        AutomationProperties.SetName(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
+        string? savedLang = await _storageService.GetSettingAsync("App.Language");
+        if (!string.IsNullOrWhiteSpace(savedLang))
+        {
+            _currentLanguage = AppResources.NormalizeLocale(savedLang);
+            AppResources.CurrentLocale = _currentLanguage;
+        }
+
+        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
 
         if (state == FolderCustomizationState.ExternalIconConflict)
         {
-            StatusInfoText.Text = isTr ? "Dış değişiklik algılandı" : "External modification detected";
+            StatusInfoText.Text = AppResources.GetString("ExternalConflictMessage", _currentLanguage);
             ResetButton.Visibility = Visibility.Collapsed;
         }
         else if (_currentBaseline != null)
@@ -827,11 +833,10 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private void InitializeColorPalette()
     {
         ColorPaletteContainer.Children.Clear();
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
         if (CustomColorButton != null)
         {
-            string customColorText = isTr ? "Özel Renk" : "Custom Color";
+            string customColorText = AppResources.GetString("ColorCustom", _currentLanguage);
             ToolTipService.SetToolTip(CustomColorButton, customColorText);
             AutomationProperties.SetName(CustomColorButton, customColorText);
         }
@@ -856,7 +861,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 Tag = entry.HexValue
             };
 
-            string displayName = GetColorDisplayName(entry.Id, isTr);
+            string displayName = GetColorDisplayName(entry.Id, _currentLanguage);
             ToolTipService.SetToolTip(button, displayName);
             AutomationProperties.SetName(button, displayName);
 
@@ -872,21 +877,21 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
-    private static string GetColorDisplayName(string id, bool isTr) => id switch
+    private static string GetColorDisplayName(string id, string lang) => id switch
     {
-        "color.amber" => isTr ? "Kehribar" : "Amber",
-        "color.orange" => isTr ? "Turuncu" : "Orange",
-        "color.red" => isTr ? "Kırmızı" : "Red",
-        "color.rose" => isTr ? "Gül Kurusu" : "Rose",
-        "color.magenta" => isTr ? "Macenta" : "Magenta",
-        "color.purple" => isTr ? "Mor" : "Purple",
-        "color.indigo" => isTr ? "Çivit Mavisi" : "Indigo",
-        "color.blue" => isTr ? "Mavi" : "Blue",
-        "color.cyan" => isTr ? "Camgöbeği" : "Cyan",
-        "color.teal" => isTr ? "Deniz Mavisi" : "Teal",
-        "color.green" => isTr ? "Yeşil" : "Green",
-        "color.slate" => isTr ? "Arduvaz Grisi" : "Slate",
-        _ => isTr ? "Renk" : "Color"
+        "color.amber" => AppResources.GetString("Color_Amber", lang),
+        "color.orange" => AppResources.GetString("Color_Orange", lang),
+        "color.red" => AppResources.GetString("Color_Red", lang),
+        "color.rose" => AppResources.GetString("Color_Rose", lang),
+        "color.magenta" => AppResources.GetString("Color_Magenta", lang),
+        "color.purple" => AppResources.GetString("Color_Purple", lang),
+        "color.indigo" => AppResources.GetString("Color_Indigo", lang),
+        "color.blue" => AppResources.GetString("Color_Blue", lang),
+        "color.cyan" => AppResources.GetString("Color_Cyan", lang),
+        "color.teal" => AppResources.GetString("Color_Teal", lang),
+        "color.green" => AppResources.GetString("Color_Green", lang),
+        "color.slate" => AppResources.GetString("Color_Slate", lang),
+        _ => AppResources.GetString("Colors", lang)
     };
 
     private async Task StageColorAsync(string hexColor, bool isCustom = false, string? templateId = null, int? templateVersion = null)
@@ -954,16 +959,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _snapshotPreviewImageSource = PreviewIconImage.Source;
         _snapshotStage = _currentStage;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        if (CustomColorTitleText != null) CustomColorTitleText.Text = isTr ? "Özel Renk" : "Custom Color";
-        if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = isTr ? "Herhangi bir klasör rengi seçin" : "Select any folder color";
-        if (TemplateTitleText != null) TemplateTitleText.Text = isTr ? "Stil" : "Style";
-        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = isTr ? "Klasik" : "Classic";
-        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = isTr ? "Yumuşak" : "Soft";
-        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = isTr ? "Düz" : "Flat";
-        if (RecentColorsTitle != null) RecentColorsTitle.Text = isTr ? "Son Kullanılan Renkler" : "Recent Colors";
-        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = isTr ? "Rengi Uygula" : "Apply Color";
-        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = isTr ? "İptal" : "Cancel";
+        if (CustomColorTitleText != null) CustomColorTitleText.Text = AppResources.GetString("ColorPicker_CustomColor", _currentLanguage);
+        if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
+        if (TemplateTitleText != null) TemplateTitleText.Text = AppResources.GetString("Template_Title", _currentLanguage);
+        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = AppResources.GetString("Template_Classic", _currentLanguage);
+        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = AppResources.GetString("Template_Soft", _currentLanguage);
+        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = AppResources.GetString("Template_Flat", _currentLanguage);
+        if (RecentColorsTitle != null) RecentColorsTitle.Text = AppResources.GetString("ColorPicker_RecentColors", _currentLanguage);
+        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
+        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
 
         if (string.Equals(_selectedTemplateId, OrnareSoftTemplate.TemplateId, StringComparison.OrdinalIgnoreCase))
         {
@@ -1233,8 +1237,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private void UpdatePaddingLabel(int percent)
     {
         if (PaddingLabelText == null) return;
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        PaddingLabelText.Text = isTr ? $"Boşluk: %{percent}" : $"Padding: {percent}%";
+        PaddingLabelText.Text = AppResources.Format("Padding_Label", _currentLanguage, percent);
     }
 
     private void OnBackgroundSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1341,63 +1344,63 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }, token);
     }
 
-    private void UpdatePlacementStrings(bool isTr)
+    private void UpdatePlacementStrings()
     {
         if (PlacementOptionsButton != null)
         {
-            PlacementOptionsButton.Content = isTr ? "Seçenekler..." : "Options...";
-            ToolTipService.SetToolTip(PlacementOptionsButton, isTr ? "Görsel Yerleşim Seçenekleri" : "Image Placement Options");
-            AutomationProperties.SetName(PlacementOptionsButton, isTr ? "Görsel Yerleşim Seçenekleri" : "Image Placement Options");
+            PlacementOptionsButton.Content = AppResources.GetString("Placement_Options", _currentLanguage);
+            ToolTipService.SetToolTip(PlacementOptionsButton, AppResources.GetString("Placement_Title", _currentLanguage));
+            AutomationProperties.SetName(PlacementOptionsButton, AppResources.GetString("Placement_Title", _currentLanguage));
         }
         if (PlacementTitleText != null)
         {
-            PlacementTitleText.Text = isTr ? "Görsel Yerleşimi" : "Image Placement";
+            PlacementTitleText.Text = AppResources.GetString("Placement_Title", _currentLanguage);
         }
         if (RadioPlacementContain != null)
         {
-            RadioPlacementContain.Content = isTr ? "Sığdır (Contain)" : "Contain";
-            ToolTipService.SetToolTip(RadioPlacementContain, isTr ? "En boy oranını korur ve tuval içine sığdırır" : "Preserves aspect ratio and fits inside canvas");
+            RadioPlacementContain.Content = AppResources.GetString("Placement_Contain", _currentLanguage);
+            ToolTipService.SetToolTip(RadioPlacementContain, AppResources.GetString("Placement_Contain_ToolTip", _currentLanguage));
         }
         if (RadioPlacementCover != null)
         {
-            RadioPlacementCover.Content = isTr ? "Doldur (Cover)" : "Cover";
-            ToolTipService.SetToolTip(RadioPlacementCover, isTr ? "En boy oranını korur ve tuvali dolduracak şekilde kırpar" : "Preserves aspect ratio and center-crops to fill canvas");
+            RadioPlacementCover.Content = AppResources.GetString("Placement_Cover", _currentLanguage);
+            ToolTipService.SetToolTip(RadioPlacementCover, AppResources.GetString("Placement_Cover_ToolTip", _currentLanguage));
         }
         if (RadioPlacementFill != null)
         {
-            RadioPlacementFill.Content = isTr ? "Uzat (Fill - Esnet)" : "Fill (Stretch)";
-            ToolTipService.SetToolTip(RadioPlacementFill, isTr ? "Görseli tuvale esnetir (oranlar bozulabilir)" : "Stretches to canvas (may distort aspect ratio)");
+            RadioPlacementFill.Content = AppResources.GetString("Placement_Fill", _currentLanguage);
+            ToolTipService.SetToolTip(RadioPlacementFill, AppResources.GetString("Placement_Fill_ToolTip", _currentLanguage));
         }
         if (PlacementFillWarningText != null)
         {
-            PlacementFillWarningText.Text = isTr ? "Uyarı: Uzat modu görseli esnetir ve orijinal oranlarını değiştirir." : "Warning: Fill mode stretches the image and alters its proportions.";
+            PlacementFillWarningText.Text = AppResources.GetString("Placement_Fill_Warning", _currentLanguage);
         }
         if (PaddingToggleSwitch != null)
         {
-            PaddingToggleSwitch.Header = isTr ? "İç Boşluk" : "Inner Padding";
-            ToolTipService.SetToolTip(PaddingToggleSwitch, isTr ? "Kenar başına iç boşluk (%0–30)" : "Inset padding per side (0–30%)");
-            AutomationProperties.SetName(PaddingToggleSwitch, isTr ? "İç Boşluk" : "Inner Padding");
+            PaddingToggleSwitch.Header = AppResources.GetString("Padding_Title", _currentLanguage);
+            ToolTipService.SetToolTip(PaddingToggleSwitch, AppResources.GetString("Padding_ToolTip", _currentLanguage));
+            AutomationProperties.SetName(PaddingToggleSwitch, AppResources.GetString("Padding_Title", _currentLanguage));
         }
         UpdatePaddingLabel(_stagedPaddingPercent > 0 ? _stagedPaddingPercent : (int)(PaddingSlider?.Value ?? 8));
         if (BackgroundTitleText != null)
         {
-            BackgroundTitleText.Text = isTr ? "Arka Plan" : "Background";
+            BackgroundTitleText.Text = AppResources.GetString("Background_Title", _currentLanguage);
         }
         if (RadioBackgroundTransparent != null)
         {
-            RadioBackgroundTransparent.Content = isTr ? "Şeffaf (Varsayılan)" : "Transparent";
-            ToolTipService.SetToolTip(RadioBackgroundTransparent, isTr ? "Saydam arka planı korur" : "Preserves transparent background");
+            RadioBackgroundTransparent.Content = AppResources.GetString("Background_Transparent", _currentLanguage);
+            ToolTipService.SetToolTip(RadioBackgroundTransparent, AppResources.GetString("Background_Transparent_ToolTip", _currentLanguage));
         }
         if (RadioBackgroundSolid != null)
         {
-            RadioBackgroundSolid.Content = isTr ? "Düz Renk" : "Solid Color";
-            ToolTipService.SetToolTip(RadioBackgroundSolid, isTr ? "Özel düz arka plan rengi uygular" : "Applies a solid background color");
+            RadioBackgroundSolid.Content = AppResources.GetString("Background_Solid", _currentLanguage);
+            ToolTipService.SetToolTip(RadioBackgroundSolid, AppResources.GetString("Background_Solid_ToolTip", _currentLanguage));
         }
         if (PickBackgroundColorButton != null)
         {
-            PickBackgroundColorButton.Content = isTr ? "Renk Seç..." : "Choose Color...";
-            ToolTipService.SetToolTip(PickBackgroundColorButton, isTr ? "Arka plan rengini seçin" : "Select background color");
-            AutomationProperties.SetName(PickBackgroundColorButton, isTr ? "Arka Plan Rengi Seç" : "Choose Background Color");
+            PickBackgroundColorButton.Content = AppResources.GetString("Background_ChooseColor", _currentLanguage);
+            ToolTipService.SetToolTip(PickBackgroundColorButton, AppResources.GetString("Background_ChooseColor_ToolTip", _currentLanguage));
+            AutomationProperties.SetName(PickBackgroundColorButton, AppResources.GetString("Background_ChooseColor", _currentLanguage));
         }
     }
 
@@ -1803,7 +1806,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private async Task SetProcessingStageAsync(ProcessingStage stage)
     {
         _currentStage = stage;
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
         switch (stage)
         {
@@ -1816,8 +1818,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                DropPromptText.Text = isTr ? "Bir görsel bırak" : "Drop an image";
-                ClickPromptText.Text = isTr ? "Seçmek için tıkla veya Ctrl+V'ye bas" : "Click to choose or press Ctrl+V";
+                DropPromptText.Text = AppResources.GetString("DropAnImage", _currentLanguage);
+                ClickPromptText.Text = AppResources.GetString("ClickOrPastePrompt", _currentLanguage);
                 break;
 
             case ProcessingStage.PreparingImage:
@@ -1828,7 +1830,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = isTr ? "Görsel hazırlanıyor..." : "Preparing image...";
+                ProcessingText.Text = AppResources.GetString("PreparingImage", _currentLanguage);
                 break;
 
             case ProcessingStage.GeneratingIcon:
@@ -1839,7 +1841,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = isTr ? "Klasör simgesi oluşturuluyor..." : "Generating folder icon...";
+                ProcessingText.Text = AppResources.GetString("GeneratingIcon", _currentLanguage);
                 break;
 
             case ProcessingStage.PreviewReady:
@@ -1850,11 +1852,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Visible;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                PreviewTitleText.Text = isTr ? "Simge önizlemesi" : "Icon preview";
-                PreviewSubtitleText.Text = isTr ? "Klasöre uygulamak için onaylayın" : "Confirm to apply to folder";
-                ApplyConfirmButton.Content = isTr ? "Uygula" : "Apply";
-                CancelPreviewButton.Content = isTr ? "Vazgeç" : "Cancel";
-                UpdatePlacementStrings(isTr);
+                PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
+                PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
+                ApplyConfirmButton.Content = AppResources.GetString("Apply", _currentLanguage);
+                CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
+                UpdatePlacementStrings();
                 break;
 
             case ProcessingStage.ApplyingIcon:
@@ -1865,7 +1867,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = isTr ? "Simge uygulanıyor..." : "Applying icon...";
+                ProcessingText.Text = AppResources.GetString("ApplyingIcon", _currentLanguage);
                 break;
 
             case ProcessingStage.RefreshingExplorer:
@@ -1876,7 +1878,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = isTr ? "Dosya Gezgini yenileniyor..." : "Refreshing Explorer...";
+                ProcessingText.Text = AppResources.GetString("RefreshingExplorer", _currentLanguage);
                 break;
 
             case ProcessingStage.Done:
@@ -1887,10 +1889,10 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Visible;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
-                SuccessTitleText.Text = isTr ? "Klasör simgesi güncellendi" : "Folder icon updated";
-                SuccessSubtitleText.Text = isTr ? "İşlem başarıyla tamamlandı" : "Changes applied successfully";
-                CloseSuccessButton.Content = isTr ? "Kapat" : "Close";
-                UndoButton.Content = isTr ? "Geri al" : "Undo";
+                SuccessTitleText.Text = AppResources.GetString("FolderIconUpdated", _currentLanguage);
+                SuccessSubtitleText.Text = AppResources.GetString("SuccessSubtitle", _currentLanguage);
+                CloseSuccessButton.Content = AppResources.GetString("Close", _currentLanguage);
+                UndoButton.Content = AppResources.GetString("Undo", _currentLanguage);
                 break;
 
             case ProcessingStage.Error:
@@ -1901,7 +1903,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Visible;
-                TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
+                TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
                 break;
         }
 
@@ -1913,7 +1915,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         _isProcessing = false;
         _autoCloseTimer?.Stop();
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
         string title;
         string message;
@@ -1921,32 +1922,32 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         switch (errorType)
         {
             case QuickPanelErrorType.UnsupportedImage:
-                title = isTr ? "Desteklenmeyen görsel" : "Unsupported image";
-                message = isTr ? "Lütfen PNG, JPG, WebP, BMP veya ICO formatında bir dosya seçin." : "Please select a PNG, JPG, WebP, BMP, or ICO file.";
+                title = AppResources.GetString("ErrorUnsupportedImageTitle", _currentLanguage);
+                message = AppResources.GetString("ErrorUnsupportedImageMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.ImageReadFailed:
-                title = isTr ? "Görsel okunamadı" : "Image read failed";
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Seçilen görsel dosyası diskten okunamadı." : "Could not read the selected image file from disk.");
+                title = AppResources.GetString("ErrorImageReadTitle", _currentLanguage);
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorImageReadMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.IconGenerationFailed:
-                title = isTr ? "Simge oluşturulamadı" : "Icon generation failed";
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Klasör için çoklu çözünürlüklü simge oluşturulamadı." : "Failed to create multi-resolution folder icon.");
+                title = AppResources.GetString("ErrorIconGenerationTitle", _currentLanguage);
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.FolderApplyFailed:
-                title = isTr ? "Klasör simgesi uygulanamadı" : "Folder icon apply failed";
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Klasör öznitelikleri veya desktop.ini yapılandırılamadı." : "Could not update folder attributes or desktop.ini.");
+                title = AppResources.GetString("ErrorFolderApplyTitle", _currentLanguage);
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorFolderApplyMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.ExplorerRefreshFailed:
-                title = isTr ? "Dosya Gezgini yenilenemedi" : "Explorer refresh failed";
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : (isTr ? "Dosya Gezgini klasör güncellemesi hakkında bilgilendirilemedi." : "Failed to notify File Explorer of the folder update.");
+                title = AppResources.GetString("ErrorExplorerRefreshTitle", _currentLanguage);
+                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorExplorerRefreshMessage", _currentLanguage);
                 break;
 
             default:
-                title = isTr ? "Simge uygulanamadı" : "Could not apply icon";
+                title = AppResources.GetString("ApplyFailed", _currentLanguage);
                 message = !string.IsNullOrWhiteSpace(detail) ? detail : string.Empty;
                 break;
         }
@@ -1959,7 +1960,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         ErrorTitleText.Text = title;
         ErrorMessageText.Text = message;
-        TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
+        TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
         RestoreFocusAfterTransition(ProcessingStage.Error);
     }
 
@@ -1979,26 +1980,25 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (!string.IsNullOrWhiteSpace(lang))
         {
-            _currentLanguage = lang.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "tr" : "en";
+            _currentLanguage = AppResources.NormalizeLocale(lang);
         }
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        DropPromptText.Text = isTr ? "Bir görsel bırak" : "Drop an image";
-        ClickPromptText.Text = isTr ? "Seçmek için tıkla veya Ctrl+V'ye bas" : "Click to choose or press Ctrl+V";
-        PreviewTitleText.Text = isTr ? "Simge önizlemesi" : "Icon preview";
-        PreviewSubtitleText.Text = isTr ? "Klasöre uygulamak için onaylayın" : "Confirm to apply to folder";
-        ApplyConfirmButton.Content = isTr ? "Uygula" : "Apply";
-        CancelPreviewButton.Content = isTr ? "Vazgeç" : "Cancel";
-        SuccessTitleText.Text = isTr ? "Klasör simgesi güncellendi" : "Folder icon updated";
-        SuccessSubtitleText.Text = isTr ? "İşlem başarıyla tamamlandı" : "Changes applied successfully";
-        CloseSuccessButton.Content = isTr ? "Kapat" : "Close";
-        UndoButton.Content = isTr ? "Geri al" : "Undo";
-        ToolTipService.SetToolTip(ResetButton, isTr ? "Sıfırla" : "Reset");
-        AutomationProperties.SetName(ResetButton, isTr ? "Sıfırla" : "Reset");
-        ToolTipService.SetToolTip(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
-        AutomationProperties.SetName(OpenManagerButton, isTr ? "Ayarlar" : "Settings");
-        TryAgainButton.Content = isTr ? "Tekrar dene" : "Try again";
-        UpdatePlacementStrings(isTr);
+        DropPromptText.Text = AppResources.GetString("DropAnImage", _currentLanguage);
+        ClickPromptText.Text = AppResources.GetString("ClickOrPastePrompt", _currentLanguage);
+        PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
+        PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
+        ApplyConfirmButton.Content = AppResources.GetString("Apply", _currentLanguage);
+        CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
+        SuccessTitleText.Text = AppResources.GetString("FolderIconUpdated", _currentLanguage);
+        SuccessSubtitleText.Text = AppResources.GetString("SuccessSubtitle", _currentLanguage);
+        CloseSuccessButton.Content = AppResources.GetString("Close", _currentLanguage);
+        UndoButton.Content = AppResources.GetString("Undo", _currentLanguage);
+        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+        TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
+        UpdatePlacementStrings();
 
         if (string.Equals(uiState, "drag-over", StringComparison.OrdinalIgnoreCase))
         {

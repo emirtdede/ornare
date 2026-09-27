@@ -510,4 +510,127 @@
   <data name="Collections_RemoveAsset" xml:space="preserve">
     <value>Remove from Collection</value>
   </data>
+  <data name="SearchBox_Placeholder" xml:space="preserve">
+    <value>Search library... (Ctrl+F)</value>
+  </data>
+  <data name="KeyboardShortcuts_Help" xml:space="preserve">
+    <value>Keyboard Shortcuts</value>
+  </data>
+  <data name="Shortcut_Search" xml:space="preserve">
+    <value>Search library (Ctrl+F)</value>
+  </data>
+  <data name="Shortcut_QuickPanel" xml:space="preserve">
+    <value>Open Manager (Ctrl+M)</value>
+  </data>
+  <data name="Shortcut_Inspect" xml:space="preserve">
+    <value>Inspect icon (Enter, Space)</value>
+  </data>
+  <data name="Shortcut_Apply" xml:space="preserve">
+    <value>Apply icon (Enter, Space)</value>
+  </data>
+  <data name="Shortcut_Reset" xml:space="preserve">
+    <value>Reset folder icon (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Undo" xml:space="preserve">
+    <value>Undo icon change (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Escape" xml:space="preserve">
+    <value>Dismiss or close (Esc)</value>
+  </data>
+  <data name="Shortcut_SelectAll" xml:space="preserve">
+    <value>Select all (Ctrl+A)</value>
+  </data>
+  <data name="Shortcut_DeleteStaged" xml:space="preserve">
+    <value>Clear staged folders (Delete, Backspace)</value>
+  </data>
+  <data name="StagedFolders_DropHint" xml:space="preserve">
+    <value>Drag and drop folders here to inspect or prepare them without modifying disk.</value>
+  </data>
+  <data name="StagedFolders_PortableNtfs" xml:space="preserve">
+    <value>Portable on supported NTFS</value>
+  </data>
+  <data name="StagedFolders_AlreadyCustomized" xml:space="preserve">
+    <value>Already customized by Ornare</value>
+  </data>
+  <data name="StatusHealthy" xml:space="preserve">
+    <value>Healthy</value>
+  </data>
+  <data name="StatusNeedsAttention" xml:space="preserve">
+    <value>Needs Attention</value>
+  </data>
+  <data name="StatusConflict" xml:space="preserve">
+    <value>External Icon Conflict</value>
+  </data>
+  <data name="StatusUnknown" xml:space="preserve">
+    <value>Location Unknown</value>
+  </data>
+  <data name="StatusMissing" xml:space="preserve">
+    <value>Folder Missing</value>
+  </data>
+  <data name="StatusPortable" xml:space="preserve">
+    <value>Portable on supported NTFS</value>
+  </data>
+  <data name="SearchIndexingTitle" xml:space="preserve">
+    <value>Preparing search index…</value>
+  </data>
+  <data name="SearchIndexingSubtitle" xml:space="preserve">
+    <value>Results will appear automatically once indexing completes.</value>
+  </data>
+  <data name="SearchIndexingStatus" xml:space="preserve">
+    <value>Indexing…</value>
+  </data>
+  <data name="SearchNoResultsTitle" xml:space="preserve">
+    <value>No results found</value>
+  </data>
+  <data name="SearchNoResultsSubtitle" xml:space="preserve">
+    <value>No icons matched '{0}'.</value>
+  </data>
+  <data name="SearchResultsZero" xml:space="preserve">
+    <value>0 results</value>
+  </data>
+  <data name="SearchResultSingle" xml:space="preserve">
+    <value>1 result for '{0}'</value>
+  </data>
+  <data name="SearchResultsCount" xml:space="preserve">
+    <value>{0} results for '{1}'</value>
+  </data>
+  <data name="Staging_ClearStaging" xml:space="preserve">
+    <value>Clear Staging</value>
+  </data>
+  <data name="Staging_TrayTitle" xml:space="preserve">
+    <value>Folder Staging Tray</value>
+  </data>
+  <data name="Staging_TraySubtitle" xml:space="preserve">
+    <value>Drag and drop folders here to inspect or prepare them without modifying disk.</value>
+  </data>
+  <data name="Settings_ThemeLabel" xml:space="preserve">
+    <value>App theme</value>
+  </data>
+  <data name="Settings_LanguageLabel" xml:space="preserve">
+    <value>App language</value>
+  </data>
+  <data name="Settings_DiagnosticsLabel" xml:space="preserve">
+    <value>Diagnostic Report</value>
+  </data>
+  <data name="Settings_DiagnosticsSubtext" xml:space="preserve">
+    <value>Exports system and health status with personal paths anonymized.</value>
+  </data>
+  <data name="Settings_PublisherLabel" xml:space="preserve">
+    <value>Developer &amp; Publisher</value>
+  </data>
+  <data name="Settings_WebsiteLabel" xml:space="preserve">
+    <value>Website</value>
+  </data>
+  <data name="ImportIcon" xml:space="preserve">
+    <value>Import Icon...</value>
+  </data>
+  <data name="Favorites_EmptySubtitle" xml:space="preserve">
+    <value>Click the star on any icon in the Library or right-click and select 'Add to Favorites'.</value>
+  </data>
+  <data name="ReportSaved" xml:space="preserve">
+    <value>Report Exported!</value>
+  </data>
+  <data name="StagedFolders_Count" xml:space="preserve">
+    <value>Staged Folders ({0})</value>
+  </data>
 </root>

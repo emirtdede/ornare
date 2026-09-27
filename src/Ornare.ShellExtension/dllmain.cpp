@@ -251,6 +251,67 @@ namespace
         }
         return false;
     }
+
+    enum class ShellStringId
+    {
+        SetFolderIcon,
+        ApplyLastIcon,
+        Undo,
+        Reset,
+        ResetTooltip
+    };
+
+    const wchar_t* GetLocalizedShellString(ShellStringId id) noexcept
+    {
+        LANGID langId = GetUserDefaultUILanguage();
+        WORD primaryLang = PRIMARYLANGID(langId);
+
+        switch (id)
+        {
+        case ShellStringId::SetFolderIcon:
+            if (primaryLang == LANG_TURKISH) return L"Klas\u00F6r Simgesini Ayarla";
+            if (primaryLang == LANG_GERMAN) return L"Ordnersymbol festlegen";
+            if (primaryLang == LANG_FRENCH) return L"D\u00E9finir l'ic\u00F4ne du dossier";
+            if (primaryLang == LANG_SPANISH) return L"Establecer icono de carpeta";
+            if (primaryLang == LANG_PORTUGUESE) return L"Definir \u00EDcone da pasta";
+            return L"Set Folder Icon";
+
+        case ShellStringId::ApplyLastIcon:
+            if (primaryLang == LANG_TURKISH) return L"Son simgeyi uygula";
+            if (primaryLang == LANG_GERMAN) return L"Letztes Symbol anwenden";
+            if (primaryLang == LANG_FRENCH) return L"Appliquer la derni\u00E8re ic\u00F4ne";
+            if (primaryLang == LANG_SPANISH) return L"Aplicar \u00FAltimo icono";
+            if (primaryLang == LANG_PORTUGUESE) return L"Aplicar \u00FAltimo \u00EDcone";
+            return L"Apply last icon";
+
+        case ShellStringId::Undo:
+            if (primaryLang == LANG_TURKISH) return L"Geri Al";
+            if (primaryLang == LANG_GERMAN) return L"R\u00FCckg\u00E4ngig";
+            if (primaryLang == LANG_FRENCH) return L"Annuler";
+            if (primaryLang == LANG_SPANISH) return L"Deshacer";
+            if (primaryLang == LANG_PORTUGUESE) return L"Desfazer";
+            return L"Undo";
+
+        case ShellStringId::Reset:
+            if (primaryLang == LANG_TURKISH) return L"S\u0131f\u0131rla";
+            if (primaryLang == LANG_GERMAN) return L"Zur\u00FCcksetzen";
+            if (primaryLang == LANG_FRENCH) return L"R\u00E9initialiser";
+            if (primaryLang == LANG_SPANISH) return L"Restablecer";
+            if (primaryLang == LANG_PORTUGUESE) return L"Redefinir";
+            return L"Reset";
+
+        case ShellStringId::ResetTooltip:
+            if (primaryLang == LANG_TURKISH) return L"Klas\u00F6r simgesini Windows varsay\u0131lan\u0131na s\u0131f\u0131rla";
+            if (primaryLang == LANG_GERMAN) return L"Ordnersymbol auf Windows-Standard zur\u00FCcksetzen";
+            if (primaryLang == LANG_FRENCH) return L"R\u00E9initialiser l'ic\u00F4ne du dossier aux valeurs par d\u00E9faut de Windows";
+            if (primaryLang == LANG_SPANISH) return L"Restablecer el icono de la carpeta al valor predeterminado de Windows";
+            if (primaryLang == LANG_PORTUGUESE) return L"Redefinir o \u00EDcone da pasta para o padr\u00E3o do Windows";
+            return L"Reset folder icon to Windows default";
+
+        default:
+            return L"";
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------
@@ -313,13 +374,7 @@ public:
             return E_POINTER;
         }
 
-        const wchar_t* title = L"Set Folder Icon";
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_TURKISH)
-        {
-            title = L"Klas\u00F6r Simgesini Ayarla";
-        }
-
+        const wchar_t* title = GetLocalizedShellString(ShellStringId::SetFolderIcon);
         size_t len = wcslen(title) + 1;
         LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
         if (buffer == nullptr)
@@ -508,13 +563,7 @@ public:
             return E_POINTER;
         }
 
-        const wchar_t* title = L"Apply last icon";
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_TURKISH)
-        {
-            title = L"Son simgeyi uygula";
-        }
-
+        const wchar_t* title = GetLocalizedShellString(ShellStringId::ApplyLastIcon);
         size_t len = wcslen(title) + 1;
         LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
         if (buffer == nullptr)
@@ -696,13 +745,7 @@ public:
             return E_POINTER;
         }
 
-        const wchar_t* title = L"Undo";
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_TURKISH)
-        {
-            title = L"Geri Al";
-        }
-
+        const wchar_t* title = GetLocalizedShellString(ShellStringId::Undo);
         size_t len = wcslen(title) + 1;
         LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
         if (buffer == nullptr)
@@ -884,13 +927,7 @@ public:
             return E_POINTER;
         }
 
-        const wchar_t* title = L"Reset";
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_TURKISH)
-        {
-            title = L"S\u0131f\u0131rla";
-        }
-
+        const wchar_t* title = GetLocalizedShellString(ShellStringId::Reset);
         size_t len = wcslen(title) + 1;
         LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
         if (buffer == nullptr)
@@ -915,13 +952,7 @@ public:
             return E_POINTER;
         }
 
-        const wchar_t* tooltip = L"Reset folder icon to Windows default";
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_TURKISH)
-        {
-            tooltip = L"Klas\u00F6r simgesini Windows varsay\u0131lan\u0131na s\u0131f\u0131rla";
-        }
-
+        const wchar_t* tooltip = GetLocalizedShellString(ShellStringId::ResetTooltip);
         size_t len = wcslen(tooltip) + 1;
         LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
         if (buffer == nullptr)

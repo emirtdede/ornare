@@ -884,6 +884,10 @@
                                     <ComboBoxItem x:Name="LangItemSystem" Content="System default" Tag="System" />
                                     <ComboBoxItem x:Name="LangItemTr" Content="Türkçe" Tag="tr-TR" />
                                     <ComboBoxItem x:Name="LangItemEn" Content="English" Tag="en-US" />
+                                    <ComboBoxItem x:Name="LangItemDe" Content="Deutsch" Tag="de-DE" />
+                                    <ComboBoxItem x:Name="LangItemFr" Content="Français" Tag="fr-FR" />
+                                    <ComboBoxItem x:Name="LangItemEs" Content="Español" Tag="es-ES" />
+                                    <ComboBoxItem x:Name="LangItemPt" Content="Português (Brasil)" Tag="pt-BR" />
                                 </ComboBox>
                             </Grid>
                         </StackPanel>

@@ -459,6 +459,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
             if (string.Equals(_currentLanguage, "tr-TR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "tr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 1;
             else if (string.Equals(_currentLanguage, "en-US", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "en", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 2;
+            else if (string.Equals(_currentLanguage, "de-DE", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "de", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 3;
+            else if (string.Equals(_currentLanguage, "fr-FR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "fr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 4;
+            else if (string.Equals(_currentLanguage, "es-ES", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "es", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 5;
+            else if (string.Equals(_currentLanguage, "pt-BR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "pt", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 6;
             else LanguageComboBox.SelectedIndex = 0;
 
             await RefreshAllDataAsync();
@@ -609,37 +613,37 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 case FolderCustomizationState.Healthy:
                     glyph = "\uE73E"; // Checkmark
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 16, 137, 62));
-                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Sağlıklı" : "Healthy";
+                    label = AppResources.GetString("StatusHealthy", _currentLanguage);
                     break;
                 case FolderCustomizationState.NeedsReconciliation:
                 case FolderCustomizationState.ConfigMismatch:
                 case FolderCustomizationState.MissingOwnedIcon:
                     glyph = "\uE7BA"; // Warning
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 202, 138, 4));
-                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "İlgi Gerektiriyor" : "Needs Attention";
+                    label = AppResources.GetString("StatusNeedsAttention", _currentLanguage);
                     repairVis = Visibility.Visible;
                     break;
                 case FolderCustomizationState.ExternalIconConflict:
                     glyph = "\uE783"; // Alert
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 217, 119, 6));
-                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Dış Değişiklik Çakışması" : "External Icon Conflict";
+                    label = AppResources.GetString("StatusConflict", _currentLanguage);
                     keepExtVis = Visibility.Visible;
                     break;
                 case FolderCustomizationState.LocationUnknown:
                     glyph = "\uE711"; // Question / Error
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 120, 113, 108));
-                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Konum Bilinmiyor" : "Location Unknown";
+                    label = AppResources.GetString("StatusUnknown", _currentLanguage);
                     break;
                 default:
                     glyph = "\uE711"; // Error
                     brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 220, 38, 38));
-                    label = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Klasör Bulunamadı" : "Folder Missing";
+                    label = AppResources.GetString("StatusMissing", _currentLanguage);
                     break;
             }
 
             bool isNtfs = FolderIdentityService.IsSupportedFixedNtfsVolume(currentAssignment.FolderPath);
             string portText = isNtfs
-                ? (_currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Desteklenen NTFS üzerinde taşınabilir" : "Portable on supported NTFS")
+                ? AppResources.GetString("StatusPortable", _currentLanguage)
                 : string.Empty;
             Visibility portVis = isNtfs ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1005,9 +1009,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 SyncItems(LibraryGridView, _libraryItems);
                 LibraryGridView.Visibility = Visibility.Collapsed;
                 LibraryEmptyPanel.Visibility = Visibility.Visible;
-                LibraryEmptyTitle.Text = isTr ? "Arama dizini hazırlanıyor…" : "Preparing search index…";
-                LibraryEmptySubtitle.Text = isTr ? "Dizin hazırlandığında sonuçlar otomatik olarak görüntülenecektir." : "Results will appear automatically once indexing completes.";
-                SectionSubtitleText.Text = isTr ? "Dizin hazırlanıyor…" : "Indexing…";
+                LibraryEmptyTitle.Text = AppResources.GetString("SearchIndexingTitle", _currentLanguage);
+                LibraryEmptySubtitle.Text = AppResources.GetString("SearchIndexingSubtitle", _currentLanguage);
+                SectionSubtitleText.Text = AppResources.GetString("SearchIndexingStatus", _currentLanguage);
                 return;
             }
 
@@ -1026,17 +1030,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
             if (_libraryItems.Count == 0)
             {
-                LibraryEmptyTitle.Text = isTr ? "Sonuç bulunamadı" : "No results found";
-                LibraryEmptySubtitle.Text = isTr
-                    ? $"'{query}' için eşleşen simge bulunamadı."
-                    : $"No icons matched '{query}'.";
-                SectionSubtitleText.Text = isTr ? "0 sonuç" : "0 results";
+                LibraryEmptyTitle.Text = AppResources.GetString("SearchNoResultsTitle", _currentLanguage);
+                LibraryEmptySubtitle.Text = string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchNoResultsSubtitle", _currentLanguage), query);
+                SectionSubtitleText.Text = AppResources.GetString("SearchResultsZero", _currentLanguage);
             }
             else
             {
                 SectionSubtitleText.Text = _libraryItems.Count == 1
-                    ? (isTr ? $"'{query}' için 1 sonuç" : $"1 result for '{query}'")
-                    : (isTr ? $"'{query}' için {_libraryItems.Count} sonuç" : $"{_libraryItems.Count} results for '{query}'");
+                    ? string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchResultSingle", _currentLanguage), query)
+                    : string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchResultsCount", _currentLanguage), _libraryItems.Count, query);
             }
         }
         catch (OperationCanceledException)

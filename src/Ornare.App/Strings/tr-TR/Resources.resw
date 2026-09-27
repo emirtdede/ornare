@@ -510,4 +510,127 @@
   <data name="Collections_RemoveAsset" xml:space="preserve">
     <value>Koleksiyondan Çıkar</value>
   </data>
+  <data name="SearchBox_Placeholder" xml:space="preserve">
+    <value>Kitaplıkta ara... (Ctrl+F)</value>
+  </data>
+  <data name="KeyboardShortcuts_Help" xml:space="preserve">
+    <value>Klavye Kısayolları</value>
+  </data>
+  <data name="Shortcut_Search" xml:space="preserve">
+    <value>Kitaplıkta ara (Ctrl+F)</value>
+  </data>
+  <data name="Shortcut_QuickPanel" xml:space="preserve">
+    <value>Yöneticiyi Aç (Ctrl+M)</value>
+  </data>
+  <data name="Shortcut_Inspect" xml:space="preserve">
+    <value>Simgeyi incele (Enter, Boşluk)</value>
+  </data>
+  <data name="Shortcut_Apply" xml:space="preserve">
+    <value>Simgeyi uygula (Enter, Boşluk)</value>
+  </data>
+  <data name="Shortcut_Reset" xml:space="preserve">
+    <value>Klasör simgesini sıfırla (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Undo" xml:space="preserve">
+    <value>Simge değişikliğini geri al (Ctrl+Z)</value>
+  </data>
+  <data name="Shortcut_Escape" xml:space="preserve">
+    <value>Kapat veya vazgeç (Esc)</value>
+  </data>
+  <data name="Shortcut_SelectAll" xml:space="preserve">
+    <value>Tümünü seç (Ctrl+A)</value>
+  </data>
+  <data name="Shortcut_DeleteStaged" xml:space="preserve">
+    <value>Hazırlanan klasörleri temizle (Delete, Backspace)</value>
+  </data>
+  <data name="StagedFolders_DropHint" xml:space="preserve">
+    <value>Disk üzerinde değişiklik yapmadan klasörleri incelemek veya hazırlamak için buraya sürükleyin.</value>
+  </data>
+  <data name="StagedFolders_PortableNtfs" xml:space="preserve">
+    <value>Desteklenen NTFS üzerinde taşınabilir</value>
+  </data>
+  <data name="StagedFolders_AlreadyCustomized" xml:space="preserve">
+    <value>Zaten Ornare ile özelleştirilmiş</value>
+  </data>
+  <data name="StatusHealthy" xml:space="preserve">
+    <value>Sağlıklı</value>
+  </data>
+  <data name="StatusNeedsAttention" xml:space="preserve">
+    <value>İlgi Gerektiriyor</value>
+  </data>
+  <data name="StatusConflict" xml:space="preserve">
+    <value>Dış Değişiklik Çakışması</value>
+  </data>
+  <data name="StatusUnknown" xml:space="preserve">
+    <value>Konum Bilinmiyor</value>
+  </data>
+  <data name="StatusMissing" xml:space="preserve">
+    <value>Klasör Bulunamadı</value>
+  </data>
+  <data name="StatusPortable" xml:space="preserve">
+    <value>Desteklenen NTFS üzerinde taşınabilir</value>
+  </data>
+  <data name="SearchIndexingTitle" xml:space="preserve">
+    <value>Arama dizini hazırlanıyor…</value>
+  </data>
+  <data name="SearchIndexingSubtitle" xml:space="preserve">
+    <value>Dizin hazırlandığında sonuçlar otomatik olarak görüntülenecektir.</value>
+  </data>
+  <data name="SearchIndexingStatus" xml:space="preserve">
+    <value>Dizin hazırlanıyor…</value>
+  </data>
+  <data name="SearchNoResultsTitle" xml:space="preserve">
+    <value>Sonuç bulunamadı</value>
+  </data>
+  <data name="SearchNoResultsSubtitle" xml:space="preserve">
+    <value>'{0}' için eşleşen simge bulunamadı.</value>
+  </data>
+  <data name="SearchResultsZero" xml:space="preserve">
+    <value>0 sonuç</value>
+  </data>
+  <data name="SearchResultSingle" xml:space="preserve">
+    <value>'{0}' için 1 sonuç</value>
+  </data>
+  <data name="SearchResultsCount" xml:space="preserve">
+    <value>'{1}' için {0} sonuç</value>
+  </data>
+  <data name="Staging_ClearStaging" xml:space="preserve">
+    <value>Tepsiyi Temizle</value>
+  </data>
+  <data name="Staging_TrayTitle" xml:space="preserve">
+    <value>Klasör Hazırlama Tepsisi</value>
+  </data>
+  <data name="Staging_TraySubtitle" xml:space="preserve">
+    <value>Disk üzerinde değişiklik yapmadan klasörleri incelemek veya hazırlamak için buraya sürükleyin.</value>
+  </data>
+  <data name="Settings_ThemeLabel" xml:space="preserve">
+    <value>Uygulama teması</value>
+  </data>
+  <data name="Settings_LanguageLabel" xml:space="preserve">
+    <value>Uygulama dili</value>
+  </data>
+  <data name="Settings_DiagnosticsLabel" xml:space="preserve">
+    <value>Tanılama Raporu</value>
+  </data>
+  <data name="Settings_DiagnosticsSubtext" xml:space="preserve">
+    <value>Kişisel yollar gizlenmiş sistem ve sağlık raporunu dışa aktarır.</value>
+  </data>
+  <data name="Settings_PublisherLabel" xml:space="preserve">
+    <value>Geliştirici &amp; Yayıncı</value>
+  </data>
+  <data name="Settings_WebsiteLabel" xml:space="preserve">
+    <value>Web Sitesi</value>
+  </data>
+  <data name="ImportIcon" xml:space="preserve">
+    <value>Simge İçe Aktar...</value>
+  </data>
+  <data name="Favorites_EmptySubtitle" xml:space="preserve">
+    <value>Kitaplık'taki simgelerin üzerindeki yıldıza tıklayarak veya sağ tıklayıp 'Favorilere Ekle'yi seçerek ekleyebilirsiniz.</value>
+  </data>
+  <data name="ReportSaved" xml:space="preserve">
+    <value>Rapor Kaydedildi!</value>
+  </data>
+  <data name="StagedFolders_Count" xml:space="preserve">
+    <value>Hazırlanan Klasörler ({0})</value>
+  </data>
 </root>
