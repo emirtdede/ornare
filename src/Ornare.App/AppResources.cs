@@ -306,6 +306,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Click the star on any icon in the Library or right-click and select 'Add to Favorites'.",
             ["ReportSaved"] = "Report Exported!",
             ["StagedFolders_Count"] = "Staged Folders ({0})",
+            ["More_ResetFolder"] = "Reset Folder Customization",
+            ["More_OpenManager"] = "Open Manager",
+            ["More_Settings"] = "Settings",
+            ["More_About"] = "About / Open-source acknowledgements",
         },
         ["tr-TR"] = new(StringComparer.Ordinal)
         {
@@ -527,6 +531,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Kitaplık'taki simgelerin üzerindeki yıldıza tıklayarak veya sağ tıklayıp 'Favorilere Ekle'yi seçerek ekleyebilirsiniz.",
             ["ReportSaved"] = "Rapor Kaydedildi!",
             ["StagedFolders_Count"] = "Hazırlanan Klasörler ({0})",
+            ["More_ResetFolder"] = "Klasör Özelleştirmesini Sıfırla",
+            ["More_OpenManager"] = "Yöneticiyi Aç",
+            ["More_Settings"] = "Ayarlar",
+            ["More_About"] = "Hakkında / Açık Kaynak Bildirimleri",
         },
         ["de-DE"] = new(StringComparer.Ordinal)
         {
@@ -748,6 +756,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Klicken Sie auf den Stern eines beliebigen Symbols in der Bibliothek oder wählen Sie 'Zu Favoriten hinzufügen'.",
             ["ReportSaved"] = "Bericht exportiert!",
             ["StagedFolders_Count"] = "Bereitgestellte Ordner ({0})",
+            ["More_ResetFolder"] = "Ordneranpassung zurücksetzen",
+            ["More_OpenManager"] = "Manager öffnen",
+            ["More_Settings"] = "Einstellungen",
+            ["More_About"] = "Über / Open-Source-Danksagungen",
         },
         ["fr-FR"] = new(StringComparer.Ordinal)
         {
@@ -969,6 +981,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Cliquez sur l'étoile d'une icône dans la bibliothèque ou faites un clic droit et sélectionnez 'Ajouter aux favoris'.",
             ["ReportSaved"] = "Rapport exporté !",
             ["StagedFolders_Count"] = "Dossiers préparés ({0})",
+            ["More_ResetFolder"] = "Réinitialiser la personnalisation du dossier",
+            ["More_OpenManager"] = "Ouvrir le Gestionnaire",
+            ["More_Settings"] = "Paramètres",
+            ["More_About"] = "À propos / Remerciements open source",
         },
         ["es-ES"] = new(StringComparer.Ordinal)
         {
@@ -1190,6 +1206,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Haga clic en la estrella de cualquier icono de la biblioteca o haga clic derecho y seleccione 'Agregar a favoritos'.",
             ["ReportSaved"] = "¡Informe exportado!",
             ["StagedFolders_Count"] = "Carpetas preparadas ({0})",
+            ["More_ResetFolder"] = "Restablecer personalización de carpeta",
+            ["More_OpenManager"] = "Abrir Administrador",
+            ["More_Settings"] = "Configuración",
+            ["More_About"] = "Acerca de / Agradecimientos de código abierto",
         },
         ["pt-BR"] = new(StringComparer.Ordinal)
         {
@@ -1411,6 +1431,10 @@ public static class AppResources
             ["Favorites_EmptySubtitle"] = "Clique na estrela em qualquer ícone na biblioteca ou clique com o botão direito e selecione 'Adicionar aos favoritos'.",
             ["ReportSaved"] = "Relatório exportado!",
             ["StagedFolders_Count"] = "Pastas preparadas ({0})",
+            ["More_ResetFolder"] = "Redefinir personalização da pasta",
+            ["More_OpenManager"] = "Abrir Gerenciador",
+            ["More_Settings"] = "Configurações",
+            ["More_About"] = "Sobre / Agradecimentos de código aberto",
         },
     };
 }

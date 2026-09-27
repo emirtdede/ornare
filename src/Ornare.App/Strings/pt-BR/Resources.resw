@@ -693,4 +693,16 @@
   <data name="StagedFolders_Count" xml:space="preserve">
     <value>Pastas preparadas ({0})</value>
   </data>
+  <data name="More_ResetFolder" xml:space="preserve">
+    <value>Redefinir personalização da pasta</value>
+  </data>
+  <data name="More_OpenManager" xml:space="preserve">
+    <value>Abrir Gerenciador</value>
+  </data>
+  <data name="More_Settings" xml:space="preserve">
+    <value>Configurações</value>
+  </data>
+  <data name="More_About" xml:space="preserve">
+    <value>Sobre / Agradecimentos de código aberto</value>
+  </data>
 </root>

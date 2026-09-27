@@ -82,7 +82,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private NormalizedImageResult? _snapshotStagedProcessResult;
     private Microsoft.UI.Xaml.Media.ImageSource? _snapshotPreviewImageSource;
     private ProcessingStage _snapshotStage;
-    private bool _isCustomColorCommitted;
+    private string? _snapshotFolderColorHex;
     private string _selectedTemplateId = FolderTemplateCatalog.DefaultTemplateId;
     private int _selectedTemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion;
 
@@ -794,13 +794,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             FolderFlyoutTitle.Text = AppResources.GetString("Template_Title", _currentLanguage);
         }
 
-        if (MoreResetMenuItem != null)
-        {
-            MoreResetMenuItem.Text = $"{AppResources.GetString("Reset", _currentLanguage)} (Ctrl+Z)";
-        }
         if (MoreRemoveEmblemMenuItem != null)
         {
             MoreRemoveEmblemMenuItem.Text = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
+        }
+        if (MoreResetMenuItem != null)
+        {
+            MoreResetMenuItem.Text = $"{AppResources.GetString("More_ResetFolder", _currentLanguage)} (Ctrl+Z)";
         }
         if (RemoveEmblemButton != null)
         {
@@ -812,7 +812,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
         if (MoreOpenManagerMenuItem != null)
         {
-            MoreOpenManagerMenuItem.Text = $"{AppResources.GetString("Settings", _currentLanguage)} (Ctrl+M)";
+            MoreOpenManagerMenuItem.Text = $"{AppResources.GetString("More_OpenManager", _currentLanguage)} (Ctrl+M)";
+        }
+        if (MoreSettingsMenuItem != null)
+        {
+            MoreSettingsMenuItem.Text = AppResources.GetString("More_Settings", _currentLanguage);
+        }
+        if (MoreAboutMenuItem != null)
+        {
+            MoreAboutMenuItem.Text = AppResources.GetString("More_About", _currentLanguage);
         }
     }
 
@@ -971,13 +979,27 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
+    private async void OnFolderStyleFlyoutOpening(object? sender, object? e)
+    {
+        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        {
+            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+            await RefreshLivePreviewAsync();
+        }
+    }
+
     private void OnImageActionButtonClicked(object sender, RoutedEventArgs e)
     {
         _ = OpenFilePickerAsync();
     }
 
-    private void OnIconFlyoutOpening(object? sender, object? e)
+    private async void OnIconFlyoutOpening(object? sender, object? e)
     {
+        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        {
+            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+            await RefreshLivePreviewAsync();
+        }
         EnsureEmblemCatalogInitialized();
         SyncEmblemSelectionState();
     }
@@ -1122,8 +1144,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         await RefreshLivePreviewAsync();
     }
 
-    private void OnEmojiFlyoutOpening(object? sender, object? e)
+    private async void OnEmojiFlyoutOpening(object? sender, object? e)
     {
+        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        {
+            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+            await RefreshLivePreviewAsync();
+        }
         EnsureEmojiCatalogInitialized();
         SyncEmojiSelectionState();
     }
@@ -1642,9 +1669,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ => AppResources.GetString("Colors", lang)
     };
 
-    private void OnCustomColorFlyoutOpened(object sender, object e)
+    private async void OnCustomColorFlyoutOpened(object sender, object e)
     {
-        _isCustomColorCommitted = false;
+        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        {
+            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+            await RefreshLivePreviewAsync();
+        }
+
+        _snapshotFolderColorHex = _stagingModel.StagedTemplateState.FolderColorHex;
         _snapshotStagedTempIcoPath = _stagedTempIcoPath;
         _snapshotStagedProcessResult = _stagedProcessResult;
         _snapshotPreviewImageSource = PreviewIconImage.Source;
@@ -1658,21 +1691,22 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (CustomColorPicker != null)
         {
-            if (CustomColorPicker.Color.A == 0 || (CustomColorPicker.Color.R == 0 && CustomColorPicker.Color.G == 0 && CustomColorPicker.Color.B == 0))
+            if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
             {
-                if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
-                {
-                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
-                }
-                else
-                {
-                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
-                }
+                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
+            }
+            else
+            {
+                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
             }
 
             var currentColor = CustomColorPicker.Color;
             string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
-            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _stagingModel.StagedTemplateState.TemplateId, _stagingModel.StagedTemplateState.TemplateVersion);
+            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(
+                currentHex,
+                _stagingModel.StagedTemplateState.TemplateId,
+                _stagingModel.StagedTemplateState.TemplateVersion,
+                emblem: _stagingModel.StagedTemplateState.Emblem);
             if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
             {
                 FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
@@ -1682,24 +1716,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ = LoadRecentCustomColorsToFlyoutAsync();
     }
 
-    private async void OnCustomColorFlyoutClosed(object sender, object e)
+    private void OnCustomColorFlyoutClosed(object sender, object e)
     {
         _previewDebounceCts?.Cancel();
         _previewDebounceCts?.Dispose();
         _previewDebounceCts = null;
 
-        if (!_isCustomColorCommitted)
-        {
-            _stagedTempIcoPath = _snapshotStagedTempIcoPath;
-            _stagedProcessResult = _snapshotStagedProcessResult;
-            PreviewIconImage.Source = _snapshotPreviewImageSource;
-            if (FlyoutPreviewImage != null)
-            {
-                FlyoutPreviewImage.Source = null;
-            }
-            await SetProcessingStageAsync(_snapshotStage);
-        }
-
+        _ = RenderTemplateCardThumbnailsAsync();
         ColorActionButton?.Focus(FocusState.Programmatic);
     }
 
@@ -1718,6 +1741,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         string templateId = _stagingModel.StagedTemplateState.TemplateId;
         int templateVersion = _stagingModel.StagedTemplateState.TemplateVersion;
+        var emblem = _stagingModel.StagedTemplateState.Emblem;
 
         _ = Task.Run(async () =>
         {
@@ -1727,7 +1751,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 if (token.IsCancellationRequested) return;
 
                 string hex = ColorConversion.ToHex(newColor.R, newColor.G, newColor.B);
-                var previewResult = FolderTemplateRenderer.RenderPreviewPng(hex, templateId, templateVersion);
+                var previewResult = FolderTemplateRenderer.RenderPreviewPng(hex, templateId, templateVersion, emblem: emblem);
                 if (!previewResult.IsSuccess || previewResult.Value == null || token.IsCancellationRequested) return;
 
                 byte[] pngBytes = previewResult.Value;
@@ -1746,6 +1770,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                     {
                         PreviewIconImage.Source = bitmap;
                     }
+
+                    _stagingModel.StageFolderColor(hex);
+                    ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
+                    if (_stagingModel.CanApply)
+                    {
+                        StatusInfoText.Text = AppResources.GetString("Status_UnappliedChanges", _currentLanguage);
+                    }
                 });
             }
             catch (OperationCanceledException)
@@ -1762,7 +1793,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         var color = CustomColorPicker.Color;
         string hex = ColorConversion.ToHex(color.R, color.G, color.B);
-        _isCustomColorCommitted = true;
         CustomColorFlyout.Hide();
 
         _stagingModel.StageFolderColor(hex);
@@ -1770,10 +1800,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ = RenderTemplateCardThumbnailsAsync();
     }
 
-    private void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)
+    private async void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)
     {
-        _isCustomColorCommitted = false;
         CustomColorFlyout.Hide();
+        if (!string.IsNullOrWhiteSpace(_snapshotFolderColorHex))
+        {
+            _stagingModel.StageFolderColor(_snapshotFolderColorHex);
+            await RefreshLivePreviewAsync();
+            _ = RenderTemplateCardThumbnailsAsync();
+        }
     }
 
     private async Task LoadRecentCustomColorsToFlyoutAsync()
@@ -2791,5 +2826,72 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
         managerWindow.Activate();
+    }
+
+    private void OnSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
+        managerWindow.SwitchSection("Settings");
+        managerWindow.Activate();
+    }
+
+    private async void OnAboutClicked(object sender, RoutedEventArgs e)
+    {
+        if (Content is FrameworkElement root && root.XamlRoot != null)
+        {
+            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+            var dialog = new ContentDialog
+            {
+                Title = isTr ? "Ornare Hakkında" : "About Ornare",
+                CloseButtonText = isTr ? "Kapat" : "Close",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = root.XamlRoot
+            };
+
+            var panel = new StackPanel { Spacing = 10, MaxWidth = 360 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Ornare Folder Icons v1.0.0",
+                FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = isTr
+                    ? "Geliştirici: Vellium (vellium.dev)\nTamamen yerel, çevrimdışı ve gizlilik odaklı klasör özelleştirme."
+                    : "Developer: Vellium (vellium.dev)\nLocal-only, privacy-first Windows folder personalization.",
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                TextWrapping = TextWrapping.Wrap
+            });
+            panel.Children.Add(new Border
+            {
+                Height = 1,
+                Background = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                Margin = new Thickness(0, 4, 0, 4)
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = isTr ? "Açık Kaynak Bildirimleri" : "Open-Source Acknowledgements",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "• Microsoft Fluent UI System Icons (MIT)\n• Magick.NET (Apache-2.0)\n• Microsoft.Data.Sqlite / SQLitePCLRaw (MIT / Apache-2.0)\n• Windows App SDK & WinUI 3 (Microsoft)\n• WinUIEx & CommunityToolkit (MIT)\n• System.CommandLine (MIT)",
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            dialog.Content = panel;
+            await dialog.ShowAsync();
+        }
+        else
+        {
+            var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
+            managerWindow.SwitchSection("Settings");
+            managerWindow.Activate();
+        }
     }
 }

@@ -693,4 +693,16 @@
   <data name="StagedFolders_Count" xml:space="preserve">
     <value>Hazırlanan Klasörler ({0})</value>
   </data>
+  <data name="More_ResetFolder" xml:space="preserve">
+    <value>Klasör Özelleştirmesini Sıfırla</value>
+  </data>
+  <data name="More_OpenManager" xml:space="preserve">
+    <value>Yöneticiyi Aç</value>
+  </data>
+  <data name="More_Settings" xml:space="preserve">
+    <value>Ayarlar</value>
+  </data>
+  <data name="More_About" xml:space="preserve">
+    <value>Hakkında / Açık Kaynak Bildirimleri</value>
+  </data>
 </root>

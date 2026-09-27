@@ -693,4 +693,16 @@
   <data name="StagedFolders_Count" xml:space="preserve">
     <value>Dossiers préparés ({0})</value>
   </data>
+  <data name="More_ResetFolder" xml:space="preserve">
+    <value>Réinitialiser la personnalisation du dossier</value>
+  </data>
+  <data name="More_OpenManager" xml:space="preserve">
+    <value>Ouvrir le Gestionnaire</value>
+  </data>
+  <data name="More_Settings" xml:space="preserve">
+    <value>Paramètres</value>
+  </data>
+  <data name="More_About" xml:space="preserve">
+    <value>À propos / Remerciements open source</value>
+  </data>
 </root>

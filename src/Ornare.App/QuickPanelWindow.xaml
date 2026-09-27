@@ -434,7 +434,7 @@
                 ToolTipService.ToolTip="Folder Style (Alt+1)">
                 <FontIcon Glyph="&#xE8B7;" FontSize="16" Foreground="{ThemeResource TextFillColorPrimaryBrush}" IsHitTestVisible="False" />
                 <Button.Flyout>
-                    <Flyout x:Name="FolderStyleFlyout" Placement="Top">
+                    <Flyout x:Name="FolderStyleFlyout" Placement="Top" Opening="OnFolderStyleFlyoutOpening">
                         <StackPanel Width="292" Spacing="6" Padding="2">
                             <TextBlock
                                 x:Name="FolderFlyoutTitle"
@@ -831,6 +831,7 @@
                                     IsColorSpectrumVisible="True"
                                     IsColorSliderVisible="True"
                                     IsHexInputVisible="True"
+                                    IsColorChannelTextInputVisible="True"
                                     ColorChanged="OnCustomColorPickerColorChanged" />
 
                                 <!-- Recent Colors Section -->
@@ -887,19 +888,19 @@
                 <Button.Flyout>
                     <MenuFlyout x:Name="MoreMenuFlyout" Placement="Top">
                         <MenuFlyoutItem
-                            x:Name="MoreResetMenuItem"
-                            Text="Reset Icon (Ctrl+Z)"
-                            Click="OnResetClicked">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE777;" />
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutItem
                             x:Name="MoreRemoveEmblemMenuItem"
                             Text="Remove Emblem"
                             Click="OnRemoveEmblemClicked">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE74D;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem
+                            x:Name="MoreResetMenuItem"
+                            Text="Reset Folder Customization (Ctrl+Z)"
+                            Click="OnResetClicked">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE777;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
@@ -908,7 +909,23 @@
                             Text="Open Manager (Ctrl+M)"
                             Click="OnOpenManagerClicked">
                             <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8B7;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem
+                            x:Name="MoreSettingsMenuItem"
+                            Text="Settings"
+                            Click="OnSettingsClicked">
+                            <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE713;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem
+                            x:Name="MoreAboutMenuItem"
+                            Text="About / Open-source acknowledgements"
+                            Click="OnAboutClicked">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE946;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                     </MenuFlyout>

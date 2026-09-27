@@ -693,4 +693,16 @@
   <data name="StagedFolders_Count" xml:space="preserve">
     <value>Carpetas preparadas ({0})</value>
   </data>
+  <data name="More_ResetFolder" xml:space="preserve">
+    <value>Restablecer personalización de carpeta</value>
+  </data>
+  <data name="More_OpenManager" xml:space="preserve">
+    <value>Abrir Administrador</value>
+  </data>
+  <data name="More_Settings" xml:space="preserve">
+    <value>Configuración</value>
+  </data>
+  <data name="More_About" xml:space="preserve">
+    <value>Acerca de / Agradecimientos de código abierto</value>
+  </data>
 </root>
