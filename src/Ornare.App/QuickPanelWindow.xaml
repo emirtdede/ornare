@@ -495,10 +495,135 @@
                 ToolTipService.ToolTip="Vector Icon (Alt+2)">
                 <FontIcon Glyph="&#xE74C;" FontSize="16" Foreground="{ThemeResource TextFillColorPrimaryBrush}" IsHitTestVisible="False" />
                 <Button.Flyout>
-                    <Flyout x:Name="IconFlyout" Placement="Top">
-                        <StackPanel Width="260" Spacing="8" Padding="4">
-                            <TextBlock Text="Vector Icon" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Text="Curated icons will be loaded here." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <Flyout x:Name="IconFlyout" Placement="Top" Opening="OnIconFlyoutOpening">
+                        <StackPanel Width="290" Spacing="8" Padding="4">
+                            <!-- Header row with title and Remove Emblem button -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    x:Name="IconFlyoutTitleText"
+                                    Text="Vector Icon"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <Button
+                                    x:Name="RemoveEmblemButton"
+                                    Grid.Column="1"
+                                    Content="Remove Emblem"
+                                    FontSize="11"
+                                    Padding="8,2"
+                                    Height="26"
+                                    CornerRadius="4"
+                                    Background="Transparent"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    AutomationProperties.Name="Remove Emblem"
+                                    ToolTipService.ToolTip="Remove Center Emblem"
+                                    Click="OnRemoveEmblemClicked"
+                                    Visibility="Collapsed" />
+                            </Grid>
+
+                            <!-- Search box -->
+                            <TextBox
+                                x:Name="IconSearchTextBox"
+                                Height="30"
+                                FontSize="11"
+                                PlaceholderText="Search icons..."
+                                AutomationProperties.Name="Search vector icons"
+                                TextChanged="OnIconSearchTextChanged" />
+
+                            <!-- Category filter and Color options -->
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    x:Name="IconCategoryComboBox"
+                                    Height="28"
+                                    FontSize="11"
+                                    HorizontalAlignment="Stretch"
+                                    AutomationProperties.Name="Filter by category"
+                                    SelectionChanged="OnIconCategorySelectionChanged" />
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <Button
+                                        x:Name="EmblemColorAutoButton"
+                                        Content="Auto"
+                                        FontSize="10"
+                                        Padding="6,2"
+                                        Height="26"
+                                        CornerRadius="4"
+                                        AutomationProperties.Name="Auto contrast emblem color"
+                                        ToolTipService.ToolTip="Auto contrast (adaptive)"
+                                        Click="OnEmblemColorAutoClicked" />
+                                    <Button
+                                        x:Name="EmblemColorWhiteButton"
+                                        Width="22"
+                                        Height="22"
+                                        Padding="0"
+                                        CornerRadius="11"
+                                        Background="#FFFFFF"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        AutomationProperties.Name="White emblem color"
+                                        ToolTipService.ToolTip="White"
+                                        Click="OnEmblemColorWhiteClicked" />
+                                    <Button
+                                        x:Name="EmblemColorBlackButton"
+                                        Width="22"
+                                        Height="22"
+                                        Padding="0"
+                                        CornerRadius="11"
+                                        Background="#000000"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        AutomationProperties.Name="Black emblem color"
+                                        ToolTipService.ToolTip="Black"
+                                        Click="OnEmblemColorBlackClicked" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Virtualized Icon Grid -->
+                            <GridView
+                                x:Name="IconGridView"
+                                Height="160"
+                                SelectionMode="None"
+                                IsItemClickEnabled="True"
+                                ItemClick="OnIconGridItemClick"
+                                ItemsSource="{x:Bind VectorEmblemCards, Mode=OneWay}"
+                                AutomationProperties.Name="Curated vector icons grid">
+                                <GridView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" />
+                                    </ItemsPanelTemplate>
+                                </GridView.ItemsPanel>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:VectorEmblemItemViewModel">
+                                        <Border
+                                            Width="34"
+                                            Height="34"
+                                            CornerRadius="6"
+                                            Background="{x:Bind Background, Mode=OneWay}"
+                                            BorderBrush="{x:Bind BorderBrush, Mode=OneWay}"
+                                            BorderThickness="1"
+                                            ToolTipService.ToolTip="{x:Bind DisplayName}"
+                                            AutomationProperties.Name="{x:Bind DisplayName}"
+                                            UseSystemFocusVisuals="True">
+                                            <Viewbox Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Path
+                                                    Data="{x:Bind GeometryData}"
+                                                    Fill="{ThemeResource TextFillColorPrimaryBrush}"
+                                                    Stretch="Uniform" />
+                                            </Viewbox>
+                                        </Border>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
                         </StackPanel>
                     </Flyout>
                 </Button.Flyout>

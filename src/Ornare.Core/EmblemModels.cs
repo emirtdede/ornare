@@ -87,3 +87,73 @@ public sealed record FolderEmblemRecipe
         };
     }
 }
+
+/// <summary>
+/// Individual vector emblem entry from the curated local catalog (Section 18).
+/// </summary>
+public sealed record VectorEmblemEntry
+{
+    [System.Text.Json.Serialization.JsonPropertyName("id")]
+    public string Id { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("shortId")]
+    public string ShortId { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("displayName")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("category")]
+    public string Category { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("tags")]
+    public string[] Tags { get; init; } = [];
+
+    [System.Text.Json.Serialization.JsonPropertyName("svgAssetPath")]
+    public string SvgAssetPath { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("sourceProject")]
+    public string SourceProject { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("releaseTag")]
+    public string ReleaseTag { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("license")]
+    public string License { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("sha256")]
+    public string Sha256 { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("viewBox")]
+    public string ViewBox { get; init; } = "0 0 24 24";
+
+    [System.Text.Json.Serialization.JsonPropertyName("pathData")]
+    public string PathData { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Root manifest for the curated vector emblem catalog (Section 18 &amp; 19).
+/// </summary>
+public sealed record VectorEmblemManifest
+{
+    [System.Text.Json.Serialization.JsonPropertyName("version")]
+    public int Version { get; init; } = 1;
+
+    [System.Text.Json.Serialization.JsonPropertyName("totalCount")]
+    public int TotalCount { get; init; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("family")]
+    public string Family { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("license")]
+    public string License { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("upstreamVersion")]
+    public string UpstreamVersion { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("categories")]
+    public string[] Categories { get; init; } = [];
+
+    [System.Text.Json.Serialization.JsonPropertyName("emblems")]
+    public List<VectorEmblemEntry> Emblems { get; init; } = [];
+}
+

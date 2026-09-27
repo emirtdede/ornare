@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using ImageMagick;
 using Ornare.Core;
 using Ornare.Imaging.Badges;
+using Ornare.Imaging.Emblems;
+using Ornare.Imaging.Templates;
 
 namespace Ornare.Imaging;
 
@@ -336,6 +338,32 @@ public sealed class ImagePipeline : IImagePipeline
             }
         }
 
+        FolderEmblemRecipe? emblemRecipe = null;
+        NormalizedRect? emblemSafeZone = null;
+        if (recipe.EmblemKind != 0)
+        {
+            emblemRecipe = new FolderEmblemRecipe
+            {
+                Kind = (EmblemKind)recipe.EmblemKind,
+                ContentId = recipe.EmblemContentId,
+                GraphemeSequence = recipe.EmblemGraphemeSequence,
+                ForegroundColor = recipe.EmblemForegroundColor,
+                Scale = recipe.EmblemScale,
+                OffsetX = recipe.EmblemOffsetX,
+                OffsetY = recipe.EmblemOffsetY
+            };
+
+            if (!string.IsNullOrEmpty(recipe.TemplateId))
+            {
+                var desc = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
+                emblemSafeZone = desc.EmblemSafeZone;
+            }
+            else
+            {
+                emblemSafeZone = new NormalizedRect(0.26, 0.40, 0.30, 0.30);
+            }
+        }
+
         var renderResult = RenderImageBytesCore(
             bytesToRender,
             outputIcoPath,
@@ -346,7 +374,9 @@ public sealed class ImagePipeline : IImagePipeline
             recipe.Background,
             recipe.BackgroundColor,
             recipe.BadgeAssetId,
-            recipe.PaletteParameters);
+            recipe.PaletteParameters,
+            emblemRecipe,
+            emblemSafeZone);
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
             return renderResult;
@@ -450,7 +480,9 @@ public sealed class ImagePipeline : IImagePipeline
         BackgroundMode backgroundMode = BackgroundMode.Transparent,
         string? backgroundColorHex = null,
         string? badgeAssetId = null,
-        string? badgeFolderBaseHex = null)
+        string? badgeFolderBaseHex = null,
+        FolderEmblemRecipe? emblem = null,
+        NormalizedRect? emblemSafeZone = null)
     {
         bool isIco = imageBytes.Length >= 4 && imageBytes[0] == 0 && imageBytes[1] == 0 && imageBytes[2] == 1 && imageBytes[3] == 0;
         bool isSvg = IsPotentialSvg(imageBytes);
@@ -543,6 +575,10 @@ public sealed class ImagePipeline : IImagePipeline
                 frame.Format = MagickFormat.Png;
                 frame.ColorSpace = ColorSpace.sRGB;
                 frame.Composite(subImage, geom.DestX, geom.DestY, CompositeOperator.Over);
+                if (emblem != null && emblem.HasEmblem && emblemSafeZone != null)
+                {
+                    FolderEmblemCompositor.CompositeEmblem(frame, emblem, badgeFolderBaseHex ?? string.Empty, emblemSafeZone);
+                }
                 if (!string.IsNullOrEmpty(badgeAssetId))
                 {
                     StatusBadgeCompositor.CompositeBadge(frame, badgeAssetId, badgeFolderBaseHex ?? string.Empty);

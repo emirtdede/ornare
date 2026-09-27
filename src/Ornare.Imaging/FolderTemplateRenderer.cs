@@ -4,13 +4,14 @@ using ImageMagick;
 using Ornare.Core;
 using Ornare.Core.Presets;
 using Ornare.Imaging.Badges;
+using Ornare.Imaging.Emblems;
 using Ornare.Imaging.Templates;
 
 namespace Ornare.Imaging;
 
 /// <summary>
 /// Authoritative renderer for folder style templates and color variants (F01).
-/// Binds OrnareClassicTemplate + FolderPaletteGenerator (F10) + SvgRecolorService (F09) + ImagePipeline (F18).
+/// Binds OrnareClassicTemplate + FolderPaletteGenerator (F10) + SvgRecolorService (F09) + ImagePipeline (F18) + FolderEmblemCompositor.
 /// </summary>
 public static class FolderTemplateRenderer
 {
@@ -19,12 +20,13 @@ public static class FolderTemplateRenderer
         ImageSecurityPolicy.Initialize();
     }
     /// <summary>
-    /// Builds the deterministic RenderRecipe for a colored template icon.
+    /// Builds the deterministic RenderRecipe for a colored template icon with optional center emblem.
     /// </summary>
     public static RenderRecipe CreateRecipe(
         string baseHex,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
-        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+        FolderEmblemRecipe? emblem = null)
     {
         if (!ColorConversion.TryParseHex(baseHex, out byte r, out byte g, out byte b))
         {
@@ -47,7 +49,14 @@ public static class FolderTemplateRenderer
             SvgRecolorValue = normalizedHex,
             SvgRecolorVersion = 1,
             TargetFormat = "ico",
-            TargetFrameSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+            TargetFrameSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256],
+            EmblemKind = emblem != null && emblem.HasEmblem ? (int)emblem.Kind : 0,
+            EmblemContentId = emblem?.ContentId ?? string.Empty,
+            EmblemGraphemeSequence = emblem?.GraphemeSequence ?? string.Empty,
+            EmblemForegroundColor = emblem?.ForegroundColor ?? "Auto",
+            EmblemScale = emblem?.Scale ?? 1.0,
+            EmblemOffsetX = emblem?.OffsetX ?? 0.0,
+            EmblemOffsetY = emblem?.OffsetY ?? 0.0
         };
     }
 
@@ -60,6 +69,7 @@ public static class FolderTemplateRenderer
         string outputIcoPath,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
         int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+        FolderEmblemRecipe? emblem = null,
         string? cacheDirectory = null,
         Func<string, RenderCacheEntry?>? cacheLookup = null,
         Action<RenderCacheEntry>? cacheStore = null,
@@ -71,7 +81,7 @@ public static class FolderTemplateRenderer
         RenderRecipe recipe;
         try
         {
-            recipe = CreateRecipe(baseHex, templateId, templateVersion);
+            recipe = CreateRecipe(baseHex, templateId, templateVersion, emblem);
         }
         catch (Exception ex)
         {
@@ -96,9 +106,10 @@ public static class FolderTemplateRenderer
     public static OperationResult<byte[]> RenderPreviewPng(
         string baseHex,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
-        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+        FolderEmblemRecipe? emblem = null)
     {
-        return RenderTemplatePng(baseHex, 256, templateId, templateVersion);
+        return RenderTemplatePng(baseHex, 256, templateId, templateVersion, emblem);
     }
 
     /// <summary>
@@ -108,7 +119,8 @@ public static class FolderTemplateRenderer
         string baseHex,
         int targetSize = ExportPngConstants.DefaultSize,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
-        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion)
+        int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+        FolderEmblemRecipe? emblem = null)
     {
         if (!ExportPngConstants.IsAllowedSize(targetSize))
         {
@@ -153,6 +165,12 @@ public static class FolderTemplateRenderer
                     image.FilterType = FilterType.Lanczos;
                     image.Resize((uint)targetSize, (uint)targetSize);
                 }
+
+                if (emblem != null && emblem.HasEmblem)
+                {
+                    FolderEmblemCompositor.CompositeEmblem(image, emblem, normalizedHex, descriptor.EmblemSafeZone);
+                }
+
                 image.Format = MagickFormat.Png;
                 image.ColorSpace = ColorSpace.sRGB;
                 pngBytes = image.ToByteArray();

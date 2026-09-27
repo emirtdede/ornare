@@ -33,6 +33,9 @@ namespace Ornare.Core;
 [JsonSerializable(typeof(PersonalizationMode))]
 [JsonSerializable(typeof(CustomImageStagingState))]
 [JsonSerializable(typeof(FolderTemplateStagingState))]
+[JsonSerializable(typeof(VectorEmblemEntry))]
+[JsonSerializable(typeof(VectorEmblemManifest))]
+[JsonSerializable(typeof(List<VectorEmblemEntry>))]
 public sealed partial class FolderJsonContext : JsonSerializerContext
 {
 }

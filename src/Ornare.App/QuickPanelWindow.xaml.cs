@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Automation;
 using Ornare.Core;
 using Ornare.Imaging;
+using Ornare.Imaging.Emblems;
 using Ornare.Imaging.Templates;
 using Ornare.Storage;
 using Ornare.Windows;
@@ -48,6 +49,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private readonly PersonalizationStagingModel _stagingModel = new();
 
     public ObservableCollection<FolderTemplateCardViewModel> FolderTemplateCards { get; } = new();
+    public ObservableCollection<VectorEmblemItemViewModel> VectorEmblemCards { get; } = new();
+
+    private List<VectorEmblemItemViewModel>? _allEmblemCards;
+    private string _selectedEmblemColorHex = "Auto";
+    private bool _emblemCatalogInitialized;
 
     private string _currentFolderPath = string.Empty;
     private FolderBaseline? _currentBaseline;
@@ -789,6 +795,18 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             MoreResetMenuItem.Text = $"{AppResources.GetString("Reset", _currentLanguage)} (Ctrl+Z)";
         }
+        if (MoreRemoveEmblemMenuItem != null)
+        {
+            MoreRemoveEmblemMenuItem.Text = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
+        }
+        if (RemoveEmblemButton != null)
+        {
+            RemoveEmblemButton.Content = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
+        }
+        if (IconSearchTextBox != null)
+        {
+            IconSearchTextBox.PlaceholderText = AppResources.GetString("Placeholder_SearchIcons", _currentLanguage);
+        }
         if (MoreOpenManagerMenuItem != null)
         {
             MoreOpenManagerMenuItem.Text = $"{AppResources.GetString("Settings", _currentLanguage)} (Ctrl+M)";
@@ -876,8 +894,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 string templateId = overrideTemplateId ?? _stagingModel.StagedTemplateState.TemplateId;
                 int templateVersion = overrideTemplateVersion ?? _stagingModel.StagedTemplateState.TemplateVersion;
                 string colorHex = overrideColorHex ?? _stagingModel.StagedTemplateState.FolderColorHex;
-
-                var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(colorHex, templateId, templateVersion));
+                var emblem = _stagingModel.StagedTemplateState.Emblem;
+                var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(colorHex, templateId, templateVersion, emblem: emblem));
                 if (result.IsSuccess && result.Value != null)
                 {
                     PreviewIconImage.Source = LoadPreviewBitmapFromBytes(result.Value);
@@ -955,10 +973,179 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ = OpenFilePickerAsync();
     }
 
+    private void OnIconFlyoutOpening(object? sender, object? e)
+    {
+        EnsureEmblemCatalogInitialized();
+        SyncEmblemSelectionState();
+    }
+
+    private void EnsureEmblemCatalogInitialized()
+    {
+        if (_emblemCatalogInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            var allEntries = VectorEmblemCatalog.All;
+            _allEmblemCards = new List<VectorEmblemItemViewModel>(allEntries.Count);
+            foreach (var entry in allEntries)
+            {
+                _allEmblemCards.Add(new VectorEmblemItemViewModel(
+                    entry.Id,
+                    entry.ShortId,
+                    entry.DisplayName,
+                    entry.Category,
+                    entry.PathData));
+            }
+
+            if (IconCategoryComboBox != null)
+            {
+                IconCategoryComboBox.Items.Clear();
+                IconCategoryComboBox.Items.Add(AppResources.GetString("Category_All", _currentLanguage));
+                foreach (var cat in VectorEmblemCatalog.Categories)
+                {
+                    IconCategoryComboBox.Items.Add(cat);
+                }
+                IconCategoryComboBox.SelectedIndex = 0;
+            }
+
+            VectorEmblemCards.Clear();
+            foreach (var card in _allEmblemCards)
+            {
+                UpdateEmblemCardVisualState(card);
+                VectorEmblemCards.Add(card);
+            }
+
+            _emblemCatalogInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Failed to initialize vector emblem catalog: {ex.Message}");
+        }
+    }
+
+    private void SyncEmblemSelectionState()
+    {
+        var currentEmblem = _stagingModel.StagedTemplateState.Emblem;
+        bool hasVectorEmblem = currentEmblem.Kind == EmblemKind.VectorIcon && !string.IsNullOrWhiteSpace(currentEmblem.ContentId);
+
+        if (RemoveEmblemButton != null)
+        {
+            RemoveEmblemButton.Visibility = hasVectorEmblem ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (_allEmblemCards != null)
+        {
+            foreach (var card in _allEmblemCards)
+            {
+                card.IsSelected = hasVectorEmblem && (
+                    string.Equals(card.Id, currentEmblem.ContentId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(card.ShortId, currentEmblem.ContentId, StringComparison.OrdinalIgnoreCase));
+                UpdateEmblemCardVisualState(card);
+            }
+        }
+    }
+
+    private static void UpdateEmblemCardVisualState(VectorEmblemItemViewModel card)
+    {
+        if (card.IsSelected)
+        {
+            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+        }
+        else
+        {
+            card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        }
+    }
+
+    private void OnIconSearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        FilterEmblemCards();
+    }
+
+    private void OnIconCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        FilterEmblemCards();
+    }
+
+    private void FilterEmblemCards()
+    {
+        if (_allEmblemCards == null)
+        {
+            return;
+        }
+
+        string query = IconSearchTextBox?.Text?.Trim() ?? string.Empty;
+        string? selectedCat = IconCategoryComboBox?.SelectedItem as string;
+        string allLabel = AppResources.GetString("Category_All", _currentLanguage);
+        if (string.Equals(selectedCat, allLabel, StringComparison.OrdinalIgnoreCase) || string.Equals(selectedCat, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedCat = null;
+        }
+
+        var filtered = VectorEmblemCatalog.Search(query, selectedCat);
+        var filteredIds = new HashSet<string>(filtered.Select(f => f.Id), StringComparer.OrdinalIgnoreCase);
+
+        VectorEmblemCards.Clear();
+        foreach (var card in _allEmblemCards)
+        {
+            if (filteredIds.Contains(card.Id))
+            {
+                UpdateEmblemCardVisualState(card);
+                VectorEmblemCards.Add(card);
+            }
+        }
+    }
+
+    private async void OnIconGridItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is VectorEmblemItemViewModel card)
+        {
+            _stagingModel.StageVectorEmblem(card.Id, _selectedEmblemColorHex);
+            SyncEmblemSelectionState();
+            await RefreshLivePreviewAsync();
+        }
+    }
+
     private async void OnRemoveEmblemClicked(object sender, RoutedEventArgs e)
     {
         _stagingModel.RemoveEmblem();
+        SyncEmblemSelectionState();
         await RefreshLivePreviewAsync();
+    }
+
+    private async void OnEmblemColorAutoClicked(object sender, RoutedEventArgs e)
+    {
+        _selectedEmblemColorHex = "Auto";
+        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        {
+            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+            await RefreshLivePreviewAsync();
+        }
+    }
+
+    private async void OnEmblemColorWhiteClicked(object sender, RoutedEventArgs e)
+    {
+        _selectedEmblemColorHex = "#FFFFFF";
+        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        {
+            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+            await RefreshLivePreviewAsync();
+        }
+    }
+
+    private async void OnEmblemColorBlackClicked(object sender, RoutedEventArgs e)
+    {
+        _selectedEmblemColorHex = "#000000";
+        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        {
+            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+            await RefreshLivePreviewAsync();
+        }
     }
 
     private void OnDropAreaDragOver(object sender, DragEventArgs e)
@@ -1768,10 +1955,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 var templateState = _stagingModel.StagedTemplateState;
 
                 await SetProcessingStageAsync(ProcessingStage.PreparingImage);
-                await Task.Delay(20);
-
                 await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
-                await Task.Delay(20);
 
                 var tempPath = _stagedTempIcoPath;
                 var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
@@ -1783,7 +1967,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                         templateState.FolderColorHex,
                         tempPath,
                         templateState.TemplateId,
-                        templateState.TemplateVersion);
+                        templateState.TemplateVersion,
+                        emblem: templateState.Emblem);
                 });
 
                 if (!renderResult.IsSuccess || renderResult.Value == null)

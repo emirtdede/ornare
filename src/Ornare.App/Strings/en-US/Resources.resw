@@ -411,6 +411,15 @@
   <data name="Action_Apply" xml:space="preserve">
     <value>Apply</value>
   </data>
+  <data name="Action_RemoveEmblem" xml:space="preserve">
+    <value>Remove Emblem</value>
+  </data>
+  <data name="Placeholder_SearchIcons" xml:space="preserve">
+    <value>Search icons...</value>
+  </data>
+  <data name="Category_All" xml:space="preserve">
+    <value>All</value>
+  </data>
   <data name="Status_ReadyToApply" xml:space="preserve">
     <value>Ready to apply</value>
   </data>
