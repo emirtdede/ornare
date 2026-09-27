@@ -31,6 +31,9 @@ public sealed record NormalizedRect
         Height = height;
     }
 
+    public double Right => X + Width;
+    public double Bottom => Y + Height;
+
     /// <summary>
     /// Checks if this normalized rectangle overlaps with another normalized rectangle.
     /// </summary>
@@ -42,6 +45,11 @@ public sealed record NormalizedRect
                  Y + Height <= other.Y ||
                  other.Y + other.Height <= Y);
     }
+
+    /// <summary>
+    /// Alias for Intersects.
+    /// </summary>
+    public bool IntersectsWith(NormalizedRect other) => Intersects(other);
 
     /// <summary>
     /// Checks if a normalized point (x, y) is inside this rectangle.

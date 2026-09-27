@@ -1,0 +1,34 @@
+using System;
+using System.Text;
+
+namespace Ornare.Imaging.Templates;
+
+/// <summary>
+/// The release-approved original Ornare folder template: "ornare-geo" Version 1 (Section 8).
+/// Features geometric clarity, architectural planes, low visual noise, and highly predictable recoloring.
+/// </summary>
+public static class OrnareGeoTemplate
+{
+    public const string TemplateId = "ornare-geo";
+    public const int TemplateVersion = 1;
+
+    public const string SvgContent =
+@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
+  <!-- Rear body & Chamfered geometric tab -->
+  <path data-role=""folder-tab"" data-ornare-role=""deep"" d=""M 24 68 L 24 36 C 24 32 28 28 32 28 L 90 28 L 112 54 C 116 58 122 62 128 62 L 224 62 C 228 62 232 66 232 70 L 232 90 Z"" fill=""#004578"" />
+  <rect data-role=""folder-back"" data-ornare-role=""deep"" x=""24"" y=""50"" width=""208"" height=""120"" rx=""12"" ry=""12"" fill=""#004578"" />
+
+  <!-- Front body with geometric facet clarity -->
+  <rect data-role=""folder-front"" data-ornare-role=""base"" x=""16"" y=""86"" width=""224"" height=""140"" rx=""12"" ry=""12"" fill=""#0078D4"" />
+
+  <!-- Geometric accent planes -->
+  <rect data-role=""edge"" data-ornare-role=""light"" x=""16"" y=""86"" width=""224"" height=""36"" rx=""12"" ry=""12"" fill=""#2B88D8"" />
+  <rect data-role=""highlight"" data-ornare-role=""highlight"" x=""20"" y=""88"" width=""216"" height=""3"" rx=""1.5"" ry=""1.5"" fill=""#50E6FF"" />
+  <rect data-role=""detail"" data-ornare-role=""detail"" x=""24"" y=""122"" width=""208"" height=""1"" fill=""#50E6FF"" />
+  <rect data-role=""shadow"" data-ornare-role=""shadow"" x=""18"" y=""216"" width=""220"" height=""10"" rx=""6"" ry=""6"" fill=""#005A9E"" />
+</svg>";
+
+    private static readonly Lazy<byte[]> LazyBytes = new(() => Encoding.UTF8.GetBytes(SvgContent));
+
+    public static byte[] GetTemplateBytes() => LazyBytes.Value;
+}

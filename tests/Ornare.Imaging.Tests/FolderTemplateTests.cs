@@ -43,26 +43,36 @@ public sealed class FolderTemplateTests : IDisposable
     }
 
     [Fact]
-    public void CatalogContainsExactThreeTemplatesWithVersionOne()
+    public void CatalogContainsExactNineProductionTemplates()
     {
         var all = FolderTemplateCatalog.All;
-        Assert.Equal(3, all.Count);
+        Assert.Equal(9, all.Count);
 
-        var classic = all.FirstOrDefault(t => t.Id == "ornare-classic");
-        var soft = all.FirstOrDefault(t => t.Id == "ornare-soft");
-        var flat = all.FirstOrDefault(t => t.Id == "ornare-flat");
+        string[] expectedIds =
+        [
+            "ornare-classic", "ornare-soft", "ornare-flat",
+            "ornare-glass", "ornare-aqua", "ornare-grove",
+            "ornare-air", "ornare-flow", "ornare-geo"
+        ];
 
-        Assert.NotNull(classic);
-        Assert.NotNull(soft);
-        Assert.NotNull(flat);
+        for (int i = 0; i < expectedIds.Length; i++)
+        {
+            Assert.Equal(expectedIds[i], all[i].Id);
+            Assert.Equal(i + 1, all[i].SortOrder);
+        }
 
-        Assert.Equal(1, classic.Version);
-        Assert.Equal(1, soft.Version);
-        Assert.Equal(1, flat.Version);
+        var classic = all.First(t => t.Id == "ornare-classic");
+        var soft = all.First(t => t.Id == "ornare-soft");
+        var flat = all.First(t => t.Id == "ornare-flat");
 
-        Assert.Equal("Template_Classic", classic.DisplayNameResourceKey);
-        Assert.Equal("Template_Soft", soft.DisplayNameResourceKey);
-        Assert.Equal("Template_Flat", flat.DisplayNameResourceKey);
+        Assert.Equal(2, classic.Version);
+        Assert.Equal(2, soft.Version);
+        Assert.Equal(2, flat.Version);
+
+        // Legacy V1 descriptors can still be resolved for backward compatibility
+        var classicV1 = FolderTemplateCatalog.GetTemplate("ornare-classic", 1);
+        Assert.NotNull(classicV1);
+        Assert.Equal(1, classicV1.Version);
     }
 
     [Fact]

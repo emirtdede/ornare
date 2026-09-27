@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Rear body & Technical diagonal tab -->
+  <path data-role="folder-tab" data-ornare-role="deep" d="M 22 70 L 22 36 C 22 32 26 28 30 28 L 94 28 C 100 28 106 32 110 38 L 124 58 C 127 62 132 64 138 64 L 224 64 C 228 64 232 68 232 72 L 232 90 Z" fill="#004578" />
+  <rect data-role="folder-back" data-ornare-role="deep" x="22" y="48" width="212" height="122" rx="10" ry="10" fill="#004578" />
+
+  <!-- Front body with crisp technical lines -->
+  <rect data-role="folder-front" data-ornare-role="base" x="16" y="84" width="224" height="142" rx="10" ry="10" fill="#0078D4" />
+
+  <!-- Technical accent planes -->
+  <rect data-role="edge" data-ornare-role="light" x="16" y="84" width="224" height="34" rx="10" ry="10" fill="#2B88D8" />
+  <rect data-role="highlight" data-ornare-role="highlight" x="18" y="85" width="220" height="2" rx="1" ry="1" fill="#50E6FF" />
+  <rect data-role="shadow" data-ornare-role="shadow" x="18" y="218" width="220" height="8" rx="4" ry="4" fill="#005A9E" />
+</svg>

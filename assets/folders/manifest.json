@@ -1,0 +1,239 @@
+{
+  "Version": 1,
+  "Templates": [
+    {
+      "Id": "ornare-classic",
+      "DisplayNameResourceKey": "Template_Classic",
+      "Version": 2,
+      "SvgAssetPath": "assets/folders/ornare-classic.svg",
+      "SortOrder": 1,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-soft",
+      "DisplayNameResourceKey": "Template_Soft",
+      "Version": 2,
+      "SvgAssetPath": "assets/folders/ornare-soft.svg",
+      "SortOrder": 2,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-flat",
+      "DisplayNameResourceKey": "Template_Flat",
+      "Version": 2,
+      "SvgAssetPath": "assets/folders/ornare-flat.svg",
+      "SortOrder": 3,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-glass",
+      "DisplayNameResourceKey": "Template_Glass",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-glass.svg",
+      "SortOrder": 4,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-aqua",
+      "DisplayNameResourceKey": "Template_Aqua",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-aqua.svg",
+      "SortOrder": 5,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-grove",
+      "DisplayNameResourceKey": "Template_Grove",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-grove.svg",
+      "SortOrder": 6,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-air",
+      "DisplayNameResourceKey": "Template_Air",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-air.svg",
+      "SortOrder": 7,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-flow",
+      "DisplayNameResourceKey": "Template_Flow",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-flow.svg",
+      "SortOrder": 8,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    },
+    {
+      "Id": "ornare-geo",
+      "DisplayNameResourceKey": "Template_Geo",
+      "Version": 1,
+      "SvgAssetPath": "assets/folders/ornare-geo.svg",
+      "SortOrder": 9,
+      "SupportsColor": true,
+      "SupportsEmblem": true,
+      "ViewBox": "0 0 256 256",
+      "EmblemSafeZone": {
+        "X": 0.26,
+        "Y": 0.40,
+        "Width": 0.30,
+        "Height": 0.30
+      },
+      "ReservedBadgeZones": [
+        {
+          "X": 0.58,
+          "Y": 0.58,
+          "Width": 0.40,
+          "Height": 0.40
+        }
+      ],
+      "DefaultPalettePolicy": "Oklab5Tone",
+      "RenderPolicyVersion": 1
+    }
+  ]
+}

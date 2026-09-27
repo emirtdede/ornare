@@ -4,83 +4,43 @@ using System.Text;
 namespace Ornare.Imaging.Templates;
 
 /// <summary>
-/// The Windows 11 folder icon template: "ornare-classic" Version 1.
-/// Based directly on the canonical Windows 11 Fluent folder SVG (assets/Windows_11_FOLDER.svg),
-/// mapped to a 256x256 canvas with semantic recolor role annotations (deep, light, highlight, shadow, base).
+/// The release-approved original Ornare folder template: "ornare-classic" (F03/Section 8).
+/// Version 2 is an original blank-canvas artwork with balanced silhouette and neutral geometry.
+/// Version 1 legacy geometry is preserved for backward compatibility with existing assignments.
 /// </summary>
 public static class OrnareClassicTemplate
 {
     public const string TemplateId = "ornare-classic";
-    public const int TemplateVersion = 1;
+    public const int TemplateVersion = 2;
 
     public const string SvgContent =
-@"<svg id=""Ebene_2"" data-name=""Ebene 2"" xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: url(#Unbenannter_Verlauf_130);
-      }
+@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
+  <!-- Rear body & Folder tab -->
+  <rect data-role=""folder-tab"" data-ornare-role=""deep"" x=""20"" y=""34"" width=""92"" height=""42"" rx=""12"" ry=""12"" fill=""#004578"" />
+  <rect data-role=""folder-back"" data-ornare-role=""deep"" x=""20"" y=""48"" width=""216"" height=""124"" rx=""16"" ry=""16"" fill=""#004578"" />
 
-      .cls-2 {
-        fill: url(#Unbenannter_Verlauf_97-2);
-      }
+  <!-- Front body -->
+  <rect data-role=""folder-front"" data-ornare-role=""base"" x=""16"" y=""82"" width=""224"" height=""142"" rx=""16"" ry=""16"" fill=""#0078D4"" />
 
-      .cls-3 {
-        fill: url(#Unbenannter_Verlauf_97);
-        filter: url(#drop-shadow-1);
-      }
+  <!-- Semantic accent planes -->
+  <rect data-role=""edge"" data-ornare-role=""light"" x=""16"" y=""82"" width=""224"" height=""38"" rx=""16"" ry=""16"" fill=""#2B88D8"" />
+  <rect data-role=""highlight"" data-ornare-role=""highlight"" x=""20"" y=""84"" width=""216"" height=""4"" rx=""2"" ry=""2"" fill=""#50E6FF"" />
+  <rect data-role=""shadow"" data-ornare-role=""shadow"" x=""16"" y=""210"" width=""224"" height=""14"" rx=""12"" ry=""12"" fill=""#005A9E"" />
+</svg>";
 
-      .cls-4 {
-        fill: url(#Unbenannter_Verlauf_84);
-      }
-
-      .cls-5 {
-        fill: url(#Unbenannter_Verlauf_148);
-      }
-    </style>
-    <linearGradient id=""Unbenannter_Verlauf_148"" data-name=""Unbenannter Verlauf 148"" x1=""9.09"" y1=""21.25"" x2=""186.91"" y2=""21.25"" gradientUnits=""userSpaceOnUse"">
-      <stop data-ornare-role=""deep"" offset=""0"" stop-color=""#febe18""/>
-      <stop data-ornare-role=""deep"" offset=""1"" stop-color=""#efb122""/>
-    </linearGradient>
-    <linearGradient id=""Unbenannter_Verlauf_97"" data-name=""Unbenannter Verlauf 97"" x1=""15.89"" y1=""78.05"" x2=""165.28"" y2=""78.05"" gradientUnits=""userSpaceOnUse"">
-      <stop data-ornare-role=""light"" offset=""0"" stop-color=""#ffedb9""/>
-      <stop data-ornare-role=""light"" offset="".31"" stop-color=""#ffe8a8""/>
-      <stop data-ornare-role=""light"" offset="".92"" stop-color=""#ffdd7e""/>
-      <stop data-ornare-role=""light"" offset=""1"" stop-color=""#ffdc79""/>
-    </linearGradient>
-    <filter id=""drop-shadow-1"" x=""0"" y=""18.4"" width=""181"" height=""117"" filterUnits=""userSpaceOnUse"">
-      <feOffset dx=""0"" dy=""-1""/>
-      <feGaussianBlur result=""blur"" stdDeviation=""5""/>
-      <feFlood flood-color=""#000"" flood-opacity="".5""/>
-      <feComposite in2=""blur"" operator=""in""/>
-      <feComposite in=""SourceGraphic""/>
-    </filter>
-    <linearGradient id=""Unbenannter_Verlauf_97-2"" data-name=""Unbenannter Verlauf 97"" x1=""9.09"" y1=""78.54"" x2=""186.91"" y2=""78.54"" xlink:href=""#Unbenannter_Verlauf_97""/>
-    <linearGradient id=""Unbenannter_Verlauf_84"" data-name=""Unbenannter Verlauf 84"" x1=""9.09"" y1=""84.31"" x2=""186.91"" y2=""84.31"" gradientUnits=""userSpaceOnUse"">
-      <stop data-ornare-role=""shadow"" offset=""0"" stop-color=""#edb024""/>
-      <stop data-ornare-role=""shadow"" offset="".55"" stop-color=""#e9ad25""/>
-      <stop data-ornare-role=""shadow"" offset="".96"" stop-color=""#e0a42b""/>
-      <stop data-ornare-role=""shadow"" offset=""1"" stop-color=""#dfa32c""/>
-    </linearGradient>
-    <linearGradient id=""Unbenannter_Verlauf_130"" data-name=""Unbenannter Verlauf 130"" x1=""57.47"" y1=""9.72"" x2=""143.3"" y2=""158.38"" gradientUnits=""userSpaceOnUse"">
-      <stop data-ornare-role=""highlight"" offset=""0"" stop-color=""#ffe69c""/>
-      <stop data-ornare-role=""highlight"" offset="".15"" stop-color=""#ffe495""/>
-      <stop data-ornare-role=""light"" offset="".35"" stop-color=""#ffde82""/>
-      <stop data-ornare-role=""base"" offset="".6"" stop-color=""#ffd663""/>
-      <stop data-ornare-role=""base"" offset="".87"" stop-color=""#ffca39""/>
-      <stop data-ornare-role=""base"" offset="".88"" stop-color=""#ffca38""/>
-    </linearGradient>
-  </defs>
-  <g id=""Ebene_1-2"" data-name=""Ebene 1"" transform=""translate(4.55, 40) scale(1.2597)"">
-    <path class=""cls-5"" d=""M9.09,42.5l.17-35.52C9.25,3.12,12.69,0,16.94,0h49.45c1.1,0,2.2.18,3.23.57,8.1,3.04,11.12,9.69,17.08,17.17.67.84,1.69,1.35,2.77,1.35h88.58c4.9,0,8.87,2.77,8.87,7.21v12.69c0,1.94-1.57,3.51-3.51,3.51H9.09Z""/>
-    <path class=""cls-3"" d=""M15.89,45.02c0-3.31,3.11-6.8,6.94-6.8h42.89c2.07,0,4.73-.31,6.57-1.23l6.76.89c.1-.06.2-1.1.3-1.16,1.91-1.14,3.4-1.21,5.65-1.21,12.67-.03,56.71,0,73.88.02,3.54,0,6.4-.91,6.4,2.15v77.27c0,3.18-2.98,5.76-6.66,5.76H22.68c-3.75,0-6.79-2.63-6.79-5.87V45.02Z""/>
-    <path class=""cls-2"" d=""M9.09,40.35c0-4.14,3.7-8.49,8.26-8.49h51.05c2.47,0,5.63-.39,7.82-1.53l8.05-5.13c.12-.07.24-.13.36-.2,2.28-1.43,4.05-2.76,6.73-2.76,15.08-.04,67.5,0,87.95.02,4.21,0,7.62,5.1,7.62,8.93v96.51c0,3.97-3.55,7.19-7.93,7.19H17.17c-4.46,0-8.08-3.28-8.08-7.33V40.35Z""/>
-    <path class=""cls-4"" d=""M9.09,46.09c0-4.45,3.98-8.06,8.89-8.06h54.86c1.52,0,3.01-.4,4.33-1.15,3.1-1.78,9-5.17,12.01-6.95,1.28-.76,2.74-1.16,4.23-1.16,11.8,0,64.48-.03,85.89,0,4.21,0,7.62,3.1,7.62,6.93v97c0,3.97-3.55,7.19-7.93,7.19H17.17c-4.46,0-8.08-3.28-8.08-7.33V46.09Z""/>
-    <path class=""cls-1"" d=""M9.09,42.09c0-4.45,3.98-8.06,8.89-8.06h54.86c1.52,0,3.01-.4,4.33-1.15,3.1-1.78,9-5.17,12.01-6.95,1.28-.76,2.74-1.16,4.23-1.16,11.8,0,64.48-.03,85.89,0,4.21,0,7.62,3.1,7.62,6.93v96c0,3.97-3.55,9.19-7.93,9.19H17.17c-4.46,0-8.08-5.28-8.08-9.33V42.09Z""/>
-  </g>
+    public const string LegacyV1SvgContent =
+@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
+  <rect data-role=""folder-tab"" data-ornare-role=""deep"" x=""20"" y=""34"" width=""92"" height=""42"" rx=""12"" ry=""12"" fill=""#004578"" />
+  <rect data-role=""folder-back"" data-ornare-role=""deep"" x=""20"" y=""48"" width=""216"" height=""124"" rx=""16"" ry=""16"" fill=""#004578"" />
+  <rect data-role=""folder-front"" data-ornare-role=""base"" x=""16"" y=""82"" width=""224"" height=""142"" rx=""16"" ry=""16"" fill=""#0078D4"" />
+  <rect data-role=""edge"" data-ornare-role=""light"" x=""16"" y=""82"" width=""224"" height=""38"" rx=""16"" ry=""16"" fill=""#2B88D8"" />
+  <rect data-role=""highlight"" data-ornare-role=""highlight"" x=""20"" y=""84"" width=""216"" height=""4"" rx=""2"" ry=""2"" fill=""#50E6FF"" />
+  <rect data-role=""shadow"" data-ornare-role=""shadow"" x=""16"" y=""210"" width=""224"" height=""14"" rx=""12"" ry=""12"" fill=""#005A9E"" />
 </svg>";
 
     private static readonly Lazy<byte[]> LazyBytes = new(() => Encoding.UTF8.GetBytes(SvgContent));
+    private static readonly Lazy<byte[]> LazyV1Bytes = new(() => Encoding.UTF8.GetBytes(LegacyV1SvgContent));
 
     public static byte[] GetTemplateBytes() => LazyBytes.Value;
+    public static byte[] GetLegacyV1TemplateBytes() => LazyV1Bytes.Value;
 }

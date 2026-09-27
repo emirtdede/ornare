@@ -1,0 +1,33 @@
+using System;
+using System.Text;
+
+namespace Ornare.Imaging.Templates;
+
+/// <summary>
+/// The release-approved original Ornare folder template: "ornare-aqua" Version 1 (Section 8).
+/// Features modern premium desktop design with organic softness, rounded contours, and balanced proportions.
+/// </summary>
+public static class OrnareAquaTemplate
+{
+    public const string TemplateId = "ornare-aqua";
+    public const int TemplateVersion = 1;
+
+    public const string SvgContent =
+@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
+  <!-- Rear body & Fluid curved tab -->
+  <path data-role=""folder-tab"" data-ornare-role=""deep"" d=""M 22 72 L 22 42 C 22 34 28 28 36 28 L 94 28 C 104 28 112 34 118 44 L 126 58 C 130 64 136 68 144 68 L 220 68 C 228 68 234 74 234 82 L 234 100 Z"" fill=""#004578"" />
+  <rect data-role=""folder-back"" data-ornare-role=""deep"" x=""20"" y=""44"" width=""216"" height=""128"" rx=""22"" ry=""22"" fill=""#004578"" />
+
+  <!-- Front body with sweeping curved profile -->
+  <rect data-role=""folder-front"" data-ornare-role=""base"" x=""16"" y=""80"" width=""224"" height=""146"" rx=""22"" ry=""22"" fill=""#0078D4"" />
+
+  <!-- Semantic fluid lighting accents -->
+  <rect data-role=""edge"" data-ornare-role=""light"" x=""16"" y=""80"" width=""224"" height=""52"" rx=""22"" ry=""22"" fill=""#2B88D8"" />
+  <rect data-role=""highlight"" data-ornare-role=""highlight"" x=""22"" y=""82"" width=""212"" height=""4"" rx=""2"" ry=""2"" fill=""#50E6FF"" />
+  <rect data-role=""shadow"" data-ornare-role=""shadow"" x=""18"" y=""214"" width=""220"" height=""12"" rx=""10"" ry=""10"" fill=""#005A9E"" />
+</svg>";
+
+    private static readonly Lazy<byte[]> LazyBytes = new(() => Encoding.UTF8.GetBytes(SvgContent));
+
+    public static byte[] GetTemplateBytes() => LazyBytes.Value;
+}

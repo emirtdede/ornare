@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Rear body & Crisp angular tab -->
+  <rect data-role="folder-tab" data-ornare-role="deep" x="24" y="38" width="84" height="38" rx="6" ry="6" fill="#004578" />
+  <rect data-role="folder-back" data-ornare-role="deep" x="24" y="52" width="208" height="120" rx="8" ry="8" fill="#004578" />
+
+  <!-- Front body -->
+  <rect data-role="folder-front" data-ornare-role="base" x="16" y="86" width="224" height="138" rx="8" ry="8" fill="#0078D4" />
+
+  <!-- Semantic accent planes -->
+  <rect data-role="edge" data-ornare-role="light" x="16" y="86" width="224" height="28" rx="8" ry="8" fill="#2B88D8" />
+  <rect data-role="highlight" data-ornare-role="highlight" x="18" y="87" width="220" height="2" fill="#50E6FF" />
+  <rect data-role="shadow" data-ornare-role="shadow" x="16" y="218" width="224" height="6" rx="4" ry="4" fill="#005A9E" />
+</svg>

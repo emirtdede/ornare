@@ -372,6 +372,24 @@
   <data name="Template_Flat" xml:space="preserve">
     <value>Plano</value>
   </data>
+  <data name="Template_Glass" xml:space="preserve">
+    <value>Vidro</value>
+  </data>
+  <data name="Template_Aqua" xml:space="preserve">
+    <value>Aqua</value>
+  </data>
+  <data name="Template_Grove" xml:space="preserve">
+    <value>Grove</value>
+  </data>
+  <data name="Template_Air" xml:space="preserve">
+    <value>Air</value>
+  </data>
+  <data name="Template_Flow" xml:space="preserve">
+    <value>Flow</value>
+  </data>
+  <data name="Template_Geo" xml:space="preserve">
+    <value>Geo</value>
+  </data>
   <data name="Nav_Presets" xml:space="preserve">
     <value>Predefinições de status</value>
   </data>

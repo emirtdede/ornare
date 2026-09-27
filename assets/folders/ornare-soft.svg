@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Rear body & Soft pill tab -->
+  <rect data-role="folder-tab" data-ornare-role="deep" x="22" y="32" width="86" height="44" rx="20" ry="20" fill="#004578" />
+  <rect data-role="folder-back" data-ornare-role="deep" x="22" y="46" width="212" height="126" rx="26" ry="26" fill="#004578" />
+
+  <!-- Front body -->
+  <rect data-role="folder-front" data-ornare-role="base" x="16" y="82" width="224" height="144" rx="26" ry="26" fill="#0078D4" />
+
+  <!-- Semantic accent planes -->
+  <rect data-role="edge" data-ornare-role="light" x="16" y="82" width="224" height="48" rx="26" ry="26" fill="#2B88D8" />
+  <rect data-role="highlight" data-ornare-role="highlight" x="24" y="84" width="208" height="6" rx="3" ry="3" fill="#50E6FF" />
+  <rect data-role="shadow" data-ornare-role="shadow" x="20" y="212" width="216" height="14" rx="12" ry="12" fill="#005A9E" />
+</svg>

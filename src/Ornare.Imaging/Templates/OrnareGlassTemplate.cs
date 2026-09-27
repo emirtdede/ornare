@@ -1,0 +1,34 @@
+using System;
+using System.Text;
+
+namespace Ornare.Imaging.Templates;
+
+/// <summary>
+/// The release-approved original Ornare folder template: "ornare-glass" Version 1 (Section 8).
+/// Features modern polished appearance, subtle translucent-style visual language, and restrained highlight planes.
+/// </summary>
+public static class OrnareGlassTemplate
+{
+    public const string TemplateId = "ornare-glass";
+    public const int TemplateVersion = 1;
+
+    public const string SvgContent =
+@"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 256 256"" width=""256"" height=""256"">
+  <!-- Rear body & Polished glass tab -->
+  <rect data-role=""folder-tab"" data-ornare-role=""deep"" x=""22"" y=""32"" width=""90"" height=""42"" rx=""14"" ry=""14"" fill=""#004578"" />
+  <rect data-role=""folder-back"" data-ornare-role=""deep"" x=""22"" y=""46"" width=""212"" height=""124"" rx=""18"" ry=""18"" fill=""#004578"" />
+
+  <!-- Front body -->
+  <rect data-role=""folder-front"" data-ornare-role=""base"" x=""16"" y=""80"" width=""224"" height=""146"" rx=""20"" ry=""20"" fill=""#0078D4"" />
+
+  <!-- Translucent optical glass planes -->
+  <rect data-role=""edge"" data-ornare-role=""light"" x=""16"" y=""80"" width=""224"" height=""56"" rx=""20"" ry=""20"" fill=""#2B88D8"" />
+  <rect data-role=""highlight"" data-ornare-role=""highlight"" x=""20"" y=""82"" width=""216"" height=""5"" rx=""2.5"" ry=""2.5"" fill=""#50E6FF"" />
+  <rect data-role=""detail"" data-ornare-role=""detail"" x=""24"" y=""90"" width=""208"" height=""2"" rx=""1"" ry=""1"" fill=""#50E6FF"" />
+  <rect data-role=""shadow"" data-ornare-role=""shadow"" x=""18"" y=""214"" width=""220"" height=""12"" rx=""8"" ry=""8"" fill=""#005A9E"" />
+</svg>";
+
+    private static readonly Lazy<byte[]> LazyBytes = new(() => Encoding.UTF8.GetBytes(SvgContent));
+
+    public static byte[] GetTemplateBytes() => LazyBytes.Value;
+}
