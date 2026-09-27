@@ -11,7 +11,12 @@
 
 ## 1. Executive Summary & Release Scope
 
-The approved **Ornare Feature Expansion Pack** (comprising 26 active feature specifications and 1 deferred specification) has been completely implemented, verified, and audited against the production codebase.
+The approved **Ornare Feature Expansion Pack** has completed its implementation and audit phase under the following authoritative release status:
+- **26 implemented features:** **PASS**
+- **F11 Per-Size Optical Rendering:** **DEFERRED BY PRODUCT DECISION**
+- **Physical ARM64 runtime:** **NOT PROVEN / PENDING HARDWARE CERTIFICATION**
+
+The expansion scope is complete according to the approved product decision, with exactly 26 features implemented and 1 deferred by product decision.
 
 ### Scope & Architecture Boundaries
 - **Runtime-Certified Platform:** Windows 11 x64 (Version 24H2 / 25H2 baseline, OS build >= 26100).
@@ -68,8 +73,8 @@ All automated test projects in the solution executed cleanly with 100% pass rate
 | `Ornare.Storage.Tests` | 54 | 54 | 0 | 0 | **PASS** |
 | `Ornare.UiTests` | 16 | 16 | 0 | 0 | **PASS** |
 | `Ornare.IntegrationTests` | 120 | 120 | 0 | 0 | **PASS** |
-| `Ornare.Imaging.Tests` | 178 | 178 | 0 | 0 | **PASS** |
-| **TOTAL SUITE** | **432** | **432** | **0** | **0** | **PASS** |
+| `Ornare.Imaging.Tests` | 179 | 179 | 0 | 0 | **PASS** |
+| **TOTAL SUITE** | **433** | **433** | **0** | **0** | **PASS** |
 
 ### 3.2 Multi-Architecture Compilation (x64 & ARM64)
 - **`win-x64` Release Build:** Clean compilation with 0 warnings and 0 errors across all projects (`Ornare.Core`, `Ornare.Imaging`, `Ornare.Storage`, `Ornare.Windows`, `Ornare.DesignSystem`, `Ornare.App`, `Ornare.Cli`).
@@ -111,16 +116,16 @@ Verified key user flows:
 
 Technical `.resw` resource parity is 100% verified across 198 keys. Linguistic certification status is formally separated:
 
-| Locale | Language | Key Parity | Technical Status | Linguistic Certification Status |
-|:---:|:---:|:---:|:---:|:---:|
-| `en-US` | English (United States) | 198 / 198 | **PASS** | **OWNER_ACCEPTED** |
-| `tr-TR` | Türkçe (Turkey) | 198 / 198 | **PASS** | **OWNER_ACCEPTED** |
-| `de-DE` | Deutsch (Germany) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** |
-| `fr-FR` | Français (France) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** |
-| `es-ES` | Español (Spain) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** |
-| `pt-BR` | Português (Brasil) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** |
+| Locale | Language | Key Parity | Technical Status | Linguistic Certification Status | Public Release Exposure |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| `en-US` | English (United States) | 198 / 198 | **PASS** | **OWNER_ACCEPTED** | Advertised in Package Manifest |
+| `tr-TR` | Türkçe (Turkey) | 198 / 198 | **PASS** | **OWNER_ACCEPTED** | Advertised in Package Manifest |
+| `de-DE` | Deutsch (Germany) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** | Source/resw only (Unadvertised) |
+| `fr-FR` | Français (France) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** | Source/resw only (Unadvertised) |
+| `es-ES` | Español (Spain) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** | Source/resw only (Unadvertised) |
+| `pt-BR` | Português (Brasil) | 198 / 198 | **PASS** | **FUNCTIONAL_DRAFT_NOT_LINGUISTICALLY_CERTIFIED** | Source/resw only (Unadvertised) |
 
-*Note:* Non-EN/TR locales are functional drafts aligned with Microsoft Windows terminologies. They pass all automated technical checks, layout expansion tests, and placeholder validations. Final commercial marketing as "professionally reviewed" is pending human native linguistic review.
+*Public Release Policy:* In accordance with the initial public release policy, only owner-accepted languages (`en-US`, `tr-TR`) are qualified in `Package.appxmanifest`. The four draft locales remain preserved in source and tested for technical parity, but are not advertised as officially certified public languages until native linguistic review is complete.
 
 ---
 
@@ -136,12 +141,13 @@ Benchmark runs executed using repeated-measurement protocol:
 
 ## 6. Final Acceptance Signoff
 
-- **x64 Production Implementation:** **PASS**
+- **26 Implemented Features:** **PASS**
+- **F11 Per-Size Optical Rendering:** **DEFERRED BY PRODUCT DECISION**
 - **Multi-Architecture Build Regression (x64 + ARM64):** **PASS**
-- **Automated Test Suite (432/432):** **PASS**
+- **Automated Test Suite (433/433):** **PASS**
 - **Security & Threat Model Audit:** **PASS**
 - **WACK Certification:** **PASS**
-- **F11 Deferred Scope:** **DEFERRED BY PRODUCT DECISION**
+- **Public Locale Policy (`en-US`, `tr-TR`):** **ENFORCED IN MANIFEST**
 - **Physical ARM64 Runtime:** **NOT PROVEN / PENDING HARDWARE CERTIFICATION**
 
 The Ornare Feature Expansion Pack is complete, fully tested, and certified for Windows 11 x64 production readiness.

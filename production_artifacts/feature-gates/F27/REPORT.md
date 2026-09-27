@@ -37,7 +37,7 @@ All user-facing strings across all F01–F26 surfaces (including keyboard shortc
     - `LANG_PORTUGUESE` (`0x16`) -> Portuguese menu verbs ("Definir ícone da pasta", "Redefinir o ícone da pasta")
     - Default fallback -> English ("Set Folder Icon", "Reset Folder Icon")
 - **`Ornare.Package` (MSIX Manifest):**
-  - Declares all six `<Resource Language="..."/>` entries in `Package.appxmanifest` (`en-US`, `tr-TR`, `de-DE`, `fr-FR`, `es-ES`, `pt-BR`).
+  - Declares only owner-accepted languages (`en-US`, `tr-TR`) in `Package.appxmanifest` for the initial public release. The four draft locales remain preserved in source and tested for technical parity, but are unadvertised in the package manifest until professional linguistic review is completed.
 - **`Ornare.Cli`:**
   - Retains English-only human CLI output and language-neutral JSON output per specification. Zero localization bloat or MRT dependencies in CLI.
 
@@ -52,7 +52,7 @@ All user-facing strings across all F01–F26 surfaces (including keyboard shortc
 | **INV-F27-03** | Format placeholder parity (`{0}`, `{1}`) across all locales | Automated regex placeholder validation in `LocalizationParityTests` | **PASS** |
 | **INV-F27-04** | AOT-safe in-memory `AppResources` key parity | Automated test `AppResourcesHasMatchingKeysForAllSixLocales` verifies parity against `en-US` | **PASS** |
 | **INV-F27-05** | Native Shell Extension isolation (no managed code in Explorer) | Source audit of `src/Ornare.ShellExtension/dllmain.cpp` using Win32 `PRIMARYLANGID` | **PASS** |
-| **INV-F27-06** | Package manifest declares qualification resource languages | Inspected `src/Ornare.Package/Package.appxmanifest` for 6 `<Resource Language="..."/>` tags | **PASS** |
+| **INV-F27-06** | Package manifest public locale policy | Manifest restricts `<Resource Language="..."/>` to owner-accepted `en-US` and `tr-TR` | **PASS** |
 | **INV-F27-07** | Turkish language typography & diacritics | `TurkishTypographyContainsSpecificDiacritics` verifies ç, ğ, ı, ö, ş, ü, İ preservation | **PASS** |
 | **INV-F27-08** | Multi-architecture compilation | Clean compilation for `win-x64` and `win-arm64` Release with 0 warnings and 0 errors | **PASS** |
 
