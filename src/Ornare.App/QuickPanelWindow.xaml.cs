@@ -158,18 +158,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
-    private void OnWindowPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (e.OriginalSource is not Button && e.OriginalSource is not ProgressRing && e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
-        {
-            IntPtr hwnd = WindowNative.GetWindowHandle(this);
-            if (hwnd != IntPtr.Zero)
-            {
-                _ = ReleaseCapture();
-                _ = SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
-            }
-        }
-    }
 
     public QuickPanelWindow(
         IImagePipeline imagePipeline,
@@ -649,6 +637,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private void OnDropAreaTapped(object sender, TappedRoutedEventArgs e)
     {
+        if (e.OriginalSource is DependencyObject dep)
+        {
+            DependencyObject? current = dep;
+            while (current != null && current != DropAreaBorder)
+            {
+                if (current == ColorPaletteContainer || current == CustomColorButton || current is Button)
+                {
+                    e.Handled = true;
+                    return;
+                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+        }
+
         _ = OpenFilePickerAsync();
     }
 
@@ -834,6 +836,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         ColorPaletteContainer.Children.Clear();
 
+        if (CustomColorPicker != null)
+        {
+            CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+        }
+
         if (CustomColorButton != null)
         {
             string customColorText = AppResources.GetString("ColorCustom", _currentLanguage);
@@ -982,12 +989,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             if (RadioTemplateClassic != null) RadioTemplateClassic.IsChecked = true;
         }
 
-        var currentColor = CustomColorPicker.Color;
-        string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
-        var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _selectedTemplateId, _selectedTemplateVersion);
-        if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
+        if (CustomColorPicker != null)
         {
-            FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
+            if (CustomColorPicker.Color.A == 0 || (CustomColorPicker.Color.R == 0 && CustomColorPicker.Color.G == 0 && CustomColorPicker.Color.B == 0))
+            {
+                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+            }
+
+            var currentColor = CustomColorPicker.Color;
+            string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
+            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _selectedTemplateId, _selectedTemplateVersion);
+            if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
+            {
+                FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
+            }
         }
 
         _ = LoadRecentCustomColorsToFlyoutAsync();
@@ -1085,6 +1100,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         CustomColorFlyout.Hide();
 
         await StageColorAsync(hex, isCustom: true, templateId: _selectedTemplateId, templateVersion: _selectedTemplateVersion);
+        await CommitStagedIconAsync();
     }
 
     private void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)

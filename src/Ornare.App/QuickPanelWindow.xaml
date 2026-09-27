@@ -7,9 +7,9 @@
     xmlns:local="using:Ornare.App"
     mc:Ignorable="d">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" RowDefinitions="36,*,Auto" PointerPressed="OnWindowPointerPressed">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" RowDefinitions="36,*,Auto">
         <!-- 1. Header & Integrated Title Bar Row (Touches top and right edges for exact alignment with native caption close button) -->
-        <Grid x:Name="TitleBarGrid" Grid.Row="0" Margin="16,0,0,0" Height="36" Background="Transparent" PointerPressed="OnTitleBarPointerPressed">
+        <Grid x:Name="TitleBarGrid" Grid.Row="0" Margin="16,0,0,0" Height="36" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -58,7 +58,7 @@
                         AutomationProperties.Name="Reset"
                         ToolTipService.ToolTip="Reset folder icon (Ctrl+Z)"
                         Click="OnResetClicked">
-                        <FontIcon Glyph="&#xE777;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <FontIcon Glyph="&#xE777;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False" />
                     </Button>
                     <Button
                         x:Name="OpenManagerButton"
@@ -74,7 +74,7 @@
                         AutomationProperties.Name="Settings"
                         ToolTipService.ToolTip="Open Manager (Ctrl+M)"
                         Click="OnOpenManagerClicked">
-                        <FontIcon Glyph="&#xE713;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <FontIcon Glyph="&#xE713;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False" />
                     </Button>
                 </StackPanel>
             </Grid>
@@ -143,108 +143,110 @@
                                 BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
                                 AutomationProperties.Name="Custom Color"
                                 ToolTipService.ToolTip="Custom Color">
-                                <FontIcon Glyph="&#xE790;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <FontIcon Glyph="&#xE790;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False" />
                                 <Button.Flyout>
-                                    <Flyout x:Name="CustomColorFlyout" Opened="OnCustomColorFlyoutOpened" Closed="OnCustomColorFlyoutClosed">
-                                        <StackPanel Width="280" Spacing="10">
-                                            <!-- Mini preview and title -->
-                                            <Grid ColumnSpacing="10" VerticalAlignment="Center">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <Border
-                                                    Grid.Column="0"
-                                                    Width="36"
-                                                    Height="36"
-                                                    CornerRadius="6"
-                                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                    BorderThickness="1"
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center">
-                                                    <Image
-                                                        x:Name="FlyoutPreviewImage"
-                                                        Width="28"
-                                                        Height="28"
-                                                        Stretch="Uniform"
+                                    <Flyout x:Name="CustomColorFlyout" Placement="Top" Opened="OnCustomColorFlyoutOpened" Closed="OnCustomColorFlyoutClosed">
+                                        <ScrollViewer MaxHeight="380" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel Width="280" Spacing="10" Padding="0,0,4,0">
+                                                <!-- Mini preview and title -->
+                                                <Grid ColumnSpacing="10" VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border
+                                                        Grid.Column="0"
+                                                        Width="36"
+                                                        Height="36"
+                                                        CornerRadius="6"
+                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1"
                                                         HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center" />
-                                                </Border>
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        VerticalAlignment="Center">
+                                                        <Image
+                                                            x:Name="FlyoutPreviewImage"
+                                                            Width="28"
+                                                            Height="28"
+                                                            Stretch="Uniform"
+                                                            HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center" />
+                                                    </Border>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock
+                                                            x:Name="CustomColorTitleText"
+                                                            Text="Custom Color"
+                                                            FontSize="13"
+                                                            FontWeight="SemiBold" />
+                                                        <TextBlock
+                                                            x:Name="CustomColorSubtitleText"
+                                                            Text="Select any folder color"
+                                                            FontSize="11"
+                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <!-- Folder Style Template Selection (F03) -->
+                                                <StackPanel Spacing="4">
                                                     <TextBlock
-                                                        x:Name="CustomColorTitleText"
-                                                        Text="Custom Color"
-                                                        FontSize="13"
-                                                        FontWeight="SemiBold" />
-                                                    <TextBlock
-                                                        x:Name="CustomColorSubtitleText"
-                                                        Text="Select any folder color"
+                                                        x:Name="TemplateTitleText"
+                                                        Text="Style"
                                                         FontSize="11"
                                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    <RadioButtons
+                                                        x:Name="TemplateRadioButtons"
+                                                        SelectedIndex="0"
+                                                        SelectionChanged="OnTemplateSelectionChanged">
+                                                        <RadioButton x:Name="RadioTemplateClassic" Content="Classic" Tag="ornare-classic" IsChecked="True" />
+                                                        <RadioButton x:Name="RadioTemplateSoft" Content="Soft" Tag="ornare-soft" />
+                                                        <RadioButton x:Name="RadioTemplateFlat" Content="Flat" Tag="ornare-flat" />
+                                                    </RadioButtons>
                                                 </StackPanel>
-                                            </Grid>
 
-                                            <!-- Folder Style Template Selection (F03) -->
-                                            <StackPanel Spacing="4">
-                                                <TextBlock
-                                                    x:Name="TemplateTitleText"
-                                                    Text="Style"
-                                                    FontSize="11"
-                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                <RadioButtons
-                                                    x:Name="TemplateRadioButtons"
-                                                    SelectedIndex="0"
-                                                    SelectionChanged="OnTemplateSelectionChanged">
-                                                    <RadioButton x:Name="RadioTemplateClassic" Content="Classic" Tag="ornare-classic" IsChecked="True" />
-                                                    <RadioButton x:Name="RadioTemplateSoft" Content="Soft" Tag="ornare-soft" />
-                                                    <RadioButton x:Name="RadioTemplateFlat" Content="Flat" Tag="ornare-flat" />
-                                                </RadioButtons>
+                                                <!-- ColorPicker Control -->
+                                                <ColorPicker
+                                                    x:Name="CustomColorPicker"
+                                                    IsAlphaEnabled="False"
+                                                    IsColorSpectrumVisible="True"
+                                                    IsColorSliderVisible="True"
+                                                    IsHexInputVisible="True"
+                                                    ColorChanged="OnCustomColorPickerColorChanged" />
+
+                                                <!-- Recent Colors Section -->
+                                                <StackPanel x:Name="RecentColorsSection" Spacing="4" Visibility="Collapsed">
+                                                    <TextBlock
+                                                        x:Name="RecentColorsTitle"
+                                                        Text="Recent Colors"
+                                                        FontSize="11"
+                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                    <StackPanel
+                                                        x:Name="RecentColorsContainer"
+                                                        Orientation="Horizontal"
+                                                        Spacing="6" />
+                                                </StackPanel>
+
+                                                <!-- Action Buttons -->
+                                                <Grid ColumnSpacing="8" Margin="0,4,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button
+                                                        x:Name="ApplyCustomColorButton"
+                                                        Grid.Column="0"
+                                                        HorizontalAlignment="Stretch"
+                                                        Style="{ThemeResource AccentButtonStyle}"
+                                                        Content="Apply Color"
+                                                        Click="OnApplyCustomColorClicked" />
+                                                    <Button
+                                                        x:Name="CancelCustomColorButton"
+                                                        Grid.Column="1"
+                                                        HorizontalAlignment="Stretch"
+                                                        Content="Cancel"
+                                                        Click="OnCancelCustomColorClicked" />
+                                                </Grid>
                                             </StackPanel>
-
-                                            <!-- ColorPicker Control -->
-                                            <ColorPicker
-                                                x:Name="CustomColorPicker"
-                                                IsAlphaEnabled="False"
-                                                IsColorSpectrumVisible="True"
-                                                IsColorSliderVisible="True"
-                                                IsHexInputVisible="True"
-                                                ColorChanged="OnCustomColorPickerColorChanged" />
-
-                                            <!-- Recent Colors Section -->
-                                            <StackPanel x:Name="RecentColorsSection" Spacing="4" Visibility="Collapsed">
-                                                <TextBlock
-                                                    x:Name="RecentColorsTitle"
-                                                    Text="Recent Colors"
-                                                    FontSize="11"
-                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                <StackPanel
-                                                    x:Name="RecentColorsContainer"
-                                                    Orientation="Horizontal"
-                                                    Spacing="6" />
-                                            </StackPanel>
-
-                                            <!-- Action Buttons -->
-                                            <Grid ColumnSpacing="8" Margin="0,4,0,0">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <Button
-                                                    x:Name="ApplyCustomColorButton"
-                                                    Grid.Column="0"
-                                                    HorizontalAlignment="Stretch"
-                                                    Style="{ThemeResource AccentButtonStyle}"
-                                                    Content="Apply Color"
-                                                    Click="OnApplyCustomColorClicked" />
-                                                <Button
-                                                    x:Name="CancelCustomColorButton"
-                                                    Grid.Column="1"
-                                                    HorizontalAlignment="Stretch"
-                                                    Content="Cancel"
-                                                    Click="OnCancelCustomColorClicked" />
-                                            </Grid>
-                                        </StackPanel>
+                                        </ScrollViewer>
                                     </Flyout>
                                 </Button.Flyout>
                             </Button>
