@@ -124,8 +124,8 @@ public sealed class Phase11PersonalizationBenchmarkTests : IDisposable
             samples.Add(sw.Elapsed.TotalMilliseconds);
         }
 
-        // Folder flyout open / 9-template load threshold <= 100ms
-        ReportMetric("Folder Template Catalog Load", samples, 100.0);
+        // Folder template catalog lookup threshold <= 100ms
+        ReportMetric("Folder Template Catalog Lookup", samples, 100.0);
     }
 
     [Fact]
@@ -335,7 +335,7 @@ public sealed class Phase11PersonalizationBenchmarkTests : IDisposable
             samples.Add(sw.Elapsed.TotalMilliseconds);
         }
 
-        ReportMetric("Folder Flyout Subsequent Open", samples, 30.0);
+        ReportMetric("Folder Template Cached Iteration (Subsequent)", samples, 30.0);
     }
 
     [Fact]
@@ -352,7 +352,7 @@ public sealed class Phase11PersonalizationBenchmarkTests : IDisposable
             samples.Add(sw.Elapsed.TotalMilliseconds);
         }
 
-        ReportMetric("Icon Catalog First Open", samples, 150.0);
+        ReportMetric("Vector Emblem Catalog Lookup", samples, 150.0);
     }
 
     [Fact]
