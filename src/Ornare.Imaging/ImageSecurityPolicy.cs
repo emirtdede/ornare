@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using ImageMagick;
 using ImageMagick.Configuration;
 
@@ -28,6 +29,9 @@ public static class ImageSecurityPolicy
     private static bool _initialized;
     private static readonly object InitLock = new();
 
+#pragma warning disable CA2255
+    [ModuleInitializer]
+#pragma warning restore CA2255
     public static void Initialize()
     {
         if (_initialized)
@@ -52,6 +56,7 @@ public static class ImageSecurityPolicy
             try
             {
                 var config = ConfigurationFiles.Default;
+                config.Delegates.Data = "<delegatemap></delegatemap>";
                 config.Policy.Data = @"<policymap>
   <policy domain=""delegate"" rights=""none"" pattern=""*"" />
 </policymap>";

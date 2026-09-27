@@ -85,7 +85,7 @@ public sealed class CustomColorPickerTests
                 {
                     try
                     {
-                        await Task.Delay(80, token);
+                        await Task.Delay(150, token);
                         if (token.IsCancellationRequested) return;
 
                         var result = FolderTemplateRenderer.RenderPreviewPng(currentHex);

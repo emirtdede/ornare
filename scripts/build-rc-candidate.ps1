@@ -26,16 +26,24 @@ if (Test-Path $layoutDir) {
 New-Item -ItemType Directory -Force -Path $layoutDir | Out-Null
 New-Item -ItemType Directory -Force -Path "$layoutDir/Images" | Out-Null
 
-$publishDir = "src/Ornare.App/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish"
-if (!(Test-Path $publishDir)) {
-    throw "Publish directory not found at $publishDir"
+$publishCandidates = @(
+    "src/Ornare.App/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/publish",
+    "src/Ornare.App/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish"
+)
+$publishDir = $publishCandidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+if (!$publishDir -or !(Test-Path $publishDir)) {
+    throw "Publish directory not found"
 }
 Copy-Item "$publishDir/*" $layoutDir -Recurse -Force
 
 # Copy Ornare.Cli executable
-$cliExe = "src/Ornare.Cli/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/Ornare.Cli.exe"
-if (!(Test-Path $cliExe)) {
-    throw "Ornare.Cli.exe not found at $cliExe"
+$cliCandidates = @(
+    "src/Ornare.Cli/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/publish/Ornare.Cli.exe",
+    "src/Ornare.Cli/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/Ornare.Cli.exe"
+)
+$cliExe = $cliCandidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+if (!$cliExe -or !(Test-Path $cliExe)) {
+    throw "Ornare.Cli.exe not found"
 }
 Copy-Item $cliExe $layoutDir -Force
 

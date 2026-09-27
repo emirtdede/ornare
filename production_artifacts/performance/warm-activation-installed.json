@@ -1,10 +1,10 @@
 {
     "Iterations":  25,
-    "MinMs":  92.06,
-    "MaxMs":  201.25,
-    "MeanMs":  142.99,
-    "P50Ms":  147.63,
-    "P95Ms":  188.98,
+    "MinMs":  97.67,
+    "MaxMs":  117.83,
+    "MeanMs":  103.91,
+    "P50Ms":  102.26,
+    "P95Ms":  116.76,
     "Budget":  "200",
     "Pass":  true
 }

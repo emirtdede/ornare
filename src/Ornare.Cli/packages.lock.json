@@ -2,6 +2,18 @@
   "version": 2,
   "dependencies": {
     "net10.0-windows10.0.26100": {
+      "Microsoft.DotNet.ILCompiler": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "AawF393Q+VkdrnrnI1gu612zh5iqpa1AGSvnKCQ3IkMgSKJXIQbO1sXYRgEzOU4f0cPZ6MaCCF29xZSGWlmbuQ=="
+      },
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "xi+BDjFpW+Sb+MHFHaH6Y/gV9I8BluFwRXc1QyCdoZbIK26eNiBeFuMTe/FMwc33G1wdHCyDg7CVTmb8OdQrMQ=="
+      },
       "System.CommandLine": {
         "type": "Direct",
         "requested": "[2.0.0, )",
@@ -75,6 +87,31 @@
         "contentHash": "kQ3Jo6XqPYYyjlgVh8KVGAFUfYsnyrrC8WvCYO33Coz0S2y1y1B8et8HCRmy7nt8rN+IA9XoaQz7QjI1PvXSAw==",
         "dependencies": {
           "SQLitePCLRaw.provider.winsqlite3": "2.1.11"
+        }
+      }
+    },
+    "net10.0-windows10.0.26100/win-arm64": {
+      "Microsoft.DotNet.ILCompiler": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "AawF393Q+VkdrnrnI1gu612zh5iqpa1AGSvnKCQ3IkMgSKJXIQbO1sXYRgEzOU4f0cPZ6MaCCF29xZSGWlmbuQ==",
+        "dependencies": {
+          "runtime.win-arm64.Microsoft.DotNet.ILCompiler": "10.0.12"
+        }
+      },
+      "runtime.win-arm64.Microsoft.DotNet.ILCompiler": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "2qwg37KiPUnsvPjdLhAMjcRTxLFAC5BhIBkJd1HEBGzgSK4WT+gg/C+kh5Gwg53EQv6xTqF2oGks+c49JLa8jw=="
+      },
+      "Magick.NET-Q16-AnyCPU": {
+        "type": "CentralTransitive",
+        "requested": "[14.17.1, )",
+        "resolved": "14.17.1",
+        "contentHash": "m7NksccmpXQiQoSsDyBpXkOFC3XV9/cM3chZp2bHPdi1QPTzSicljNwrKmGZiQnQUyOBznvzv+A3ROT3/eIqUg==",
+        "dependencies": {
+          "Magick.NET.Core": "14.17.1"
         }
       }
     }
