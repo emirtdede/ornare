@@ -15,7 +15,7 @@ public static class FolderTemplateValidator
     private static readonly HashSet<string> DisallowedElements = new(StringComparer.OrdinalIgnoreCase)
     {
         "script", "text", "tspan", "image", "foreignObject", "animate", "animateTransform",
-        "filter", "feGaussianBlur", "feDropShadow", "style", "audio", "video", "iframe"
+        "audio", "video", "iframe"
     };
 
     private static readonly HashSet<string> RequiredRoles = new(StringComparer.OrdinalIgnoreCase)

@@ -5,7 +5,9 @@ using System.IO;
 using System.Linq;
 using ImageMagick;
 using Ornare.Core;
+using Ornare.Core.Presets;
 using Ornare.Imaging;
+using Ornare.Imaging.Badges;
 using Ornare.Imaging.Templates;
 using Xunit;
 using Xunit.Abstractions;
@@ -293,5 +295,35 @@ public sealed class FolderTemplateTests : IDisposable
         Assert.NotEqual(keyClassic, keySoft);
         Assert.NotEqual(keyClassic, keyFlat);
         Assert.NotEqual(keySoft, keyFlat);
+    }
+
+    [Fact]
+    public void Windows11FolderTemplateMatchesAssetsSvgAndRendersAccurately()
+    {
+        string repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+        string path = Path.Combine(repoRoot, "assets", "Windows_11_FOLDER.svg");
+        if (File.Exists(path))
+        {
+            byte[] rawBytes = File.ReadAllBytes(path);
+            Assert.NotEmpty(rawBytes);
+        }
+
+        string classicSvg = OrnareClassicTemplate.SvgContent;
+        Assert.False(string.IsNullOrWhiteSpace(classicSvg));
+
+        var valResult = FolderTemplateValidator.Validate(classicSvg);
+        Assert.True(valResult.IsSuccess, valResult.ErrorMessage);
+
+        var bluePalette = FolderPaletteGenerator.GenerateFromRgb(37, 99, 235).ToSemanticColorPalette();
+        var recolorResult = SvgRecolorService.RecolorSemanticTemplate(classicSvg, bluePalette);
+        Assert.True(recolorResult.IsSuccess, recolorResult.ErrorMessage);
+
+        var previewResult = FolderTemplateRenderer.RenderPreviewPng("#2563EB", OrnareClassicTemplate.TemplateId, 1);
+        Assert.True(previewResult.IsSuccess, previewResult.ErrorMessage);
+        Assert.NotNull(previewResult.Value);
+
+        using var img = new MagickImage(previewResult.Value);
+        Assert.Equal(256u, img.Width);
+        Assert.Equal(256u, img.Height);
     }
 }
