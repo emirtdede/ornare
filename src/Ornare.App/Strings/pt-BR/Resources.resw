@@ -390,6 +390,39 @@
   <data name="Template_Geo" xml:space="preserve">
     <value>Geo</value>
   </data>
+  <data name="Action_Folder" xml:space="preserve">
+    <value>Pasta</value>
+  </data>
+  <data name="Action_Icon" xml:space="preserve">
+    <value>Ícone</value>
+  </data>
+  <data name="Action_Emoji" xml:space="preserve">
+    <value>Emoji</value>
+  </data>
+  <data name="Action_Image" xml:space="preserve">
+    <value>Imagem</value>
+  </data>
+  <data name="Action_Color" xml:space="preserve">
+    <value>Cor</value>
+  </data>
+  <data name="Action_More" xml:space="preserve">
+    <value>Mais</value>
+  </data>
+  <data name="Action_Apply" xml:space="preserve">
+    <value>Aplicar</value>
+  </data>
+  <data name="Status_ReadyToApply" xml:space="preserve">
+    <value>Pronto para aplicar</value>
+  </data>
+  <data name="Status_UnappliedChanges" xml:space="preserve">
+    <value>Alterações não aplicadas</value>
+  </data>
+  <data name="Status_Applied" xml:space="preserve">
+    <value>Aplicado</value>
+  </data>
+  <data name="Status_CurrentIcon" xml:space="preserve">
+    <value>Ícone atual da pasta</value>
+  </data>
   <data name="Nav_Presets" xml:space="preserve">
     <value>Predefinições de status</value>
   </data>

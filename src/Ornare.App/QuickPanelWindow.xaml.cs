@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -44,6 +45,9 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private readonly IImagePipeline _imagePipeline;
     private readonly IFolderCustomizer _folderCustomizer;
     private readonly IStorageService _storageService;
+    private readonly PersonalizationStagingModel _stagingModel = new();
+
+    public ObservableCollection<FolderTemplateCardViewModel> FolderTemplateCards { get; } = new();
 
     private string _currentFolderPath = string.Empty;
     private FolderBaseline? _currentBaseline;
@@ -331,7 +335,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             if (IsFocusInEditableControl())
             {
-                return; // Retain native text paste in TextBox
+                return;
             }
 
             args.Handled = true;
@@ -352,7 +356,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             if (IsFocusInEditableControl())
             {
-                return; // Retain native text-undo in TextBox
+                return;
             }
 
             args.Handled = true;
@@ -363,7 +367,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         };
         root.KeyboardAccelerators.Add(ctrlZ);
 
-        // 4. Esc -> Closes topmost transient flyout/dialog or cancels a pre-commit editor operation
+        // 4. Ctrl+M -> Opens Manager
+        var ctrlM = new KeyboardAccelerator
+        {
+            Key = global::Windows.System.VirtualKey.M,
+            Modifiers = global::Windows.System.VirtualKeyModifiers.Control
+        };
+        ctrlM.Invoked += (s, args) =>
+        {
+            args.Handled = true;
+            OnOpenManagerClicked(this, new RoutedEventArgs());
+        };
+        root.KeyboardAccelerators.Add(ctrlM);
+
+        // 5. Esc -> Closes topmost transient flyout/dialog or cancels a pre-commit editor operation
         var esc = new KeyboardAccelerator
         {
             Key = global::Windows.System.VirtualKey.Escape
@@ -374,6 +391,98 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             HandleEscapeKey();
         };
         root.KeyboardAccelerators.Add(esc);
+    }
+
+    private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Control) & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        var alt = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Menu) & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
+        if (alt)
+        {
+            switch (e.Key)
+            {
+                case global::Windows.System.VirtualKey.Number1:
+                    e.Handled = true;
+                    FolderStyleFlyout?.ShowAt(FolderActionButton);
+                    return;
+                case global::Windows.System.VirtualKey.Number2:
+                    e.Handled = true;
+                    IconFlyout?.ShowAt(IconActionButton);
+                    return;
+                case global::Windows.System.VirtualKey.Number3:
+                    e.Handled = true;
+                    EmojiFlyout?.ShowAt(EmojiActionButton);
+                    return;
+                case global::Windows.System.VirtualKey.Number4:
+                    e.Handled = true;
+                    _ = OpenFilePickerAsync();
+                    return;
+                case global::Windows.System.VirtualKey.Number5:
+                    e.Handled = true;
+                    CustomColorFlyout?.ShowAt(ColorActionButton);
+                    return;
+                case global::Windows.System.VirtualKey.Number6:
+                    e.Handled = true;
+                    MoreMenuFlyout?.ShowAt(MoreActionButton);
+                    return;
+            }
+        }
+
+        if (e.Key == global::Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            HandleEscapeKey();
+            return;
+        }
+
+        if (e.Key == global::Windows.System.VirtualKey.Enter)
+        {
+            if (_stagingModel.CanApply && !_isProcessing)
+            {
+                e.Handled = true;
+                _ = ApplyStagedPersonalizationAsync();
+                return;
+            }
+        }
+
+        if (e.Key == global::Windows.System.VirtualKey.Space)
+        {
+            if (DropAreaBorder != null && ReferenceEquals(FocusManager.GetFocusedElement(Content?.XamlRoot), DropAreaBorder))
+            {
+                e.Handled = true;
+                _ = OpenFilePickerAsync();
+                return;
+            }
+        }
+
+        if (ctrl)
+        {
+            if (e.Key == global::Windows.System.VirtualKey.Z)
+            {
+                if (!IsFocusInEditableControl())
+                {
+                    e.Handled = true;
+                    _ = HandleUndoAcceleratorAsync();
+                    return;
+                }
+            }
+            else if (e.Key == global::Windows.System.VirtualKey.M)
+            {
+                e.Handled = true;
+                OnOpenManagerClicked(this, new RoutedEventArgs());
+                return;
+            }
+            else if (e.Key == global::Windows.System.VirtualKey.V)
+            {
+                if (!IsFocusInEditableControl())
+                {
+                    e.Handled = true;
+                    _ = HandlePasteAsync();
+                    return;
+                }
+            }
+        }
     }
 
     private bool IsFocusInEditableControl()
@@ -404,6 +513,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task HandleUndoAcceleratorAsync()
     {
+        if (_stagingModel.CanApply)
+        {
+            _stagingModel.Discard();
+            await RefreshLivePreviewAsync();
+            ApplyConfirmButton.IsEnabled = false;
+            StatusInfoText.Text = _currentBaseline != null
+                ? AppResources.GetString("Status_CurrentIcon", _currentLanguage)
+                : AppResources.GetString("Status_ReadyToApply", _currentLanguage);
+            return;
+        }
+
         if (_currentStage == ProcessingStage.PreviewReady || _currentStage == ProcessingStage.PreparingImage)
         {
             await SetProcessingStageAsync(ProcessingStage.Idle);
@@ -426,10 +546,56 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private void HandleEscapeKey()
     {
+        if (FolderStyleFlyout != null && FolderStyleFlyout.IsOpen)
+        {
+            FolderStyleFlyout.Hide();
+            FolderActionButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (IconFlyout != null && IconFlyout.IsOpen)
+        {
+            IconFlyout.Hide();
+            IconActionButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (EmojiFlyout != null && EmojiFlyout.IsOpen)
+        {
+            EmojiFlyout.Hide();
+            EmojiActionButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
         if (CustomColorFlyout != null && CustomColorFlyout.IsOpen)
         {
             CustomColorFlyout.Hide();
-            CustomColorButton.Focus(FocusState.Programmatic);
+            ColorActionButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (MoreMenuFlyout != null && MoreMenuFlyout.IsOpen)
+        {
+            MoreMenuFlyout.Hide();
+            MoreActionButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (PlacementOptionsFlyout != null && PlacementOptionsFlyout.IsOpen)
+        {
+            PlacementOptionsFlyout.Hide();
+            PlacementOptionsButton?.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (_stagingModel.CanApply)
+        {
+            _stagingModel.Discard();
+            _ = RefreshLivePreviewAsync();
+            ApplyConfirmButton.IsEnabled = false;
+            StatusInfoText.Text = _currentBaseline != null
+                ? AppResources.GetString("Status_CurrentIcon", _currentLanguage)
+                : AppResources.GetString("Status_ReadyToApply", _currentLanguage);
             return;
         }
 
@@ -441,7 +607,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             return;
         }
 
-        if (_currentStage == ProcessingStage.Idle)
+        if (_currentStage == ProcessingStage.Idle || _currentStage == ProcessingStage.Done)
         {
             Close();
         }
@@ -498,6 +664,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
 
             // 3. First enabled control in logical XAML order
+            if (IsElementInteractable(FolderActionButton))
+            {
+                FolderActionButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
             if (IsElementInteractable(ResetButton))
             {
                 ResetButton.Focus(FocusState.Programmatic);
@@ -540,10 +712,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             AppResources.CurrentLocale = _currentLanguage;
         }
 
-        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
-        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+        UpdateLocalizedChrome();
 
         if (state == FolderCustomizationState.ExternalIconConflict)
         {
@@ -553,15 +722,243 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         else if (_currentBaseline != null)
         {
             ResetButton.Visibility = Visibility.Visible;
-            StatusInfoText.Text = string.Empty;
+            StatusInfoText.Text = AppResources.GetString("Status_CurrentIcon", _currentLanguage);
         }
         else
         {
             ResetButton.Visibility = Visibility.Collapsed;
-            StatusInfoText.Text = string.Empty;
+            StatusInfoText.Text = AppResources.GetString("Status_ReadyToApply", _currentLanguage);
         }
 
+        // Initialize staging model with default Mode B (Classic v2, #0078D4)
+        _stagingModel.Initialize(
+            PersonalizationMode.FolderTemplate,
+            templateState: new FolderTemplateStagingState
+            {
+                TemplateId = FolderTemplateCatalog.DefaultTemplateId,
+                TemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
+                FolderColorHex = "#0078D4",
+                Emblem = FolderEmblemRecipe.None
+            });
+        _selectedTemplateId = FolderTemplateCatalog.DefaultTemplateId;
+        _selectedTemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion;
+
+        // Initialize the 9 template cards
+        InitializeTemplateCards();
+
+        // Render initial live preview
+        await RefreshLivePreviewAsync();
+
         await SetProcessingStageAsync(ProcessingStage.Idle);
+    }
+
+    private void UpdateLocalizedChrome()
+    {
+        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
+        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
+
+        ToolTipService.SetToolTip(FolderActionButton, AppResources.GetString("Action_Folder", _currentLanguage));
+        AutomationProperties.SetName(FolderActionButton, AppResources.GetString("Action_Folder", _currentLanguage));
+
+        ToolTipService.SetToolTip(IconActionButton, AppResources.GetString("Action_Icon", _currentLanguage));
+        AutomationProperties.SetName(IconActionButton, AppResources.GetString("Action_Icon", _currentLanguage));
+
+        ToolTipService.SetToolTip(EmojiActionButton, AppResources.GetString("Action_Emoji", _currentLanguage));
+        AutomationProperties.SetName(EmojiActionButton, AppResources.GetString("Action_Emoji", _currentLanguage));
+
+        ToolTipService.SetToolTip(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
+        AutomationProperties.SetName(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
+
+        ToolTipService.SetToolTip(ColorActionButton, AppResources.GetString("Action_Color", _currentLanguage));
+        AutomationProperties.SetName(ColorActionButton, AppResources.GetString("Action_Color", _currentLanguage));
+
+        ToolTipService.SetToolTip(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
+        AutomationProperties.SetName(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
+
+        ApplyConfirmButton.Content = AppResources.GetString("Action_Apply", _currentLanguage);
+        ToolTipService.SetToolTip(ApplyConfirmButton, "Apply icon (Enter, Ctrl+Enter)");
+
+        if (FolderFlyoutTitle != null)
+        {
+            FolderFlyoutTitle.Text = AppResources.GetString("Template_Title", _currentLanguage);
+        }
+
+        if (MoreResetMenuItem != null)
+        {
+            MoreResetMenuItem.Text = $"{AppResources.GetString("Reset", _currentLanguage)} (Ctrl+Z)";
+        }
+        if (MoreOpenManagerMenuItem != null)
+        {
+            MoreOpenManagerMenuItem.Text = $"{AppResources.GetString("Settings", _currentLanguage)} (Ctrl+M)";
+        }
+    }
+
+    private void InitializeTemplateCards()
+    {
+        FolderTemplateCards.Clear();
+        var templates = FolderTemplateCatalog.All;
+        string activeTemplateId = _stagingModel.StagedTemplateState.TemplateId;
+
+        foreach (var desc in templates)
+        {
+            string resKey = desc.Id switch
+            {
+                "ornare-classic" => "Template_Classic",
+                "ornare-soft" => "Template_Soft",
+                "ornare-flat" => "Template_Flat",
+                "ornare-glass" => "Template_Glass",
+                "ornare-aqua" => "Template_Aqua",
+                "ornare-grove" => "Template_Grove",
+                "ornare-air" => "Template_Air",
+                "ornare-flow" => "Template_Flow",
+                "ornare-geo" => "Template_Geo",
+                _ => "Template_Classic"
+            };
+
+            string displayName = AppResources.GetString(resKey, _currentLanguage);
+            var card = new FolderTemplateCardViewModel(desc.Id, desc.Version, displayName, desc.SortOrder)
+            {
+                IsSelected = string.Equals(desc.Id, activeTemplateId, StringComparison.OrdinalIgnoreCase)
+            };
+            UpdateCardVisualState(card);
+            FolderTemplateCards.Add(card);
+        }
+
+        _ = RenderTemplateCardThumbnailsAsync();
+    }
+
+    private static void UpdateCardVisualState(FolderTemplateCardViewModel card)
+    {
+        if (card.IsSelected)
+        {
+            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+        }
+        else
+        {
+            card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        }
+    }
+
+    private async Task RenderTemplateCardThumbnailsAsync()
+    {
+        string color = _stagingModel.StagedTemplateState.FolderColorHex;
+        foreach (var card in FolderTemplateCards)
+        {
+            try
+            {
+                var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(color, card.Id, card.Version));
+                if (result.IsSuccess && result.Value != null)
+                {
+                    var bmp = LoadBitmapFromBytes(result.Value);
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        card.Thumbnail = bmp;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Log($"Thumbnail render failed for {card.Id}: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task RefreshLivePreviewAsync(string? overrideTemplateId = null, int? overrideTemplateVersion = null, string? overrideColorHex = null)
+    {
+        try
+        {
+            if (_stagingModel.ActiveMode == PersonalizationMode.FolderTemplate)
+            {
+                string templateId = overrideTemplateId ?? _stagingModel.StagedTemplateState.TemplateId;
+                int templateVersion = overrideTemplateVersion ?? _stagingModel.StagedTemplateState.TemplateVersion;
+                string colorHex = overrideColorHex ?? _stagingModel.StagedTemplateState.FolderColorHex;
+
+                var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(colorHex, templateId, templateVersion));
+                if (result.IsSuccess && result.Value != null)
+                {
+                    PreviewIconImage.Source = LoadPreviewBitmapFromBytes(result.Value);
+                }
+
+                if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Collapsed;
+                if (CancelPreviewButton != null) CancelPreviewButton.Visibility = Visibility.Collapsed;
+            }
+            else if (_stagingModel.ActiveMode == PersonalizationMode.CustomImage && _stagingModel.StagedImageState.ImageBytes != null)
+            {
+                var imgState = _stagingModel.StagedImageState;
+                var result = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(
+                    imgState.ImageBytes, 256, imgState.PlacementMode, imgState.PaddingPercent, imgState.BackgroundMode, imgState.BackgroundColorHex));
+                if (result.IsSuccess && result.Value != null)
+                {
+                    PreviewIconImage.Source = LoadPreviewBitmapFromBytes(result.Value);
+                }
+
+                if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Visible;
+                if (CancelPreviewButton != null) CancelPreviewButton.Visibility = Visibility.Visible;
+            }
+
+            // Update Apply button and Status text
+            ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
+            if (_stagingModel.CanApply)
+            {
+                StatusInfoText.Text = AppResources.GetString("Status_UnappliedChanges", _currentLanguage);
+            }
+            else
+            {
+                StatusInfoText.Text = _currentBaseline != null
+                    ? AppResources.GetString("Status_CurrentIcon", _currentLanguage)
+                    : AppResources.GetString("Status_ReadyToApply", _currentLanguage);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"RefreshLivePreviewAsync error: {ex.Message}");
+        }
+    }
+
+    private void OnFolderTemplateCardPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is FolderTemplateCardViewModel card)
+        {
+            _ = RefreshLivePreviewAsync(overrideTemplateId: card.Id, overrideTemplateVersion: card.Version);
+        }
+    }
+
+    private void OnFolderTemplateCardPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _ = RefreshLivePreviewAsync();
+    }
+
+    private async void OnFolderTemplateCardClicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is FolderTemplateCardViewModel card)
+        {
+            _stagingModel.StageFolderTemplate(card.Id, card.Version);
+            _selectedTemplateId = card.Id;
+            _selectedTemplateVersion = card.Version;
+
+            foreach (var item in FolderTemplateCards)
+            {
+                item.IsSelected = string.Equals(item.Id, card.Id, StringComparison.OrdinalIgnoreCase);
+                UpdateCardVisualState(item);
+            }
+
+            await RefreshLivePreviewAsync();
+        }
+    }
+
+    private void OnImageActionButtonClicked(object sender, RoutedEventArgs e)
+    {
+        _ = OpenFilePickerAsync();
+    }
+
+    private async void OnRemoveEmblemClicked(object sender, RoutedEventArgs e)
+    {
+        _stagingModel.RemoveEmblem();
+        await RefreshLivePreviewAsync();
     }
 
     private void OnDropAreaDragOver(object sender, DragEventArgs e)
@@ -644,7 +1041,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task OpenFilePickerAsync()
     {
-        if (_isProcessing || _currentStage != ProcessingStage.Idle)
+        if (_isProcessing)
         {
             return;
         }
@@ -672,7 +1069,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task HandlePasteAsync()
     {
-        if (_isProcessing || _currentStage != ProcessingStage.Idle)
+        if (_isProcessing)
         {
             return;
         }
@@ -721,10 +1118,10 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             return;
         }
 
-        await StageImageBytesAsync(bytes);
+        await StageImageBytesAsync(bytes, imagePath);
     }
 
-    private async Task StageImageBytesAsync(byte[] imageBytes)
+    private async Task StageImageBytesAsync(byte[] imageBytes, string? imagePath = null)
     {
         if (_isProcessing)
         {
@@ -748,14 +1145,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             CleanupStagedFiles();
             App.Log($"StageImageBytesAsync started for '{_currentFolderPath}', bytes={imageBytes.Length}");
 
-            // 1. Preparing image
             await SetProcessingStageAsync(ProcessingStage.PreparingImage);
             await Task.Delay(40);
 
             _stagedOperationId = Guid.NewGuid();
             _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
 
-            // 2. Generating icon preview
             await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
             await Task.Delay(40);
 
@@ -787,6 +1182,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             _stagedBackgroundMode = BackgroundMode.Transparent;
             _stagedBackgroundColorHex = "#FFFFFF";
             if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Visible;
+            if (CancelPreviewButton != null) CancelPreviewButton.Visibility = Visibility.Visible;
             if (PlacementModeRadioButtons != null) PlacementModeRadioButtons.SelectedIndex = 0;
             if (PlacementFillWarningText != null) PlacementFillWarningText.Visibility = Visibility.Collapsed;
             if (PaddingToggleSwitch != null) PaddingToggleSwitch.IsOn = false;
@@ -797,7 +1193,10 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             if (BackgroundColorSwatch != null) BackgroundColorSwatch.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 255, 255, 255));
             if (BackgroundColorPicker != null) BackgroundColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 255, 255, 255);
 
-            // 3. Show preview and wait for explicit user confirmation
+            _stagingModel.StageCustomImage(imageBytes, imagePath, processResult.Value.ContentHash);
+            ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
+            StatusInfoText.Text = AppResources.GetString("Status_UnappliedChanges", _currentLanguage);
+
             await SetProcessingStageAsync(ProcessingStage.PreviewReady);
         }
         catch (Exception ex)
@@ -810,7 +1209,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private void InitializeColorPalette()
     {
-        ColorPaletteContainer.Children.Clear();
+        if (ColorPaletteContainer != null)
+        {
+            ColorPaletteContainer.Children.Clear();
+        }
+
+        if (FlyoutColorPaletteContainer != null)
+        {
+            FlyoutColorPaletteContainer.Children.Clear();
+        }
 
         if (CustomColorPicker != null)
         {
@@ -831,32 +1238,64 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 continue;
             }
 
-            var button = new Button
-            {
-                Width = 20,
-                Height = 20,
-                Padding = new Thickness(0),
-                CornerRadius = new CornerRadius(10),
-                Margin = new Thickness(0),
-                Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, r, g, b)),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(40, 255, 255, 255)),
-                Tag = entry.HexValue
-            };
-
             string displayName = GetColorDisplayName(entry.Id, _currentLanguage);
-            ToolTipService.SetToolTip(button, displayName);
-            AutomationProperties.SetName(button, displayName);
 
-            button.Click += async (s, _) =>
+            if (ColorPaletteContainer != null)
             {
-                if (s is Button btn && btn.Tag is string hex)
+                var button = new Button
                 {
-                    await StageColorAsync(hex, isCustom: false);
-                }
-            };
+                    Width = 20,
+                    Height = 20,
+                    Padding = new Thickness(0),
+                    CornerRadius = new CornerRadius(10),
+                    Margin = new Thickness(0),
+                    Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, r, g, b)),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(40, 255, 255, 255)),
+                    Tag = entry.HexValue
+                };
+                ToolTipService.SetToolTip(button, displayName);
+                AutomationProperties.SetName(button, displayName);
+                button.Click += async (s, args) =>
+                {
+                    if (s is Button btn && btn.Tag is string hex)
+                    {
+                        _stagingModel.StageFolderColor(hex);
+                        await RefreshLivePreviewAsync();
+                        _ = RenderTemplateCardThumbnailsAsync();
+                    }
+                };
+                ColorPaletteContainer.Children.Add(button);
+            }
 
-            ColorPaletteContainer.Children.Add(button);
+            if (FlyoutColorPaletteContainer != null)
+            {
+                var flyoutBtn = new Button
+                {
+                    Width = 18,
+                    Height = 18,
+                    Padding = new Thickness(0),
+                    CornerRadius = new CornerRadius(9),
+                    Margin = new Thickness(0),
+                    Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, r, g, b)),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(40, 255, 255, 255)),
+                    Tag = entry.HexValue
+                };
+                ToolTipService.SetToolTip(flyoutBtn, displayName);
+                AutomationProperties.SetName(flyoutBtn, displayName);
+                flyoutBtn.Click += async (s, args) =>
+                {
+                    if (s is Button btn && btn.Tag is string hex)
+                    {
+                        _stagingModel.StageFolderColor(hex);
+                        await RefreshLivePreviewAsync();
+                        _ = RenderTemplateCardThumbnailsAsync();
+                        CustomColorFlyout?.Hide();
+                    }
+                };
+                FlyoutColorPaletteContainer.Children.Add(flyoutBtn);
+            }
         }
     }
 
@@ -877,63 +1316,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _ => AppResources.GetString("Colors", lang)
     };
 
-    private async Task StageColorAsync(string hexColor, bool isCustom = false, string? templateId = null, int? templateVersion = null)
-    {
-        if (_isProcessing) return;
-
-        if (string.IsNullOrWhiteSpace(_currentFolderPath))
-        {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
-            return;
-        }
-
-        try
-        {
-            CleanupStagedFiles();
-            _stagedCustomColorHex = isCustom ? hexColor : null;
-            if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Collapsed;
-
-            string targetTemplateId = templateId ?? _selectedTemplateId;
-            int targetTemplateVersion = templateVersion ?? _selectedTemplateVersion;
-
-            App.Log($"StageColorAsync started for '{_currentFolderPath}', hex={hexColor}, isCustom={isCustom}, template={targetTemplateId}v{targetTemplateVersion}");
-
-            await SetProcessingStageAsync(ProcessingStage.PreparingImage);
-            await Task.Delay(20);
-
-            _stagedOperationId = Guid.NewGuid();
-            _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
-
-            await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
-            await Task.Delay(20);
-
-            var tempPath = _stagedTempIcoPath;
-            var renderResult = await Task.Run(() =>
-            {
-                var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
-                return FolderTemplateRenderer.RenderColoredTemplateIco(pipeline, hexColor, tempPath, targetTemplateId, targetTemplateVersion);
-            });
-
-            if (!renderResult.IsSuccess || renderResult.Value == null)
-            {
-                CleanupStagedFiles();
-                ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, renderResult.ErrorMessage);
-                return;
-            }
-
-            _stagedProcessResult = renderResult.Value;
-            PreviewIconImage.Source = LoadBitmapSafe(_stagedTempIcoPath);
-
-            await SetProcessingStageAsync(ProcessingStage.PreviewReady);
-        }
-        catch (Exception ex)
-        {
-            App.Log($"StageColorAsync exception: {ex}");
-            CleanupStagedFiles();
-            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, ex.Message);
-        }
-    }
-
     private void OnCustomColorFlyoutOpened(object sender, object e)
     {
         _isCustomColorCommitted = false;
@@ -944,37 +1326,27 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (CustomColorTitleText != null) CustomColorTitleText.Text = AppResources.GetString("ColorPicker_CustomColor", _currentLanguage);
         if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-        if (TemplateTitleText != null) TemplateTitleText.Text = AppResources.GetString("Template_Title", _currentLanguage);
-        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = AppResources.GetString("Template_Classic", _currentLanguage);
-        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = AppResources.GetString("Template_Soft", _currentLanguage);
-        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = AppResources.GetString("Template_Flat", _currentLanguage);
         if (RecentColorsTitle != null) RecentColorsTitle.Text = AppResources.GetString("ColorPicker_RecentColors", _currentLanguage);
         if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
         if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
-
-        if (string.Equals(_selectedTemplateId, OrnareSoftTemplate.TemplateId, StringComparison.OrdinalIgnoreCase))
-        {
-            if (RadioTemplateSoft != null) RadioTemplateSoft.IsChecked = true;
-        }
-        else if (string.Equals(_selectedTemplateId, OrnareFlatTemplate.TemplateId, StringComparison.OrdinalIgnoreCase))
-        {
-            if (RadioTemplateFlat != null) RadioTemplateFlat.IsChecked = true;
-        }
-        else
-        {
-            if (RadioTemplateClassic != null) RadioTemplateClassic.IsChecked = true;
-        }
 
         if (CustomColorPicker != null)
         {
             if (CustomColorPicker.Color.A == 0 || (CustomColorPicker.Color.R == 0 && CustomColorPicker.Color.G == 0 && CustomColorPicker.Color.B == 0))
             {
-                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+                if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
+                {
+                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
+                }
+                else
+                {
+                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+                }
             }
 
             var currentColor = CustomColorPicker.Color;
             string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
-            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _selectedTemplateId, _selectedTemplateVersion);
+            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(currentHex, _stagingModel.StagedTemplateState.TemplateId, _stagingModel.StagedTemplateState.TemplateVersion);
             if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
             {
                 FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
@@ -1001,16 +1373,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
             await SetProcessingStageAsync(_snapshotStage);
         }
-    }
 
-    private void OnTemplateSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (TemplateRadioButtons?.SelectedItem is RadioButton rb && rb.Tag is string tid)
-        {
-            _selectedTemplateId = tid;
-            _selectedTemplateVersion = 1;
-            TriggerCustomColorPreview();
-        }
+        ColorActionButton?.Focus(FocusState.Programmatic);
     }
 
     private void OnCustomColorPickerColorChanged(ColorPicker sender, ColorChangedEventArgs args)
@@ -1026,8 +1390,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _previewDebounceCts = new CancellationTokenSource();
         var token = _previewDebounceCts.Token;
 
-        string templateId = _selectedTemplateId;
-        int templateVersion = _selectedTemplateVersion;
+        string templateId = _stagingModel.StagedTemplateState.TemplateId;
+        int templateVersion = _stagingModel.StagedTemplateState.TemplateVersion;
 
         _ = Task.Run(async () =>
         {
@@ -1075,8 +1439,9 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _isCustomColorCommitted = true;
         CustomColorFlyout.Hide();
 
-        await StageColorAsync(hex, isCustom: true, templateId: _selectedTemplateId, templateVersion: _selectedTemplateVersion);
-        await CommitStagedIconAsync();
+        _stagingModel.StageFolderColor(hex);
+        await RefreshLivePreviewAsync();
+        _ = RenderTemplateCardThumbnailsAsync();
     }
 
     private void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)
@@ -1171,40 +1536,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
 
         _stagedPlacementMode = newMode;
+        _stagingModel.StagePlacement(_stagedPlacementMode, _stagedPaddingPercent, _stagedBackgroundMode, _stagedBackgroundColorHex);
+        await RefreshLivePreviewAsync();
+    }
 
-        try
-        {
-            var tempPath = _stagedTempIcoPath;
-            if (string.IsNullOrWhiteSpace(tempPath))
-            {
-                return;
-            }
-
-            var imageBytes = _stagedImageBytes;
-            var mode = _stagedPlacementMode;
-
-            var pad = _stagedPaddingPercent;
-            var bgMode = _stagedBackgroundMode;
-            var bgHex = _stagedBackgroundColorHex;
-
-            // Render fast preview PNG first
-            var previewResult = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(imageBytes, 256, mode, pad, bgMode, bgHex));
-            if (previewResult.IsSuccess && previewResult.Value != null)
-            {
-                PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewResult.Value);
-            }
-
-            // Also render staged ICO in background so Apply is instantly ready
-            var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath, mode, pad, bgMode, bgHex));
-            if (processResult.IsSuccess && processResult.Value != null)
-            {
-                _stagedProcessResult = processResult.Value;
-            }
-        }
-        catch (Exception ex)
-        {
-            App.Log($"Placement change failed: {ex.Message}");
-        }
+    private void OnPlacementOptionsFlyoutClosed(object sender, object e)
+    {
+        PlacementOptionsButton?.Focus(FocusState.Programmatic);
     }
 
     private void OnPaddingToggled(object sender, RoutedEventArgs e)
@@ -1326,6 +1664,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                         _stagedProcessResult = icoResult;
                     }
                     PreviewIconImage.Source = LoadPreviewBitmapFromBytes(previewBytes);
+                    _stagingModel.StagePlacement(mode, pad, bgMode, bgHex);
+                    ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
                 });
             }
             catch (OperationCanceledException) { }
@@ -1398,19 +1738,94 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)
     {
-        if (_isProcessing || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || _stagedProcessResult == null)
+        if (_isProcessing || !_stagingModel.CanApply)
         {
             return;
         }
 
-        await CommitStagedIconAsync();
+        await ApplyStagedPersonalizationAsync();
+    }
+
+    private async Task ApplyStagedPersonalizationAsync()
+    {
+        if (_isProcessing || !_stagingModel.CanApply)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_currentFolderPath))
+        {
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
+            return;
+        }
+
+        try
+        {
+            if (_stagingModel.ActiveMode == PersonalizationMode.FolderTemplate)
+            {
+                _stagedOperationId = Guid.NewGuid();
+                _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
+                var templateState = _stagingModel.StagedTemplateState;
+
+                await SetProcessingStageAsync(ProcessingStage.PreparingImage);
+                await Task.Delay(20);
+
+                await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+                await Task.Delay(20);
+
+                var tempPath = _stagedTempIcoPath;
+                var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
+
+                var renderResult = await Task.Run(() =>
+                {
+                    return FolderTemplateRenderer.RenderColoredTemplateIco(
+                        pipeline,
+                        templateState.FolderColorHex,
+                        tempPath,
+                        templateState.TemplateId,
+                        templateState.TemplateVersion);
+                });
+
+                if (!renderResult.IsSuccess || renderResult.Value == null)
+                {
+                    CleanupStagedFiles();
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, renderResult.ErrorMessage);
+                    return;
+                }
+
+                _stagedProcessResult = renderResult.Value;
+                _stagedCustomColorHex = templateState.FolderColorHex;
+                await CommitStagedIconAsync();
+                _stagingModel.Commit();
+                ApplyConfirmButton.IsEnabled = false;
+                StatusInfoText.Text = AppResources.GetString("Status_Applied", _currentLanguage);
+            }
+            else if (_stagingModel.ActiveMode == PersonalizationMode.CustomImage)
+            {
+                if (string.IsNullOrWhiteSpace(_stagedTempIcoPath) || _stagedProcessResult == null)
+                {
+                    return;
+                }
+
+                await CommitStagedIconAsync();
+                _stagingModel.Commit();
+                ApplyConfirmButton.IsEnabled = false;
+                StatusInfoText.Text = AppResources.GetString("Status_Applied", _currentLanguage);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log($"ApplyStagedPersonalizationAsync exception: {ex}");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
+        }
     }
 
     private async void OnCancelPreviewClicked(object sender, RoutedEventArgs e)
     {
+        _stagingModel.Discard();
         CleanupStagedFiles();
         _stagedCustomColorHex = null;
-        PreviewIconImage.Source = null;
+        await RefreshLivePreviewAsync();
         await SetProcessingStageAsync(ProcessingStage.Idle);
     }
 
@@ -1636,6 +2051,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 ResetButton.Visibility = Visibility.Collapsed;
                 PreviewIconImage.Source = null;
                 SuccessIconImage.Source = null;
+                _stagingModel.Initialize(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
                 await SetProcessingStageAsync(ProcessingStage.Idle);
             }
             else
@@ -1671,6 +2088,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 ResetButton.Visibility = Visibility.Collapsed;
                 PreviewIconImage.Source = null;
                 SuccessIconImage.Source = null;
+                _stagingModel.Initialize(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
                 await SetProcessingStageAsync(ProcessingStage.Idle);
             }
             else
@@ -1752,6 +2171,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
+    private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapFromBytes(byte[] pngBytes)
+    {
+        try
+        {
+            string temp = Path.Combine(Path.GetTempPath(), $"ornare_thumb_{Guid.NewGuid():N}.png");
+            File.WriteAllBytes(temp, pngBytes);
+            return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(temp));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         _previewDebounceCts?.Cancel();
@@ -1803,23 +2236,19 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             case ProcessingStage.Idle:
                 _isProcessing = false;
-                IdleStatePanel.Visibility = Visibility.Visible;
+                PreviewStatePanel.Visibility = Visibility.Visible;
                 ProcessingStatePanel.Visibility = Visibility.Collapsed;
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                DropPromptText.Text = AppResources.GetString("DropAnImage", _currentLanguage);
-                ClickPromptText.Text = AppResources.GetString("ClickOrPastePrompt", _currentLanguage);
                 break;
 
             case ProcessingStage.PreparingImage:
                 _isProcessing = true;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 ProcessingText.Text = AppResources.GetString("PreparingImage", _currentLanguage);
@@ -1828,9 +2257,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             case ProcessingStage.GeneratingIcon:
                 _isProcessing = true;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 ProcessingText.Text = AppResources.GetString("GeneratingIcon", _currentLanguage);
@@ -1839,24 +2267,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             case ProcessingStage.PreviewReady:
                 _isProcessing = false;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 PreviewStatePanel.Visibility = Visibility.Visible;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
                 PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-                ApplyConfirmButton.Content = AppResources.GetString("Apply", _currentLanguage);
-                CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
                 UpdatePlacementStrings();
                 break;
 
             case ProcessingStage.ApplyingIcon:
                 _isProcessing = true;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 ProcessingText.Text = AppResources.GetString("ApplyingIcon", _currentLanguage);
@@ -1865,9 +2289,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             case ProcessingStage.RefreshingExplorer:
                 _isProcessing = true;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Visible;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 ProcessingText.Text = AppResources.GetString("RefreshingExplorer", _currentLanguage);
@@ -1876,9 +2299,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             case ProcessingStage.Done:
                 _isProcessing = false;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Visible;
                 ErrorStatePanel.Visibility = Visibility.Collapsed;
                 SuccessTitleText.Text = AppResources.GetString("FolderIconUpdated", _currentLanguage);
@@ -1890,9 +2312,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             case ProcessingStage.Error:
                 _isProcessing = false;
                 _autoCloseTimer?.Stop();
-                IdleStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 PreviewStatePanel.Visibility = Visibility.Collapsed;
+                ProcessingStatePanel.Visibility = Visibility.Collapsed;
                 SuccessStatePanel.Visibility = Visibility.Collapsed;
                 ErrorStatePanel.Visibility = Visibility.Visible;
                 TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
@@ -1944,9 +2365,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 break;
         }
 
-        IdleStatePanel.Visibility = Visibility.Collapsed;
-        ProcessingStatePanel.Visibility = Visibility.Collapsed;
         PreviewStatePanel.Visibility = Visibility.Collapsed;
+        ProcessingStatePanel.Visibility = Visibility.Collapsed;
         SuccessStatePanel.Visibility = Visibility.Collapsed;
         ErrorStatePanel.Visibility = Visibility.Visible;
 
@@ -1975,20 +2395,14 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             _currentLanguage = AppResources.NormalizeLocale(lang);
         }
 
-        DropPromptText.Text = AppResources.GetString("DropAnImage", _currentLanguage);
-        ClickPromptText.Text = AppResources.GetString("ClickOrPastePrompt", _currentLanguage);
+        UpdateLocalizedChrome();
+
         PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
         PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-        ApplyConfirmButton.Content = AppResources.GetString("Apply", _currentLanguage);
-        CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
         SuccessTitleText.Text = AppResources.GetString("FolderIconUpdated", _currentLanguage);
         SuccessSubtitleText.Text = AppResources.GetString("SuccessSubtitle", _currentLanguage);
         CloseSuccessButton.Content = AppResources.GetString("Close", _currentLanguage);
         UndoButton.Content = AppResources.GetString("Undo", _currentLanguage);
-        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
-        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
         TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
         UpdatePlacementStrings();
 
