@@ -32,7 +32,7 @@ public static class SvgRecolorService
 
         foreach (var el in doc.Descendants())
         {
-            var roleAttr = el.Attribute(SemanticSvgRoleExtensions.RoleAttribute);
+            var roleAttr = el.Attribute(SemanticSvgRoleExtensions.RoleAttribute) ?? el.Attribute(SemanticSvgRoleExtensions.LegacyRoleAttribute);
             if (roleAttr == null || string.IsNullOrWhiteSpace(roleAttr.Value))
             {
                 continue;

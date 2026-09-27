@@ -10,7 +10,7 @@ namespace Ornare.Core;
 
 public sealed record RenderRecipe
 {
-    public const int CurrentRecipeVersion = 1;
+    public const int CurrentRecipeVersion = 2;
 
     public int RecipeVersion { get; init; } = CurrentRecipeVersion;
     public string SourceAssetHash { get; init; } = string.Empty;
@@ -51,6 +51,16 @@ public sealed record RenderRecipe
     public int BadgeVersion { get; init; } = 1;
     public int BadgeAnchor { get; init; }
     public int BadgeScale { get; init; }
+    public int EmblemKind { get; init; }
+    [JsonIgnore]
+    public EmblemKind Emblem => (EmblemKind)EmblemKind;
+    public string EmblemContentId { get; init; } = string.Empty;
+    public string EmblemGraphemeSequence { get; init; } = string.Empty;
+    public string EmblemForegroundColor { get; init; } = "Auto";
+    public double EmblemScale { get; init; } = 1.0;
+    public double EmblemOffsetX { get; init; }
+    public double EmblemOffsetY { get; init; }
+    public int RenderPolicyVersion { get; init; } = 1;
     public string TargetFormat { get; init; } = "ico";
     public int[] TargetFrameSizes { get; init; } = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
     public int ResamplingPolicyVersion { get; init; } = 1;
@@ -130,6 +140,14 @@ public static class CanonicalRecipeSerializer
             writer.Write(recipe.ResamplingPolicyVersion);
             writer.Write(recipe.CompositingPolicyVersion);
             writer.Write(recipe.ColorSpacePolicyVersion);
+            writer.Write(recipe.EmblemKind);
+            writer.Write(recipe.EmblemContentId ?? string.Empty);
+            writer.Write(recipe.EmblemGraphemeSequence ?? string.Empty);
+            writer.Write(recipe.EmblemForegroundColor ?? "Auto");
+            writer.Write(recipe.EmblemScale);
+            writer.Write(recipe.EmblemOffsetX);
+            writer.Write(recipe.EmblemOffsetY);
+            writer.Write(recipe.RenderPolicyVersion);
         }
 
         return ms.ToArray();
@@ -200,6 +218,27 @@ public static class CanonicalRecipeSerializer
         int compVer = reader.ReadInt32();
         int colorSpaceVer = reader.ReadInt32();
 
+        int emblemKind = 0;
+        string emblemContentId = string.Empty;
+        string emblemGrapheme = string.Empty;
+        string emblemColor = "Auto";
+        double emblemScale = 1.0;
+        double emblemOffsetX = 0.0;
+        double emblemOffsetY = 0.0;
+        int renderPolicyVer = 1;
+
+        if (recipeVersion >= 2 && ms.Position < ms.Length)
+        {
+            emblemKind = reader.ReadInt32();
+            emblemContentId = reader.ReadString();
+            emblemGrapheme = reader.ReadString();
+            emblemColor = reader.ReadString();
+            emblemScale = reader.ReadDouble();
+            emblemOffsetX = reader.ReadDouble();
+            emblemOffsetY = reader.ReadDouble();
+            renderPolicyVer = reader.ReadInt32();
+        }
+
         return new RenderRecipe
         {
             RecipeVersion = recipeVersion,
@@ -223,6 +262,14 @@ public static class CanonicalRecipeSerializer
             BadgeVersion = badgeVer,
             BadgeAnchor = badgeAnchor,
             BadgeScale = badgeScale,
+            EmblemKind = emblemKind,
+            EmblemContentId = emblemContentId,
+            EmblemGraphemeSequence = emblemGrapheme,
+            EmblemForegroundColor = emblemColor,
+            EmblemScale = emblemScale,
+            EmblemOffsetX = emblemOffsetX,
+            EmblemOffsetY = emblemOffsetY,
+            RenderPolicyVersion = renderPolicyVer,
             TargetFormat = targetFormat,
             TargetFrameSizes = frameSizes,
             ResamplingPolicyVersion = resampVer,

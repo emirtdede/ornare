@@ -15,11 +15,12 @@ public sealed record SemanticColorPalette
 
     public string GetColor(SemanticSvgRole role) => role switch
     {
-        SemanticSvgRole.Base => BaseColor,
-        SemanticSvgRole.Light => LightColor,
+        SemanticSvgRole.Base or SemanticSvgRole.FolderFront => BaseColor,
+        SemanticSvgRole.Light or SemanticSvgRole.Edge => LightColor,
         SemanticSvgRole.Highlight => HighlightColor,
         SemanticSvgRole.Shadow => ShadowColor,
-        SemanticSvgRole.Deep => DeepColor,
+        SemanticSvgRole.Deep or SemanticSvgRole.FolderBack or SemanticSvgRole.FolderTab => DeepColor,
+        SemanticSvgRole.Detail => LightColor,
         SemanticSvgRole.Badge => BadgeColor,
         _ => BaseColor
     };

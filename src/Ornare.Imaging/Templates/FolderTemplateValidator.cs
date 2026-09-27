@@ -8,7 +8,7 @@ using Ornare.Core;
 namespace Ornare.Imaging.Templates;
 
 /// <summary>
-/// Strict geometry, security, and semantic role validator for Ornare folder templates (F03).
+/// Strict geometry, security, and semantic role validator for Ornare folder templates (F03/Section 14).
 /// </summary>
 public static class FolderTemplateValidator
 {
@@ -18,10 +18,7 @@ public static class FolderTemplateValidator
         "audio", "video", "iframe"
     };
 
-    private static readonly HashSet<string> RequiredRoles = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "base", "light", "highlight", "shadow", "deep"
-    };
+    private static readonly string[] RequiredCoreRoles = ["deep", "base", "light", "highlight", "shadow"];
 
     public static OperationResult<bool> Validate(string svgContent)
     {
@@ -53,7 +50,7 @@ public static class FolderTemplateValidator
             return OperationResult.Failure<bool>(ErrorCode.InvalidTarget, "Template must have viewBox=\"0 0 256 256\".");
         }
 
-        // 2. Scan for disallowed elements
+        // 2. Scan for disallowed elements and scripting attributes
         var allElements = root.Descendants().ToList();
         foreach (var el in allElements)
         {
@@ -63,7 +60,6 @@ public static class FolderTemplateValidator
                 return OperationResult.Failure<bool>(ErrorCode.UnsupportedImageFormat, $"Disallowed SVG element <{localName}> detected.");
             }
 
-            // Check for event handler attributes
             foreach (var attr in el.Attributes())
             {
                 if (attr.Name.LocalName.StartsWith("on", StringComparison.OrdinalIgnoreCase))
@@ -73,25 +69,33 @@ public static class FolderTemplateValidator
             }
         }
 
-        // 3. Scan for semantic roles
-        var foundRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 3. Scan for semantic roles (supporting both data-role and data-ornare-role)
+        var normalizedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var el in allElements)
         {
-            var roleAttr = el.Attribute("data-ornare-role");
-            if (roleAttr != null)
+            var roleAttr = el.Attribute("data-role") ?? el.Attribute("data-ornare-role");
+            if (roleAttr != null && !string.IsNullOrWhiteSpace(roleAttr.Value))
             {
-                string role = roleAttr.Value.Trim();
-                if (!RequiredRoles.Contains(role))
+                string r = roleAttr.Value.Trim().ToLowerInvariant();
+                string canonical = r switch
                 {
-                    return OperationResult.Failure<bool>(ErrorCode.InvalidTarget, $"Unknown semantic role '{role}' detected.");
-                }
-                foundRoles.Add(role);
+                    "folder-back" or "deep" or "folder-tab" or "tab" => "deep",
+                    "folder-front" or "base" or "front" => "base",
+                    "edge" or "light" => "light",
+                    "highlight" => "highlight",
+                    "shadow" => "shadow",
+                    "badge" => "badge",
+                    "detail" => "detail",
+                    _ => r
+                };
+                normalizedRoles.Add(canonical);
+                normalizedRoles.Add(r);
             }
         }
 
-        foreach (string required in RequiredRoles)
+        foreach (string required in RequiredCoreRoles)
         {
-            if (!foundRoles.Contains(required))
+            if (!normalizedRoles.Contains(required))
             {
                 return OperationResult.Failure<bool>(ErrorCode.InvalidTarget, $"Missing required semantic role '{required}'.");
             }

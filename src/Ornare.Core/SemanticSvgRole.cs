@@ -10,12 +10,18 @@ public enum SemanticSvgRole
     Highlight = 3,
     Shadow = 4,
     Deep = 5,
-    Badge = 6
+    Badge = 6,
+    FolderBack = 7,
+    FolderTab = 8,
+    FolderFront = 9,
+    Edge = 10,
+    Detail = 11
 }
 
 public static class SemanticSvgRoleExtensions
 {
-    public const string RoleAttribute = "data-ornare-role";
+    public const string RoleAttribute = "data-role";
+    public const string LegacyRoleAttribute = "data-ornare-role";
 
     public static string ToRoleName(this SemanticSvgRole role) => role switch
     {
@@ -25,6 +31,11 @@ public static class SemanticSvgRoleExtensions
         SemanticSvgRole.Shadow => "shadow",
         SemanticSvgRole.Deep => "deep",
         SemanticSvgRole.Badge => "badge",
+        SemanticSvgRole.FolderBack => "folder-back",
+        SemanticSvgRole.FolderTab => "folder-tab",
+        SemanticSvgRole.FolderFront => "folder-front",
+        SemanticSvgRole.Edge => "edge",
+        SemanticSvgRole.Detail => "detail",
         _ => string.Empty
     };
 
@@ -37,11 +48,13 @@ public static class SemanticSvgRoleExtensions
 
         return roleString.Trim().ToLowerInvariant() switch
         {
-            "base" => SemanticSvgRole.Base,
-            "light" => SemanticSvgRole.Light,
+            "base" or "folder-front" or "front" => SemanticSvgRole.FolderFront,
+            "deep" or "folder-back" or "back" => SemanticSvgRole.FolderBack,
+            "folder-tab" or "tab" => SemanticSvgRole.FolderTab,
             "highlight" => SemanticSvgRole.Highlight,
             "shadow" => SemanticSvgRole.Shadow,
-            "deep" => SemanticSvgRole.Deep,
+            "light" or "edge" => SemanticSvgRole.Edge,
+            "detail" => SemanticSvgRole.Detail,
             "badge" => SemanticSvgRole.Badge,
             _ => SemanticSvgRole.None
         };

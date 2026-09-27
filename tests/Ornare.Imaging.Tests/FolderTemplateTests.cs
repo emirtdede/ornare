@@ -301,10 +301,10 @@ public sealed class FolderTemplateTests : IDisposable
     public void Windows11FolderTemplateMatchesAssetsSvgAndRendersAccurately()
     {
         string repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-        string path = Path.Combine(repoRoot, "assets", "Windows_11_FOLDER.svg");
-        if (File.Exists(path))
+        string legacyPath = Path.Combine(repoRoot, "assets-references", "legacy", "Windows_11_FOLDER.svg");
+        if (File.Exists(legacyPath))
         {
-            byte[] rawBytes = File.ReadAllBytes(path);
+            byte[] rawBytes = File.ReadAllBytes(legacyPath);
             Assert.NotEmpty(rawBytes);
         }
 
@@ -325,5 +325,30 @@ public sealed class FolderTemplateTests : IDisposable
         using var img = new MagickImage(previewResult.Value);
         Assert.Equal(256u, img.Width);
         Assert.Equal(256u, img.Height);
+    }
+
+    [Fact]
+    public void DescriptorsExposeSection15ManifestContractProperties()
+    {
+        foreach (var descriptor in FolderTemplateCatalog.All)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(descriptor.Id));
+            Assert.False(string.IsNullOrWhiteSpace(descriptor.DisplayNameResourceKey));
+            Assert.True(descriptor.Version >= 1);
+            Assert.True(descriptor.SupportsColor);
+            Assert.True(descriptor.SupportsEmblem);
+            Assert.Equal("0 0 256 256", descriptor.ViewBox);
+            Assert.NotNull(descriptor.EmblemSafeZone);
+            Assert.True(descriptor.EmblemSafeZone.Width > 0.0);
+            Assert.True(descriptor.EmblemSafeZone.Height > 0.0);
+            Assert.NotNull(descriptor.ReservedBadgeZones);
+            Assert.NotEmpty(descriptor.ReservedBadgeZones);
+
+            var manifestEntry = descriptor.ToManifestEntry();
+            Assert.Equal(descriptor.Id, manifestEntry.Id);
+            Assert.Equal(descriptor.Version, manifestEntry.Version);
+            Assert.Equal(descriptor.DisplayNameResourceKey, manifestEntry.DisplayNameResourceKey);
+            Assert.Equal(descriptor.EmblemSafeZone, manifestEntry.EmblemSafeZone);
+        }
     }
 }
