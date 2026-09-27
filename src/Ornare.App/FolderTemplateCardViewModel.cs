@@ -7,6 +7,7 @@ namespace Ornare.App;
 /// <summary>
 /// ViewModel for items in the 3x3 Folder Style flyout grid (Section 27).
 /// </summary>
+[Microsoft.UI.Xaml.Data.Bindable]
 public sealed class FolderTemplateCardViewModel : INotifyPropertyChanged
 {
     private bool _isSelected;

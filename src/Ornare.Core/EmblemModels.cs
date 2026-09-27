@@ -123,6 +123,18 @@ public sealed record VectorEmblemEntry
     [System.Text.Json.Serialization.JsonPropertyName("sha256")]
     public string Sha256 { get; init; } = string.Empty;
 
+    [System.Text.Json.Serialization.JsonPropertyName("upstreamCommit")]
+    public string UpstreamCommit { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("upstreamAssetPath")]
+    public string UpstreamAssetPath { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("acquisitionDate")]
+    public string AcquisitionDate { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("licenseBasis")]
+    public string LicenseBasis { get; init; } = string.Empty;
+
     [System.Text.Json.Serialization.JsonPropertyName("viewBox")]
     public string ViewBox { get; init; } = "0 0 24 24";
 
@@ -149,6 +161,18 @@ public sealed record VectorEmblemManifest
 
     [System.Text.Json.Serialization.JsonPropertyName("upstreamVersion")]
     public string UpstreamVersion { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("upstreamCommit")]
+    public string UpstreamCommit { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("upstreamRepository")]
+    public string UpstreamRepository { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("acquisitionDate")]
+    public string AcquisitionDate { get; init; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("licenseBasis")]
+    public string LicenseBasis { get; init; } = string.Empty;
 
     [System.Text.Json.Serialization.JsonPropertyName("categories")]
     public string[] Categories { get; init; } = [];

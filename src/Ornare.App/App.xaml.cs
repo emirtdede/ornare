@@ -364,13 +364,14 @@ public partial class App : Application, IDisposable
                     _window = null;
                 };
             }
-            Log($"Calling SetTargetFolderAsync on QuickPanelWindow for '{target}'...");
-            await _window.SetTargetFolderAsync(target);
             _window.PositionWindow(request.CursorX, request.CursorY);
-            _window.ApplyVisualTestState(request.UiState, request.Theme, request.Lang);
             _window.Activate();
             BringToFront(_window);
-            Log("QuickPanelWindow brought to front.");
+            Log("QuickPanelWindow activated and brought to front.");
+
+            Log($"Calling SetTargetFolderAsync on QuickPanelWindow for '{target}'...");
+            await _window.SetTargetFolderAsync(target);
+            _window.ApplyVisualTestState(request.UiState, request.Theme, request.Lang);
         }
     }
 

@@ -1043,6 +1043,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 VectorEmblemCards.Add(card);
             }
 
+            if (IconGridView != null && IconGridView.ItemsSource == null)
+            {
+                IconGridView.ItemsSource = VectorEmblemCards;
+            }
+
             _emblemCatalogInitialized = true;
         }
         catch (Exception ex)
@@ -1190,6 +1195,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             {
                 UpdateEmojiCardVisualState(card);
                 EmojiCards.Add(card);
+            }
+
+            if (EmojiGridView != null && EmojiGridView.ItemsSource == null)
+            {
+                EmojiGridView.ItemsSource = EmojiCards;
             }
 
             _emojiCatalogInitialized = true;

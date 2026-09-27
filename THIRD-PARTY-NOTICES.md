@@ -172,10 +172,13 @@ SOFTWARE.
 
 ## 8. Microsoft Fluent UI System Icons (@fluentui/svg-icons)
 - **Version:** 1.1.343
+- **Pinned Git Commit SHA:** `a563cf9166f4f91aa617557ed272612b7f0a2f72`
+- **Acquisition Date:** 2026-09-27
 - **License:** MIT License
-- **Copyright:** Copyright (c) Microsoft Corporation
+- **Copyright:** Copyright (c) Microsoft Corporation. All rights reserved.
 - **Project URL:** https://github.com/microsoft/fluentui-system-icons
 - **Usage:** Curated monochrome vector emblems for folder personalization (320 icons).
+- **Provenance Manifest:** `assets/emblems/manifest.json` (320 verified SHA-256 hashes, exact upstream paths).
 - **License Text:**
 ```
 The MIT License (MIT)

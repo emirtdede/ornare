@@ -4,6 +4,7 @@
     <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
     <RootNamespace>Ornare.Windows</RootNamespace>
     <AssemblyName>Ornare.Windows</AssemblyName>
+    <NoWarn>$(NoWarn);IL2050</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

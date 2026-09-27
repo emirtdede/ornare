@@ -12,6 +12,7 @@
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <NoWarn>$(NoWarn);IL2050</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

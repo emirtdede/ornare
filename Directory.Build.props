@@ -15,7 +15,7 @@
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
     <WarningsAsErrors>$(WarningsAsErrors);NU1902;NU1903;NU1904</WarningsAsErrors>
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901</WarningsNotAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900;NU1901</WarningsNotAsErrors>
     <Company>Vellium</Company>
     <Authors>Vellium</Authors>
     <Product>Ornare</Product>

@@ -67,10 +67,13 @@ The center emblem catalog provides 320 monochrome vector icons organized across 
 ### Licensing & Upstream Provenance:
 - **Upstream Project:** Microsoft Fluent UI System Icons (`@fluentui/svg-icons`)
 - **Version:** `1.1.343`
+- **Pinned Upstream Git Commit SHA:** `a563cf9166f4f91aa617557ed272612b7f0a2f72`
+- **Acquisition Date:** 2026-09-27
 - **License:** MIT License
 - **Copyright:** Copyright (c) Microsoft Corporation. All rights reserved.
 - **Third-Party Attribution:** Formally recorded in [`THIRD-PARTY-NOTICES.md`](file:///c:/Users/emir/Desktop/Ornare/THIRD-PARTY-NOTICES.md) under Section 8.
-- **Packaging:** Pre-parsed path definitions and localized bilingual metadata compiled in `assets/emblems/manifest.json` (357 KB) with zero external network downloads.
+- **Packaging:** Pre-parsed path definitions and localized bilingual metadata compiled in `assets/emblems/manifest.json`.
+- **Integrity Verification:** 320/320 local SVG files verified matching exact upstream tree paths and local SHA-256 hashes (0 missing, 0 hash mismatches, 0 duplicate IDs).
 
 ---
 

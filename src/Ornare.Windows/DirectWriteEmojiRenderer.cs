@@ -27,6 +27,7 @@ public static class DirectWriteEmojiRenderer
     /// <summary>
     /// Renders the specified Unicode emoji grapheme cluster to raw 32-bit PBGRA pixels.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2050", Justification = "DirectWrite/D2D/WIC COM interop interfaces are preserved.")]
     public static unsafe OperationResult<byte[]> RenderEmojiBgra(string graphemeSequence, int targetSize)
     {
         if (string.IsNullOrWhiteSpace(graphemeSequence))
@@ -71,12 +72,14 @@ public static class DirectWriteEmojiRenderer
                 var dwriteFactory = (IDWriteFactory)dwriteFactoryObj;
 
                 // 3. WIC Imaging Factory via standard native COM activation
-                var wicType = Type.GetTypeFromCLSID(ClsidWicImagingFactory);
-                if (wicType == null)
+                var wicGuid = typeof(IWICImagingFactory).GUID;
+                var clsidWic = ClsidWicImagingFactory;
+                hr = PInvoke.CoCreateInstance(&clsidWic, null, CLSCTX.CLSCTX_INPROC_SERVER, &wicGuid, out object wicFactoryObj);
+                if (hr.Failed)
                 {
-                    return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, "Failed to resolve WICImagingFactory CLSID.");
+                    return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"CoCreateInstance for WICImagingFactory failed: 0x{hr.Value:X8}");
                 }
-                var wicFactory = (IWICImagingFactory)Activator.CreateInstance(wicType)!;
+                var wicFactory = (IWICImagingFactory)wicFactoryObj;
 
                 // 4. Create WIC Bitmap (targetSize x targetSize, PBGRA)
                 var pixelFormat = PInvoke.GUID_WICPixelFormat32bppPBGRA;

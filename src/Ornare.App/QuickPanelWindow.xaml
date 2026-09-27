@@ -598,7 +598,6 @@
                                 SelectionMode="None"
                                 IsItemClickEnabled="True"
                                 ItemClick="OnIconGridItemClick"
-                                ItemsSource="{x:Bind VectorEmblemCards, Mode=OneWay}"
                                 AutomationProperties.Name="Curated vector icons grid">
                                 <GridView.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -702,7 +701,6 @@
                                 SelectionMode="None"
                                 IsItemClickEnabled="True"
                                 ItemClick="OnEmojiGridItemClick"
-                                ItemsSource="{x:Bind EmojiCards, Mode=OneWay}"
                                 AutomationProperties.Name="Curated emoji grid">
                                 <GridView.ItemsPanel>
                                     <ItemsPanelTemplate>

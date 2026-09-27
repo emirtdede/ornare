@@ -8,6 +8,7 @@ namespace Ornare.App;
 /// <summary>
 /// ViewModel for vector emblems displayed in the IconFlyout GridView (Section 18 &amp; 28).
 /// </summary>
+[Microsoft.UI.Xaml.Data.Bindable]
 public sealed class VectorEmblemItemViewModel : INotifyPropertyChanged
 {
     private bool _isSelected;

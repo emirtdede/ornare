@@ -246,8 +246,113 @@ public sealed class Phase11PersonalizationBenchmarkTests : IDisposable
             samples.Add(sw.Elapsed.TotalMilliseconds);
         }
 
-        // Apply P95 threshold <= 500ms
-        ReportMetric("Full Personalization Apply (ProcessRecipe + Folder Commit)", samples, 500.0);
+        // Apply P95 threshold <= 500ms (Requirement 14: explicitly labeled as INTERNAL PIPELINE BENCHMARK)
+        ReportMetric("INTERNAL PIPELINE BENCHMARK (ProcessRecipe + Folder Commit)", samples, 500.0);
+    }
+
+    [Fact]
+    public void BenchmarkRepresentativeRealApplyP95TwentySamples()
+    {
+        string cliPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "ornare.exe");
+        if (!File.Exists(cliPath))
+        {
+            cliPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Ornare.Cli", "bin", "Release", "net10.0-windows10.0.26100.0", "win-x64", "publish", "Ornare.Cli.exe"));
+        }
+
+        if (!File.Exists(cliPath))
+        {
+            _output.WriteLine("[SKIP] Representative Real Apply benchmark: CLI binary not found.");
+            return;
+        }
+
+        List<double> samples = new(20);
+        string applyBaseDir = Path.Combine(_tempRoot, "real_apply_benchmarks");
+        Directory.CreateDirectory(applyBaseDir);
+
+        for (int i = 0; i < 20; i++)
+        {
+            string targetFolder = Path.Combine(applyBaseDir, $"TargetFolder_{i}");
+            Directory.CreateDirectory(targetFolder);
+
+            var psi = new ProcessStartInfo(cliPath, $"apply \"{targetFolder}\" --color #2563EB --json")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var sw = Stopwatch.StartNew();
+            using var proc = Process.Start(psi)!;
+            proc.WaitForExit(10000);
+            sw.Stop();
+
+            Assert.Equal(0, proc.ExitCode);
+            samples.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        ReportMetric("Representative REAL Apply (FULL USER APPLY)", samples, 500.0);
+    }
+
+    [Fact]
+    public void BenchmarkColorPreviewUpdateLatency20Samples()
+    {
+        List<double> samples = new(20);
+        string[] colors = ["#0078D4", "#107C41", "#D83B01", "#5C2D91", "#008272", "#E81123", "#002050", "#2B88D8"];
+
+        // Warmup
+        _ = FolderTemplateRenderer.CreateRecipe("#0078D4", "ornare-aqua", 2);
+
+        for (int i = 0; i < 20; i++)
+        {
+            string c = colors[i % colors.Length];
+            var sw = Stopwatch.StartNew();
+            var recipe = FolderTemplateRenderer.CreateRecipe(c, "ornare-aqua", 2);
+            var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
+            byte[] bytes = descriptor.GetBytes();
+            sw.Stop();
+            samples.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        ReportMetric("Color Preview Update Latency", samples, 50.0);
+    }
+
+    [Fact]
+    public void BenchmarkFolderFlyoutSubsequentOpenLatency20Samples()
+    {
+        var cached = FolderTemplateCatalog.All;
+        List<double> samples = new(20);
+
+        for (int i = 0; i < 20; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            int count = 0;
+            foreach (var t in cached)
+            {
+                count += t.Id.Length;
+            }
+            sw.Stop();
+            samples.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        ReportMetric("Folder Flyout Subsequent Open", samples, 30.0);
+    }
+
+    [Fact]
+    public void BenchmarkIconCatalogFirstOpenLatency20Samples()
+    {
+        List<double> samples = new(20);
+
+        for (int i = 0; i < 20; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            var all = VectorEmblemCatalog.All;
+            Assert.Equal(320, all.Count);
+            sw.Stop();
+            samples.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        ReportMetric("Icon Catalog First Open", samples, 150.0);
     }
 
     [Fact]

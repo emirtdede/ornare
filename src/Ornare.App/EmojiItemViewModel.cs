@@ -7,6 +7,7 @@ namespace Ornare.App;
 /// <summary>
 /// ViewModel for Unicode emoji entries displayed in the EmojiFlyout GridView (Section 24 &amp; 29).
 /// </summary>
+[Microsoft.UI.Xaml.Data.Bindable]
 public sealed class EmojiItemViewModel : INotifyPropertyChanged
 {
     private bool _isSelected;
