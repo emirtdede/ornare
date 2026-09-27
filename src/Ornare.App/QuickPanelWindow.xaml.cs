@@ -133,31 +133,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_FRAMECHANGED = 0x0020;
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-    private const uint WM_NCLBUTTONDOWN = 0x00A1;
-    private const int HTCAPTION = 2;
-
     #endregion
-
-    private void OnTitleBarPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
-        {
-            IntPtr hwnd = WindowNative.GetWindowHandle(this);
-            if (hwnd != IntPtr.Zero)
-            {
-                _ = ReleaseCapture();
-                _ = SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
-            }
-        }
-    }
-
 
     public QuickPanelWindow(
         IImagePipeline imagePipeline,
