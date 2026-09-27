@@ -50,10 +50,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     public ObservableCollection<FolderTemplateCardViewModel> FolderTemplateCards { get; } = new();
     public ObservableCollection<VectorEmblemItemViewModel> VectorEmblemCards { get; } = new();
+    public ObservableCollection<EmojiItemViewModel> EmojiCards { get; } = new();
 
     private List<VectorEmblemItemViewModel>? _allEmblemCards;
+    private List<EmojiItemViewModel>? _allEmojiCards;
     private string _selectedEmblemColorHex = "Auto";
     private bool _emblemCatalogInitialized;
+    private bool _emojiCatalogInitialized;
 
     private string _currentFolderPath = string.Empty;
     private FolderBaseline? _currentBaseline;
@@ -1115,7 +1118,143 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         _stagingModel.RemoveEmblem();
         SyncEmblemSelectionState();
+        SyncEmojiSelectionState();
         await RefreshLivePreviewAsync();
+    }
+
+    private void OnEmojiFlyoutOpening(object? sender, object? e)
+    {
+        EnsureEmojiCatalogInitialized();
+        SyncEmojiSelectionState();
+    }
+
+    private void EnsureEmojiCatalogInitialized()
+    {
+        if (_emojiCatalogInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            var allEntries = EmojiCatalog.All;
+            _allEmojiCards = new List<EmojiItemViewModel>(allEntries.Count);
+            foreach (var entry in allEntries)
+            {
+                _allEmojiCards.Add(new EmojiItemViewModel(
+                    entry.Grapheme,
+                    entry.Name,
+                    entry.Category));
+            }
+
+            if (EmojiCategoryComboBox != null)
+            {
+                EmojiCategoryComboBox.Items.Clear();
+                EmojiCategoryComboBox.Items.Add(AppResources.GetString("Category_All", _currentLanguage));
+                foreach (var cat in EmojiCatalog.Categories)
+                {
+                    EmojiCategoryComboBox.Items.Add(cat);
+                }
+                EmojiCategoryComboBox.SelectedIndex = 0;
+            }
+
+            EmojiCards.Clear();
+            foreach (var card in _allEmojiCards)
+            {
+                UpdateEmojiCardVisualState(card);
+                EmojiCards.Add(card);
+            }
+
+            _emojiCatalogInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"Failed to initialize emoji catalog: {ex.Message}");
+        }
+    }
+
+    private void SyncEmojiSelectionState()
+    {
+        var currentEmblem = _stagingModel.StagedTemplateState.Emblem;
+        bool hasEmojiEmblem = currentEmblem.Kind == EmblemKind.Emoji && !string.IsNullOrWhiteSpace(currentEmblem.GraphemeSequence);
+
+        if (RemoveEmojiEmblemButton != null)
+        {
+            RemoveEmojiEmblemButton.Visibility = hasEmojiEmblem ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (_allEmojiCards != null)
+        {
+            foreach (var card in _allEmojiCards)
+            {
+                card.IsSelected = hasEmojiEmblem && string.Equals(card.Grapheme, currentEmblem.GraphemeSequence, StringComparison.Ordinal);
+                UpdateEmojiCardVisualState(card);
+            }
+        }
+    }
+
+    private static void UpdateEmojiCardVisualState(EmojiItemViewModel card)
+    {
+        if (card.IsSelected)
+        {
+            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+        }
+        else
+        {
+            card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        }
+    }
+
+    private void OnEmojiSearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        FilterEmojiCards();
+    }
+
+    private void OnEmojiCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        FilterEmojiCards();
+    }
+
+    private void FilterEmojiCards()
+    {
+        if (_allEmojiCards == null)
+        {
+            return;
+        }
+
+        string query = EmojiSearchTextBox?.Text?.Trim() ?? string.Empty;
+        string? selectedCat = EmojiCategoryComboBox?.SelectedItem as string;
+        string allLabel = AppResources.GetString("Category_All", _currentLanguage);
+        if (string.Equals(selectedCat, allLabel, StringComparison.OrdinalIgnoreCase) || string.Equals(selectedCat, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedCat = null;
+        }
+
+        var filtered = EmojiCatalog.Search(query, selectedCat);
+        var filteredGraphemes = new HashSet<string>(filtered.Select(f => f.Grapheme), StringComparer.Ordinal);
+
+        EmojiCards.Clear();
+        foreach (var card in _allEmojiCards)
+        {
+            if (filteredGraphemes.Contains(card.Grapheme))
+            {
+                UpdateEmojiCardVisualState(card);
+                EmojiCards.Add(card);
+            }
+        }
+    }
+
+    private async void OnEmojiGridItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is EmojiItemViewModel card)
+        {
+            _stagingModel.StageEmojiEmblem(card.Grapheme);
+            SyncEmojiSelectionState();
+            SyncEmblemSelectionState();
+            await RefreshLivePreviewAsync();
+        }
     }
 
     private async void OnEmblemColorAutoClicked(object sender, RoutedEventArgs e)

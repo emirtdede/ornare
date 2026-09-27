@@ -38,6 +38,11 @@ public static class FolderEmblemCompositor
     }
 
     /// <summary>
+    /// Pluggable emoji rasterizer provider (e.g. DirectWrite on Windows) (Section 25).
+    /// </summary>
+    public static IEmojiRasterizer? EmojiRasterizer { get; set; }
+
+    /// <summary>
     /// Composites a center emblem recipe onto a target frame image.
     /// </summary>
     public static void CompositeEmblem(
@@ -70,6 +75,19 @@ public static class FolderEmblemCompositor
                 offsetX: emblem.OffsetX,
                 offsetY: emblem.OffsetY,
                 requestedForegroundColor: emblem.ForegroundColor);
+        }
+        else if (emblem.Kind == EmblemKind.Emoji)
+        {
+            if (!string.IsNullOrWhiteSpace(emblem.GraphemeSequence))
+            {
+                CompositeEmojiEmblem(
+                    targetImage,
+                    emblem.GraphemeSequence,
+                    safeZone,
+                    scale: emblem.Scale,
+                    offsetX: emblem.OffsetX,
+                    offsetY: emblem.OffsetY);
+            }
         }
     }
 
@@ -138,4 +156,67 @@ public static class FolderEmblemCompositor
             targetImage.Composite(emblemImage, destX, destY, CompositeOperator.Over);
         }
     }
+
+    /// <summary>
+    /// Composites an individual Unicode emoji emblem grapheme cluster onto the target image.
+    /// </summary>
+    public static void CompositeEmojiEmblem(
+        MagickImage targetImage,
+        string graphemeSequence,
+        NormalizedRect safeZone,
+        double scale = 1.0,
+        double offsetX = 0.0,
+        double offsetY = 0.0)
+    {
+        ArgumentNullException.ThrowIfNull(targetImage);
+
+        if (string.IsNullOrWhiteSpace(graphemeSequence) || EmojiRasterizer == null)
+        {
+            return;
+        }
+
+        double canvasW = targetImage.Width;
+        double canvasH = targetImage.Height;
+
+        double safeX = safeZone.X * canvasW;
+        double safeY = safeZone.Y * canvasH;
+        double safeW = safeZone.Width * canvasW;
+        double safeH = safeZone.Height * canvasH;
+
+        double centerSafeX = safeX + (safeW / 2.0);
+        double centerSafeY = safeY + (safeH / 2.0);
+
+        double clampedScale = Math.Clamp(scale <= 0.0 ? 1.0 : scale, 0.2, 2.0);
+        double emblemBox = Math.Min(safeW, safeH) * clampedScale;
+
+        double clampedOffsetX = Math.Clamp(offsetX, -0.5, 0.5);
+        double clampedOffsetY = Math.Clamp(offsetY, -0.5, 0.5);
+
+        double targetCenterX = centerSafeX + (clampedOffsetX * safeW);
+        double targetCenterY = centerSafeY + (clampedOffsetY * safeH);
+
+        int destX = (int)Math.Round(targetCenterX - (emblemBox / 2.0));
+        int destY = (int)Math.Round(targetCenterY - (emblemBox / 2.0));
+        int boxSize = (int)Math.Max(1, Math.Round(emblemBox));
+
+        // Render at least 16px to ensure DirectWrite hinting and avoid font clipping, then scale down if needed
+        int renderSize = Math.Max(16, boxSize);
+
+        var result = EmojiRasterizer.RenderEmojiBgra(graphemeSequence, renderSize);
+        if (!result.IsSuccess || result.Value == null)
+        {
+            return;
+        }
+
+        using var emojiImage = new MagickImage(MagickColors.Transparent, (uint)renderSize, (uint)renderSize);
+        emojiImage.ReadPixels(result.Value, new PixelReadSettings((uint)renderSize, (uint)renderSize, StorageType.Char, PixelMapping.BGRA));
+
+        if (boxSize != renderSize)
+        {
+            emojiImage.Resize((uint)boxSize, (uint)boxSize);
+        }
+
+        targetImage.Composite(emojiImage, destX, destY, CompositeOperator.Over);
+    }
 }
+

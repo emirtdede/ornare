@@ -26,7 +26,11 @@ public static class FolderTemplateRenderer
         string baseHex,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
         int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
-        FolderEmblemRecipe? emblem = null)
+        FolderEmblemRecipe? emblem = null,
+        string badgeAssetId = "",
+        int badgeVersion = 1,
+        int badgeAnchor = 0,
+        int badgeScale = 0)
     {
         if (!ColorConversion.TryParseHex(baseHex, out byte r, out byte g, out byte b))
         {
@@ -48,6 +52,10 @@ public static class FolderTemplateRenderer
             SvgRecolorMode = 1, // SemanticTemplate
             SvgRecolorValue = normalizedHex,
             SvgRecolorVersion = 1,
+            BadgeAssetId = badgeAssetId,
+            BadgeVersion = badgeVersion,
+            BadgeAnchor = badgeAnchor,
+            BadgeScale = badgeScale,
             TargetFormat = "ico",
             TargetFrameSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256],
             EmblemKind = emblem != null && emblem.HasEmblem ? (int)emblem.Kind : 0,
@@ -70,6 +78,10 @@ public static class FolderTemplateRenderer
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
         int templateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
         FolderEmblemRecipe? emblem = null,
+        string badgeAssetId = "",
+        int badgeVersion = 1,
+        int badgeAnchor = 0,
+        int badgeScale = 0,
         string? cacheDirectory = null,
         Func<string, RenderCacheEntry?>? cacheLookup = null,
         Action<RenderCacheEntry>? cacheStore = null,
@@ -81,7 +93,7 @@ public static class FolderTemplateRenderer
         RenderRecipe recipe;
         try
         {
-            recipe = CreateRecipe(baseHex, templateId, templateVersion, emblem);
+            recipe = CreateRecipe(baseHex, templateId, templateVersion, emblem, badgeAssetId, badgeVersion, badgeAnchor, badgeScale);
         }
         catch (Exception ex)
         {

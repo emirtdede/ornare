@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using Ornare.Core;
 using Ornare.Imaging;
+using Ornare.Imaging.Emblems;
 using Ornare.Imaging.Templates;
 using Ornare.Storage;
 using Ornare.Windows;
@@ -31,6 +32,7 @@ public partial class App : Application, IDisposable
 
         InitializeComponent();
 
+        FolderEmblemCompositor.EmojiRasterizer = new DirectWriteEmojiRasterizer();
         _imagePipeline = new ImagePipeline();
         _folderCustomizer = new FolderCustomizer();
         _storageService = new SqliteStorageService();

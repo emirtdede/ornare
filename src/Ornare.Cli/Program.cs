@@ -24,6 +24,8 @@ public static class Program
             // Graceful fallback
         }
 
+        Ornare.Imaging.Emblems.FolderEmblemCompositor.EmojiRasterizer = new Ornare.Windows.DirectWriteEmojiRasterizer();
+
         System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 

@@ -642,10 +642,92 @@
                 ToolTipService.ToolTip="Emoji (Alt+3)">
                 <FontIcon Glyph="&#xED53;" FontSize="16" Foreground="{ThemeResource TextFillColorPrimaryBrush}" IsHitTestVisible="False" />
                 <Button.Flyout>
-                    <Flyout x:Name="EmojiFlyout" Placement="Top">
-                        <StackPanel Width="260" Spacing="8" Padding="4">
-                            <TextBlock Text="Emoji" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Text="Emoji picker will be loaded here." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <Flyout x:Name="EmojiFlyout" Placement="Top" Opening="OnEmojiFlyoutOpening">
+                        <StackPanel Width="290" Spacing="8" Padding="4">
+                            <!-- Header row with title and Remove Emblem button -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    x:Name="EmojiFlyoutTitleText"
+                                    Text="Emoji"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <Button
+                                    x:Name="RemoveEmojiEmblemButton"
+                                    Grid.Column="1"
+                                    Content="Remove Emblem"
+                                    FontSize="11"
+                                    Padding="8,2"
+                                    Height="26"
+                                    CornerRadius="4"
+                                    Background="Transparent"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    AutomationProperties.Name="Remove Emblem"
+                                    ToolTipService.ToolTip="Remove Center Emblem"
+                                    Click="OnRemoveEmblemClicked"
+                                    Visibility="Collapsed" />
+                            </Grid>
+
+                            <!-- Search box -->
+                            <TextBox
+                                x:Name="EmojiSearchTextBox"
+                                Height="30"
+                                FontSize="11"
+                                PlaceholderText="Search emoji..."
+                                AutomationProperties.Name="Search emoji"
+                                TextChanged="OnEmojiSearchTextChanged" />
+
+                            <!-- Category filter -->
+                            <ComboBox
+                                x:Name="EmojiCategoryComboBox"
+                                Height="28"
+                                FontSize="11"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Filter by emoji category"
+                                SelectionChanged="OnEmojiCategorySelectionChanged" />
+
+                            <!-- Virtualized Emoji Grid -->
+                            <GridView
+                                x:Name="EmojiGridView"
+                                Height="160"
+                                SelectionMode="None"
+                                IsItemClickEnabled="True"
+                                ItemClick="OnEmojiGridItemClick"
+                                ItemsSource="{x:Bind EmojiCards, Mode=OneWay}"
+                                AutomationProperties.Name="Curated emoji grid">
+                                <GridView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" />
+                                    </ItemsPanelTemplate>
+                                </GridView.ItemsPanel>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:EmojiItemViewModel">
+                                        <Border
+                                            Width="34"
+                                            Height="34"
+                                            CornerRadius="6"
+                                            Background="{x:Bind Background, Mode=OneWay}"
+                                            BorderBrush="{x:Bind BorderBrush, Mode=OneWay}"
+                                            BorderThickness="1"
+                                            ToolTipService.ToolTip="{x:Bind Name}"
+                                            AutomationProperties.Name="{x:Bind Name}"
+                                            UseSystemFocusVisuals="True">
+                                            <TextBlock
+                                                Text="{x:Bind Grapheme}"
+                                                FontFamily="Segoe UI Emoji"
+                                                FontSize="18"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" />
+                                        </Border>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
                         </StackPanel>
                     </Flyout>
                 </Button.Flyout>
