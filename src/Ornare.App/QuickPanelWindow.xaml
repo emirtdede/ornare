@@ -249,6 +249,8 @@
                             Padding="10,0"
                             CornerRadius="5"
                             Visibility="Collapsed"
+                            AutomationProperties.Name="Cancel preview"
+                            ToolTipService.ToolTip="Cancel preview (Esc)"
                             Click="OnCancelPreviewClicked" />
                     </StackPanel>
                 </StackPanel>
@@ -409,6 +411,7 @@
                 Padding="18,0"
                 CornerRadius="6"
                 IsEnabled="False"
+                AutomationProperties.Name="Apply"
                 ToolTipService.ToolTip="Apply icon (Enter, Ctrl+Enter)"
                 Click="OnApplyConfirmClicked" />
         </Grid>
