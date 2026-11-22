@@ -11,6 +11,21 @@ namespace Ornare.Storage.Tests;
 
 public class LibraryStorageAndScaleTests
 {
+    /// <summary>
+    /// Removes a temp database on a best-effort basis. The file can still be held open by
+    /// SQLite's WAL cleanup or by a virus scanner that is inspecting a file the test just
+    /// wrote, and a throw from a <c>finally</c> replaces the real test result with an
+    /// infrastructure failure. That is how this suite occasionally reported a failure that
+    /// could not be reproduced; the sibling storage suites already delete this way.
+    /// </summary>
+    private static void DeleteTempDb(string path)
+    {
+        if (File.Exists(path))
+        {
+            try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
     [Fact]
     public async Task AssetDeduplicationWorksDeterministically()
     {
@@ -45,10 +60,7 @@ public class LibraryStorageAndScaleTests
         finally
         {
             SqliteConnection.ClearAllPools();
-            if (File.Exists(tempDb))
-            {
-                File.Delete(tempDb);
-            }
+            DeleteTempDb(tempDb);
         }
     }
 
@@ -116,10 +128,7 @@ public class LibraryStorageAndScaleTests
         finally
         {
             SqliteConnection.ClearAllPools();
-            if (File.Exists(tempDb))
-            {
-                File.Delete(tempDb);
-            }
+            DeleteTempDb(tempDb);
         }
     }
 
@@ -152,10 +161,7 @@ public class LibraryStorageAndScaleTests
         finally
         {
             SqliteConnection.ClearAllPools();
-            if (File.Exists(tempDb))
-            {
-                File.Delete(tempDb);
-            }
+            DeleteTempDb(tempDb);
         }
     }
 
@@ -186,10 +192,7 @@ public class LibraryStorageAndScaleTests
         finally
         {
             SqliteConnection.ClearAllPools();
-            if (File.Exists(tempDb))
-            {
-                File.Delete(tempDb);
-            }
+            DeleteTempDb(tempDb);
         }
     }
 
@@ -231,10 +234,7 @@ public class LibraryStorageAndScaleTests
         finally
         {
             SqliteConnection.ClearAllPools();
-            if (File.Exists(tempDb))
-            {
-                File.Delete(tempDb);
-            }
+            DeleteTempDb(tempDb);
         }
     }
 }

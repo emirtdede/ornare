@@ -12,7 +12,7 @@ Read `docs/UX_UI_SPEC.md` and `docs/DESIGN_SYSTEM.md` first.
 2. Sketch composition as one continuous surface.
 3. Remove containers until every remaining boundary has semantic value.
 4. Use native theme resources and Segoe UI Variable.
-5. Implement deliberate XAML/control templates — never generate UI by script.
+5. Implement deliberate XAML/control templates - never generate UI by script.
 6. Use Composition/Toolkit motion only for state continuity.
 7. Test Light/Dark/High Contrast, Turkish, keyboard, text/DPI scaling.
 8. Capture screenshots and explicitly check for nested cards, generic SaaS aesthetics, excessive glass/borders/accent.

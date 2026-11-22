@@ -99,7 +99,7 @@ public sealed class CustomColorPickerTests
                     }
                 }, token);
 
-                await Task.Delay(5); // Rapid next step, superseding previous
+                await Task.Yield(); // Rapid next step, superseding previous
             }
 
             // Wait for final debounced step to settle

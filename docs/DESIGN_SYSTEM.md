@@ -122,8 +122,8 @@ Apple HIG's current material guidance is used only as a principle: translucent m
 Define semantic motion rather than bespoke timing everywhere:
 
 - `Motion.Fast` ~120 ms
-- `Motion.Standard` ~160–180 ms
-- `Motion.Emphasis` ~200–220 ms
+- `Motion.Standard` ~160-180 ms
+- `Motion.Emphasis` ~200-220 ms
 
 Easing should feel responsive, not bouncy. Reduce/disable nonessential motion when Windows accessibility preferences request it.
 

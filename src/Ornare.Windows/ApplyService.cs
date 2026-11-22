@@ -55,7 +55,7 @@ public static class ApplyService
         using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(canonicalPath, TimeSpan.FromSeconds(5), ct);
         if (lockHandle == null)
         {
-            return OperationResult.Failure<ApplyOperationResult>(ErrorCode.FilesystemError, "Target folder is currently locked by another operation.");
+            return OperationResult.Failure<ApplyOperationResult>(ErrorCode.OperationBusy, "Another operation is already running on this folder.");
         }
 
         // Re-validate inside lock
@@ -108,10 +108,16 @@ public static class ApplyService
         }
 
         // 5. Apply icon to folder
-        var applyResult = customizer.ApplyIcon(canonicalPath, stagedIcoPath, state =>
+        // The ApplyIcon callback is synchronous; buffering the states keeps their
+        // journal writes ordered. Fire-and-forget writes could land after the final
+        // JournalState.Completed and leave an applied folder stuck in Copying.
+        var journalStages = new System.Collections.Concurrent.ConcurrentQueue<JournalState>();
+        var applyResult = customizer.ApplyIcon(canonicalPath, stagedIcoPath, journalStages.Enqueue);
+
+        while (journalStages.TryDequeue(out JournalState journalStage))
         {
-            _ = storage.UpdateJournalStateAsync(operationId, state);
-        });
+            await storage.UpdateJournalStateAsync(operationId, journalStage);
+        }
 
         if (!applyResult.IsSuccess || applyResult.Value == null)
         {
@@ -120,15 +126,16 @@ public static class ApplyService
         }
 
         // 6. Post-commit: save assignment, library asset, render cache, history, NTFS identity, and complete journal
-        await storage.SaveFolderAssignmentAsync(canonicalPath, epochId, applyResult.Value, baseline);
-
+        // From here the icon is already committed on disk. A metadata failure must never
+        // be published as Completed: reconciliation would then skip a folder whose
+        // assignment/history rows are missing (INV-FS-006, INV-TX-002).
         string canonicalIcoPath = string.Empty;
         try
         {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
-            Directory.CreateDirectory(libraryDir);
-            canonicalIcoPath = Path.Combine(libraryDir, $"{contentHash}.ico");
+            await storage.SaveFolderAssignmentAsync(canonicalPath, epochId, applyResult.Value, baseline);
+
+            Directory.CreateDirectory(OrnareConstants.LibraryDirectory);
+            canonicalIcoPath = OrnareConstants.LibraryIcoPath(contentHash);
             if (!File.Exists(canonicalIcoPath))
             {
                 File.Copy(stagedIcoPath, canonicalIcoPath, overwrite: true);
@@ -170,9 +177,21 @@ public static class ApplyService
                 await storage.UpdateAssignmentIdentityAsync(canonicalPath, vol, fid);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Non-critical metadata / tracking failure
+            // The icon is already on disk, so this is not a clean failure. It is a real
+            // data-integrity loss (missing assignment, asset row, history entry or
+            // identity binding) and must be surfaced as repairable state.
+            System.Diagnostics.Trace.TraceWarning($"Post-apply metadata persistence failed for '{canonicalPath}': {ex}");
+
+            await storage.UpdateJournalStateAsync(
+                operationId,
+                JournalState.NeedsRepair,
+                $"Icon applied to disk, but metadata persistence failed: {ex.Message}");
+
+            return OperationResult.Failure<ApplyOperationResult>(
+                ErrorCode.ReconciliationFailed,
+                "The folder icon was applied, but Ornare could not save its records. Use Repair to bring them back in sync.");
         }
 
         await storage.UpdateJournalStateAsync(operationId, JournalState.Completed);
@@ -183,11 +202,16 @@ public static class ApplyService
             {
                 await storage.SetLastAppliedRenderKeyAsync(renderKey);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning($"SetLastAppliedRenderKeyAsync failed: {ex.Message}");
+            }
         }
 
-        // Notify shell refresh
-        ShellRefreshService.NotifyFolderChanged(canonicalPath);
+        // No shell refresh here: FolderCustomizer.ApplyIcon already issued the
+        // targeted SHChangeNotify after committing desktop.ini and the ICO. Repeating
+        // it measured +195 ms per apply (the global invalidation re-walks every
+        // top-level window) with no additional visual result.
 
         return OperationResult.Success(new ApplyOperationResult
         {

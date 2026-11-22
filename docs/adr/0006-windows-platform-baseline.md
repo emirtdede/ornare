@@ -1,4 +1,4 @@
-# ADR 0006 — Windows 11 25H2 baseline with applicable 26H1 qualification
+# ADR 0006 - Windows 11 25H2 baseline with applicable 26H1 qualification
 
 Status: Accepted
 

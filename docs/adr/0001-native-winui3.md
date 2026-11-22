@@ -1,4 +1,4 @@
-# ADR 0001 — Native WinUI 3 application
+# ADR 0001 - Native WinUI 3 application
 
 Status: Accepted
 

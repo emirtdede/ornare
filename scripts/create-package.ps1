@@ -1,4 +1,4 @@
-# Ornare — Package Builder
+# Ornare - Package Builder
 # Assembles package layout and creates production MSIX using Windows SDK MakeAppx
 
 param(

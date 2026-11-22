@@ -36,6 +36,8 @@ namespace Ornare.Core;
 [JsonSerializable(typeof(VectorEmblemEntry))]
 [JsonSerializable(typeof(VectorEmblemManifest))]
 [JsonSerializable(typeof(List<VectorEmblemEntry>))]
+[JsonSerializable(typeof(CloudSyncSnapshot))]
+[JsonSerializable(typeof(List<CloudFolderSnapshot>))]
 public sealed partial class FolderJsonContext : JsonSerializerContext
 {
 }

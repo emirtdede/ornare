@@ -1,4 +1,4 @@
-# Ornare — Real Application Runtime Screenshot Capture
+# Ornare - Real Application Runtime Screenshot Capture
 # Captures pixel-exact screenshots of running Ornare.App.exe using Win32 PrintWindow(PW_RENDERFULLCONTENT)
 
 param(

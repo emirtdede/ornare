@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -511,8 +512,9 @@ public static class IcoImportService
                         File.Delete(tempFile);
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
+                    Trace.TraceWarning($"ICO import temp cleanup failed for '{tempFile}': {ex.Message}");
                 }
             }
         }

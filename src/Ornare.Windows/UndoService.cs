@@ -13,8 +13,6 @@ namespace Ornare.Windows;
 /// </summary>
 public static class UndoService
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> TargetLocks = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>
     /// Executes an Undo operation on the target folder, restoring prior icon semantics
     /// or resetting to pre-Ornare state while respecting ownership epochs and external conflicts.
@@ -46,9 +44,15 @@ public static class UndoService
             return OperationResult.Failure(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
         }
 
-        // 2. Synchronize concurrent operations on the same target folder
-        var targetLock = TargetLocks.GetOrAdd(canonicalPath, _ => new SemaphoreSlim(1, 1));
-        await targetLock.WaitAsync(ct).ConfigureAwait(false);
+        // 2. Synchronize concurrent operations on the same target folder. Shared with
+        // Apply/Reset so one folder can never be mutated by two operations at once.
+        using var lockHandle = await PerTargetSyncLock
+            .TryAcquireAsync(canonicalPath, TimeSpan.FromSeconds(5), ct)
+            .ConfigureAwait(false);
+        if (lockHandle is null)
+        {
+            return OperationResult.Failure(ErrorCode.OperationBusy, "Another operation is already running on this folder.");
+        }
 
         try
         {
@@ -128,14 +132,15 @@ public static class UndoService
             await storage.RecordJournalEntryAsync(journal).ConfigureAwait(false);
             await storage.UpdateJournalStateAsync(opId, JournalState.FilesystemStaged).ConfigureAwait(false);
 
-            // 9. Execute filesystem undo/revert
-            var undoResult = customizer.UndoIcon(
-                canonicalPath,
-                baseline,
-                stage =>
-                {
-                    _ = storage.UpdateJournalStateAsync(opId, stage);
-                });
+            // 9. Execute filesystem undo/revert. Buffer journal transitions and flush them
+            // sequentially so a late fire-and-forget write cannot regress Completed.
+            var journalStages = new ConcurrentQueue<JournalState>();
+            var undoResult = customizer.UndoIcon(canonicalPath, baseline, journalStages.Enqueue);
+
+            while (journalStages.TryDequeue(out JournalState stage))
+            {
+                await storage.UpdateJournalStateAsync(opId, stage).ConfigureAwait(false);
+            }
 
             if (!undoResult.IsSuccess)
             {
@@ -143,28 +148,44 @@ public static class UndoService
                 return undoResult;
             }
 
-            // 10. Update storage records post-revert
-            bool hadPriorIcon = !string.IsNullOrEmpty(baseline.PriorSemantics.IconResource) ||
-                                !string.IsNullOrEmpty(baseline.PriorSemantics.IconFile);
-
-            if (!hadPriorIcon)
+            // 10. Update storage records post-revert. The filesystem is already reverted,
+            // so a metadata failure must be repairable state, never a silent Completed.
+            try
             {
-                // Reverted to clean pre-Ornare state: remove assignment
-                await storage.RemoveFolderAssignmentAsync(canonicalPath).ConfigureAwait(false);
-            }
-            else
-            {
-                // Reverted to previous Ornare icon: keep healthy
-                await storage.UpdateAssignmentHealthAsync(canonicalPath, FolderCustomizationState.Healthy).ConfigureAwait(false);
-            }
+                bool hadPriorIcon = !string.IsNullOrEmpty(baseline.PriorSemantics.IconResource) ||
+                                    !string.IsNullOrEmpty(baseline.PriorSemantics.IconFile);
 
-            // 11. Record history and mark journal complete
-            await storage.RecordHistoryAsync(
-                canonicalPath,
-                opId,
-                assignment.CurrentAssetHash,
-                baseline.PriorSemantics.IconResource ?? string.Empty,
-                "UndoIcon").ConfigureAwait(false);
+                if (!hadPriorIcon)
+                {
+                    // Reverted to clean pre-Ornare state: remove assignment
+                    await storage.RemoveFolderAssignmentAsync(canonicalPath).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Reverted to previous Ornare icon: keep healthy
+                    await storage.UpdateAssignmentHealthAsync(canonicalPath, FolderCustomizationState.Healthy).ConfigureAwait(false);
+                }
+
+                await storage.RecordHistoryAsync(
+                    canonicalPath,
+                    opId,
+                    assignment.CurrentAssetHash,
+                    baseline.PriorSemantics.IconResource ?? string.Empty,
+                    "UndoIcon").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning($"Post-undo metadata persistence failed for '{canonicalPath}': {ex}");
+
+                await storage.UpdateJournalStateAsync(
+                    opId,
+                    JournalState.NeedsRepair,
+                    $"Folder reverted on disk, but metadata persistence failed: {ex.Message}").ConfigureAwait(false);
+
+                return OperationResult.Failure(
+                    ErrorCode.ReconciliationFailed,
+                    "The folder was reverted, but Ornare could not save its records. Use Repair to bring them back in sync.");
+            }
 
             await storage.UpdateJournalStateAsync(opId, JournalState.Completed).ConfigureAwait(false);
 
@@ -176,10 +197,6 @@ public static class UndoService
         catch (Exception ex)
         {
             return OperationResult.Failure(ErrorCode.FilesystemError, $"Undo failed due to an unexpected error: {ex.Message}");
-        }
-        finally
-        {
-            targetLock.Release();
         }
     }
 }

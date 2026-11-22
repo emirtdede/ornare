@@ -1,4 +1,4 @@
-# ADR 0004 — Durable cross-store operation journal
+# ADR 0004 - Durable cross-store operation journal
 
 Status: Accepted
 

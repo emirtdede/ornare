@@ -15,8 +15,8 @@ public static class FolderTemplateCatalog
     public const string DefaultTemplateId = OrnareClassicTemplate.TemplateId;
     public const int DefaultTemplateVersion = OrnareClassicTemplate.TemplateVersion; // 2
 
-    private static readonly NormalizedRect DefaultEmblemSafeZone = new(0.26, 0.40, 0.30, 0.30);
-    private static readonly NormalizedRect[] DefaultBadgeZones = [new(0.58, 0.58, 0.40, 0.40)];
+    private static readonly NormalizedRect DefaultEmblemSafeZone = new(0.33, 0.42, 0.34, 0.34);
+    private static readonly NormalizedRect[] DefaultBadgeZones = [new(0.68, 0.62, 0.32, 0.32)];
 
     // 1. Classic (v2)
     private static readonly FolderTemplateDescriptor ClassicV2 = new(

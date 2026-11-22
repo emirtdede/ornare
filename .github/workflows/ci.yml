@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, developmant]
+  pull_request:
+    branches: [main, developmant]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  build-and-test:
+    name: Build and test (x64)
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.401"
+          cache: true
+          cache-dependency-path: "**/Directory.Packages.props"
+
+      - name: Restore (locked)
+        run: dotnet restore Ornare.slnx --locked-mode
+
+      - name: Build (Release, warnings are errors)
+        run: dotnet build Ornare.slnx -c Release --no-restore
+
+      - name: Tests (behaviour and contracts)
+        run: dotnet test Ornare.slnx -c Release --no-build --filter "Category!=Performance" --logger "trx;LogFileName=behaviour.trx" --results-directory TestResults
+
+      - name: Tests (performance gates)
+        run: dotnet test Ornare.slnx -c Release --no-build --filter "Category=Performance" --logger "trx;LogFileName=performance.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: ignore
+
+  quality-gates:
+    name: Quality gates
+    runs-on: windows-latest
+    timeout-minutes: 45
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.401"
+
+      # Same script a developer runs locally, so local and CI verdicts cannot diverge.
+      # Build and tests already ran in the previous job, so only the static gates run here.
+      - name: Static gates (version, dash policy, encoding, emoji, resources, docs)
+        shell: pwsh
+        run: ./scripts/quality-gate.ps1 -SkipBuild -SkipTests
+
+      - name: Dependency audit
+        shell: pwsh
+        run: ./scripts/dependency-audit.ps1

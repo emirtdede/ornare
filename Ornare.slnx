@@ -14,5 +14,7 @@
     <Project Path="tests/Ornare.IntegrationTests/Ornare.IntegrationTests.csproj" />
     <Project Path="tests/Ornare.Storage.Tests/Ornare.Storage.Tests.csproj" />
     <Project Path="tests/Ornare.UiTests/Ornare.UiTests.csproj" />
+    <Project Path="tests/Ornare.CrashTestWorker/Ornare.CrashTestWorker.csproj" />
+    <Project Path="tests/Ornare.PersistenceRunner/Ornare.PersistenceRunner.csproj" />
   </Folder>
 </Solution>

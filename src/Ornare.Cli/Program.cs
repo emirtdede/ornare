@@ -69,7 +69,7 @@ public static class Program
 
     public static RootCommand BuildCommandLine()
     {
-        var root = new RootCommand("Ornare CLI — Durable Windows folder icons and vector rendering (F24)");
+        var root = new RootCommand("Ornare CLI - Durable Windows folder icons and vector rendering (F24)");
         var jsonOption = new Option<bool>("--json")
         {
             Description = "Emit machine-readable JSON output (locale-neutral schemaVersion 1)",

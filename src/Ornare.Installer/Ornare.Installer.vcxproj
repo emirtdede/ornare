@@ -73,9 +73,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="InstallerStrings.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
+    <ClInclude Include="InstallerStrings.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="installer.rc" />

@@ -10,7 +10,9 @@
 #include <wincrypt.h>
 #include <string>
 #include <vector>
+#include <cwchar>
 #include "resource.h"
+#include "InstallerStrings.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -53,6 +55,8 @@ static HWND g_hwndBtnCancel = nullptr;
 static HWND g_hwndBtnLaunch = nullptr;
 static HWND g_hwndChkShortcut = nullptr;
 static HWND g_hwndLblShortcut = nullptr;
+static HWND g_hwndLblLanguage = nullptr;
+static HWND g_hwndCmbLanguage = nullptr;
 
 static HICON g_hAppIcon = nullptr;
 static HICON g_hIconSm = nullptr;
@@ -65,7 +69,8 @@ static HFONT g_hFontStatus = nullptr;
 
 static InstallState g_state = InstallState::Ready;
 static std::wstring g_statusText;
-static bool g_isTurkish = false;
+static int g_localeIndex = 0;
+static const InstallerStrings* g_text = &InstallerStringsAt(0);
 static bool g_isDarkMode = true;
 static AppColors g_colors;
 static float g_scale = 1.0f;
@@ -76,8 +81,8 @@ static bool g_hoverLaunch = false;
 
 static void DetectSystemSettings()
 {
-    LANGID lang = GetUserDefaultUILanguage();
-    g_isTurkish = (PRIMARYLANGID(lang) == LANG_TURKISH);
+    g_localeIndex = DetectInstallerLocaleIndex();
+    g_text = &InstallerStringsAt(g_localeIndex);
 
     DWORD lightTheme = 0;
     DWORD size = sizeof(lightTheme);
@@ -110,6 +115,80 @@ static void DetectSystemSettings()
 
     g_colors.hbrBg = CreateSolidBrush(g_colors.bg);
     g_colors.hbrCard = CreateSolidBrush(g_colors.cardBg);
+}
+
+// Remembers the setup language in the same per-user location the app reads on first launch,
+// so onboarding opens in the language that was chosen here instead of re-detecting Windows.
+static void SaveLanguagePreference()
+{
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Vellium\\Ornare", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+    {
+        return;
+    }
+
+    const wchar_t* tag = InstallerLocaleAt(g_localeIndex).tag;
+    const DWORD bytes = static_cast<DWORD>((wcslen(tag) + 1) * sizeof(wchar_t));
+    RegSetValueExW(hKey, L"InstallerLanguage", 0, REG_SZ, reinterpret_cast<const BYTE*>(tag), bytes);
+    RegCloseKey(hKey);
+}
+
+static void PopulateLanguageCombo()
+{
+    if (!g_hwndCmbLanguage)
+    {
+        return;
+    }
+
+    SendMessageW(g_hwndCmbLanguage, CB_RESETCONTENT, 0, 0);
+    for (int i = 0; i < InstallerLocaleCount(); ++i)
+    {
+        SendMessageW(g_hwndCmbLanguage, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(InstallerLocaleAt(i).nativeName));
+    }
+
+    SendMessageW(g_hwndCmbLanguage, CB_SETCURSEL, static_cast<WPARAM>(g_localeIndex), 0);
+}
+
+static void ApplyLocaleToWindow(HWND hWnd)
+{
+    if (g_hwndLblLanguage)
+    {
+        SetWindowTextW(g_hwndLblLanguage, g_text->languageLabel);
+    }
+    if (g_hwndLblShortcut)
+    {
+        SetWindowTextW(g_hwndLblShortcut, g_text->shortcut);
+    }
+    if (g_hwndBtnInstall)
+    {
+        SetWindowTextW(g_hwndBtnInstall, (g_state == InstallState::Failed) ? g_text->retry : g_text->install);
+    }
+    if (g_hwndBtnCancel)
+    {
+        SetWindowTextW(g_hwndBtnCancel, (g_state == InstallState::Completed) ? g_text->close : g_text->cancel);
+    }
+    if (g_hwndBtnLaunch)
+    {
+        SetWindowTextW(g_hwndBtnLaunch, g_text->launch);
+    }
+
+    switch (g_state)
+    {
+    case InstallState::Ready:
+        g_statusText = g_text->ready;
+        break;
+    case InstallState::Completed:
+        g_statusText = g_text->installedAndReady;
+        break;
+    case InstallState::Failed:
+        g_statusText = g_text->deploymentFailed;
+        break;
+    default:
+        break;
+    }
+
+    SetWindowTextW(hWnd, g_text->windowTitle);
+    InvalidateRect(hWnd, nullptr, FALSE);
 }
 
 static bool ExtractResource(int resId, const std::wstring& outputPath)
@@ -169,6 +248,34 @@ static bool InstallCertificateFromResource(int resId)
     return true;
 }
 
+// Copies the embedded application icon into the per-user icon folder so the desktop shortcut
+// keeps a valid icon after the setup file is deleted. Returns an empty string on failure, and
+// the caller falls back to the setup executable's own icon.
+static std::wstring EnsureShortcutIconFile()
+{
+    PWSTR localAppData = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &localAppData)))
+    {
+        return std::wstring();
+    }
+
+    std::wstring directory = std::wstring(localAppData) + L"\\Ornare\\app-icons";
+    CoTaskMemFree(localAppData);
+
+    if (!CreateDirectoryW(directory.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        return std::wstring();
+    }
+
+    std::wstring iconPath = directory + L"\\installed.ico";
+    if (!ExtractResource(IDR_ICON_FILE, iconPath))
+    {
+        return std::wstring();
+    }
+
+    return iconPath;
+}
+
 static bool CreateDesktopShortcut()
 {
     PWSTR desktopPath = nullptr;
@@ -177,7 +284,7 @@ static bool CreateDesktopShortcut()
         return false;
     }
 
-    std::wstring linkPath = std::wstring(desktopPath) + (g_isTurkish ? L"\\Ornare.lnk" : L"\\Ornare.lnk");
+    std::wstring linkPath = std::wstring(desktopPath) + L"\\Ornare.lnk";
     CoTaskMemFree(desktopPath);
 
     Microsoft::WRL::ComPtr<IShellLinkW> shellLink;
@@ -185,12 +292,22 @@ static bool CreateDesktopShortcut()
     if (FAILED(hr)) return false;
 
     shellLink->SetPath(L"explorer.exe");
-    shellLink->SetArguments(L"shell:AppsFolder\\Ornare_vs3ntcdctdza8!App");
-    shellLink->SetDescription(g_isTurkish ? L"Ornare - Klasör Simgesi Özelleştirici" : L"Ornare - Folder Icon Customizer");
+    shellLink->SetArguments(L"shell:AppsFolder\\Ornare_vs3ntctdctdza8!App");
+    shellLink->SetDescription(g_text->shortcutDescription);
 
-    WCHAR exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    shellLink->SetIconLocation(exePath, 0);
+    // The setup file is usually deleted after installation, so the icon is copied to a stable
+    // per-user folder. The app rewrites this location whenever the user picks another icon.
+    const std::wstring iconPath = EnsureShortcutIconFile();
+    if (!iconPath.empty())
+    {
+        shellLink->SetIconLocation(iconPath.c_str(), 0);
+    }
+    else
+    {
+        WCHAR exePath[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        shellLink->SetIconLocation(exePath, 0);
+    }
 
     Microsoft::WRL::ComPtr<IPersistFile> persistFile;
     hr = shellLink.As(&persistFile);
@@ -199,17 +316,63 @@ static bool CreateDesktopShortcut()
     return SUCCEEDED(persistFile->Save(linkPath.c_str(), TRUE));
 }
 
+/// <summary>
+/// Initializes COM on the installation worker thread and releases it on every exit path.
+/// Without this, the shell link used for the desktop shortcut cannot be created, because
+/// CoCreateInstance requires an initialized apartment.
+/// </summary>
+struct ComApartment
+{
+    ComApartment()
+    {
+        const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        // S_FALSE means the apartment was already initialized; RPC_E_CHANGED_MODE means the
+        // caller chose another model, which is still usable for IShellLink.
+        m_shouldUninitialize = SUCCEEDED(hr);
+        m_available = SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE;
+    }
+
+    ~ComApartment()
+    {
+        if (m_shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+    }
+
+    ComApartment(const ComApartment&) = delete;
+    ComApartment& operator=(const ComApartment&) = delete;
+
+    bool IsAvailable() const { return m_available; }
+
+private:
+    bool m_shouldUninitialize = false;
+    bool m_available = false;
+};
+
 static DWORD WINAPI InstallThread(LPVOID lpParam)
 {
     HWND hWnd = static_cast<HWND>(lpParam);
+    // Snapshot the table: the language picker is disabled during installation, and the
+    // literals it points to live for the whole process.
+    const InstallerStrings* text = g_text;
+
+    // The worker needs its own COM apartment: the desktop shortcut is created with IShellLink
+    // and CoCreateInstance fails on a thread that never initialized COM.
+    ComApartment apartment;
+    if (!apartment.IsAvailable())
+    {
+        PostMessageW(hWnd, WM_INSTALL_COMPLETE, 0, reinterpret_cast<LPARAM>(text->deploymentFailed));
+        return 1;
+    }
 
     // Step 1: Certificate
-    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 15, reinterpret_cast<LPARAM>(g_isTurkish ? L"Geliştirici sertifikası doğrulanıyor..." : L"Verifying developer certificate..."));
+    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 15, reinterpret_cast<LPARAM>(text->verifyingCertificate));
     InstallCertificateFromResource(IDR_CERT_PAYLOAD);
     Sleep(200);
 
     // Step 2: Extract MSIX
-    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 35, reinterpret_cast<LPARAM>(g_isTurkish ? L"Kurulum paketi hazırlanıyor..." : L"Extracting installation package..."));
+    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 35, reinterpret_cast<LPARAM>(text->extractingPackage));
     WCHAR tempPath[MAX_PATH];
     GetTempPathW(MAX_PATH, tempPath);
     std::wstring setupDir = std::wstring(tempPath) + L"OrnareSetup";
@@ -218,13 +381,13 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
     std::wstring msixPath = setupDir + L"\\Ornare.msix";
     if (!ExtractResource(IDR_MSIX_PAYLOAD, msixPath))
     {
-        PostMessageW(hWnd, WM_INSTALL_COMPLETE, 0, reinterpret_cast<LPARAM>(g_isTurkish ? L"Paket açılamadı!" : L"Failed to extract package!"));
+        PostMessageW(hWnd, WM_INSTALL_COMPLETE, 0, reinterpret_cast<LPARAM>(text->extractFailed));
         return 1;
     }
     Sleep(200);
 
     // Step 3: Register package
-    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 60, reinterpret_cast<LPARAM>(g_isTurkish ? L"Windows 11'e kaydediliyor..." : L"Registering with Windows 11..."));
+    PostMessageW(hWnd, WM_INSTALL_PROGRESS, 60, reinterpret_cast<LPARAM>(text->registering));
     
     std::wstring cmd = L"powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command \"Add-AppxPackage -Path '" + msixPath + L"'\"";
     
@@ -250,7 +413,7 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
     // Step 4: Shortcut
     if (installSuccess)
     {
-        PostMessageW(hWnd, WM_INSTALL_PROGRESS, 90, reinterpret_cast<LPARAM>(g_isTurkish ? L"Kısayollar oluşturuluyor..." : L"Creating shortcuts..."));
+        PostMessageW(hWnd, WM_INSTALL_PROGRESS, 90, reinterpret_cast<LPARAM>(text->creatingShortcuts));
         if (Button_GetCheck(g_hwndChkShortcut) == BST_CHECKED)
         {
             CreateDesktopShortcut();
@@ -265,12 +428,12 @@ static DWORD WINAPI InstallThread(LPVOID lpParam)
     // Step 5: Complete
     if (installSuccess)
     {
-        PostMessageW(hWnd, WM_INSTALL_PROGRESS, 100, reinterpret_cast<LPARAM>(g_isTurkish ? L"Kurulum başarıyla tamamlandı!" : L"Installation completed successfully!"));
+        PostMessageW(hWnd, WM_INSTALL_PROGRESS, 100, reinterpret_cast<LPARAM>(text->completed));
         PostMessageW(hWnd, WM_INSTALL_COMPLETE, 1, 0);
     }
     else
     {
-        PostMessageW(hWnd, WM_INSTALL_COMPLETE, 0, reinterpret_cast<LPARAM>(g_isTurkish ? L"Yükleme sırasında bir hata oluştu." : L"An error occurred during deployment."));
+        PostMessageW(hWnd, WM_INSTALL_COMPLETE, 0, reinterpret_cast<LPARAM>(text->deploymentFailed));
     }
 
     return 0;
@@ -348,21 +511,31 @@ static void UpdateLayout(HWND hWnd, UINT dpi)
     GetClientRect(hWnd, &clientRect);
     int clientW = clientRect.right;
 
+    if (g_hwndLblLanguage)
+    {
+        SendMessageW(g_hwndLblLanguage, WM_SETFONT, reinterpret_cast<WPARAM>(g_hFontBody), TRUE);
+        SetWindowPos(g_hwndLblLanguage, nullptr, static_cast<int>(32 * g_scale), static_cast<int>(100 * g_scale), static_cast<int>(100 * g_scale), static_cast<int>(22 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (g_hwndCmbLanguage)
+    {
+        SendMessageW(g_hwndCmbLanguage, WM_SETFONT, reinterpret_cast<WPARAM>(g_hFontBody), TRUE);
+        SetWindowPos(g_hwndCmbLanguage, nullptr, static_cast<int>(140 * g_scale), static_cast<int>(100 * g_scale), static_cast<int>(236 * g_scale), static_cast<int>(240 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     if (g_hwndChkShortcut)
     {
-        SetWindowPos(g_hwndChkShortcut, nullptr, static_cast<int>(32 * g_scale), static_cast<int>(216 * g_scale), static_cast<int>(20 * g_scale), static_cast<int>(20 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hwndChkShortcut, nullptr, static_cast<int>(32 * g_scale), static_cast<int>(256 * g_scale), static_cast<int>(20 * g_scale), static_cast<int>(20 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hwndLblShortcut)
     {
         SendMessageW(g_hwndLblShortcut, WM_SETFONT, reinterpret_cast<WPARAM>(g_hFontBody), TRUE);
-        SetWindowPos(g_hwndLblShortcut, nullptr, static_cast<int>(56 * g_scale), static_cast<int>(217 * g_scale), static_cast<int>(380 * g_scale), static_cast<int>(20 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hwndLblShortcut, nullptr, static_cast<int>(56 * g_scale), static_cast<int>(257 * g_scale), static_cast<int>(380 * g_scale), static_cast<int>(20 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hwndProgress)
     {
-        SetWindowPos(g_hwndProgress, nullptr, static_cast<int>(32 * g_scale), static_cast<int>(216 * g_scale), clientW - static_cast<int>(64 * g_scale), static_cast<int>(16 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hwndProgress, nullptr, static_cast<int>(32 * g_scale), static_cast<int>(256 * g_scale), clientW - static_cast<int>(64 * g_scale), static_cast<int>(16 * g_scale), SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int btnY = static_cast<int>(318 * g_scale);
+    int btnY = static_cast<int>(358 * g_scale);
     int btnH = static_cast<int>(34 * g_scale);
     int cancelW = static_cast<int>(95 * g_scale);
     int cancelX = clientW - static_cast<int>(32 * g_scale) - cancelW;
@@ -397,6 +570,27 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         UINT dpi = GetDpiForWindow(hWnd);
         if (dpi == 0) dpi = 96;
 
+        // Language picker: the same 73-language catalogue the app ships, so setup and the
+        // application never disagree about what can be selected.
+        g_hwndLblLanguage = CreateWindowExW(
+            0, L"STATIC",
+            g_text->languageLabel,
+            WS_VISIBLE | WS_CHILD | SS_CENTERIMAGE,
+            0, 0, 0, 0,
+            hWnd, reinterpret_cast<HMENU>(IDC_LBL_LANGUAGE), g_hInstance, nullptr);
+
+        g_hwndCmbLanguage = CreateWindowExW(
+            0, L"COMBOBOX",
+            nullptr,
+            WS_VISIBLE | WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+            0, 0, 0, 0,
+            hWnd, reinterpret_cast<HMENU>(IDC_CMB_LANGUAGE), g_hInstance, nullptr);
+        PopulateLanguageCombo();
+        if (g_isDarkMode)
+        {
+            SetWindowTheme(g_hwndCmbLanguage, L"DarkMode_CFD", nullptr);
+        }
+
         // Checkbox: Desktop shortcut (no text, standard box)
         g_hwndChkShortcut = CreateWindowExW(
             0, L"BUTTON",
@@ -409,7 +603,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Clickable Label for desktop shortcut (static control respects WM_CTLCOLORSTATIC text color)
         g_hwndLblShortcut = CreateWindowExW(
             0, L"STATIC",
-            g_isTurkish ? L"Masaüstünde Ornare kısayolu oluştur" : L"Create desktop shortcut",
+            g_text->shortcut,
             WS_VISIBLE | WS_CHILD | SS_NOTIFY,
             0, 0, 0, 0,
             hWnd, reinterpret_cast<HMENU>(IDC_LBL_SHORTCUT), g_hInstance, nullptr);
@@ -426,7 +620,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Install Button (Owner draw for Fluent styling)
         g_hwndBtnInstall = CreateWindowExW(
             0, L"BUTTON",
-            g_isTurkish ? L"Kur" : L"Install",
+            g_text->install,
             WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
             0, 0, 0, 0,
             hWnd, reinterpret_cast<HMENU>(IDC_BTN_INSTALL), g_hInstance, nullptr);
@@ -435,7 +629,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Cancel Button (Owner draw for Fluent styling)
         g_hwndBtnCancel = CreateWindowExW(
             0, L"BUTTON",
-            g_isTurkish ? L"İptal" : L"Cancel",
+            g_text->cancel,
             WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
             0, 0, 0, 0,
             hWnd, reinterpret_cast<HMENU>(IDC_BTN_CANCEL), g_hInstance, nullptr);
@@ -444,7 +638,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Launch Button (initially hidden)
         g_hwndBtnLaunch = CreateWindowExW(
             0, L"BUTTON",
-            g_isTurkish ? L"Ornare'yi Başlat" : L"Launch Ornare",
+            g_text->launch,
             WS_CHILD | BS_OWNERDRAW,
             0, 0, 0, 0,
             hWnd, reinterpret_cast<HMENU>(IDC_BTN_LAUNCH), g_hInstance, nullptr);
@@ -452,7 +646,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         UpdateLayout(hWnd, dpi);
 
-        g_statusText = g_isTurkish ? L"Kuruluma hazır." : L"Ready to install.";
+        g_statusText = g_text->ready;
         return 0;
     }
 
@@ -479,11 +673,35 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         return reinterpret_cast<LRESULT>(g_colors.hbrBg);
     }
 
+    case WM_CTLCOLORLISTBOX:
+    {
+        HDC hdcList = reinterpret_cast<HDC>(wParam);
+        SetBkColor(hdcList, g_colors.cardBg);
+        SetTextColor(hdcList, g_colors.textPrimary);
+        return reinterpret_cast<LRESULT>(g_colors.hbrCard);
+    }
+
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
         switch (wmId)
         {
+        case IDC_CMB_LANGUAGE:
+        {
+            if (HIWORD(wParam) == CBN_SELCHANGE && g_hwndCmbLanguage)
+            {
+                const LRESULT selected = SendMessageW(g_hwndCmbLanguage, CB_GETCURSEL, 0, 0);
+                if (selected >= 0 && static_cast<int>(selected) < InstallerLocaleCount())
+                {
+                    g_localeIndex = static_cast<int>(selected);
+                    g_text = &InstallerStringsAt(g_localeIndex);
+                    ApplyLocaleToWindow(hWnd);
+                    SaveLanguagePreference();
+                }
+            }
+            break;
+        }
+
         case IDC_LBL_SHORTCUT:
         {
             LRESULT check = SendMessageW(g_hwndChkShortcut, BM_GETCHECK, 0, 0);
@@ -499,8 +717,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             ShowWindow(g_hwndProgress, SW_SHOW);
             EnableWindow(g_hwndBtnInstall, FALSE);
             EnableWindow(g_hwndBtnCancel, FALSE);
+            EnableWindow(g_hwndCmbLanguage, FALSE);
+            SaveLanguagePreference();
 
-            g_statusText = g_isTurkish ? L"Kurulum başlatılıyor..." : L"Starting installation...";
+            g_statusText = g_text->starting;
             InvalidateRect(hWnd, nullptr, FALSE);
 
             CreateThread(nullptr, 0, InstallThread, hWnd, 0, nullptr);
@@ -709,9 +929,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             g_state = InstallState::Completed;
             ShowWindow(g_hwndBtnInstall, SW_HIDE);
             ShowWindow(g_hwndBtnLaunch, SW_SHOW);
-            SetWindowTextW(g_hwndBtnCancel, g_isTurkish ? L"Kapat" : L"Close");
+            SetWindowTextW(g_hwndBtnCancel, g_text->close);
             EnableWindow(g_hwndBtnCancel, TRUE);
-            g_statusText = g_isTurkish ? L"Ornare başarıyla kuruldu ve kullanıma hazır." : L"Ornare installed successfully and is ready to use.";
+            g_statusText = g_text->installedAndReady;
         }
         else
         {
@@ -719,7 +939,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             LPCWSTR err = reinterpret_cast<LPCWSTR>(lParam);
             if (err) g_statusText = err;
             EnableWindow(g_hwndBtnCancel, TRUE);
-            SetWindowTextW(g_hwndBtnInstall, g_isTurkish ? L"Tekrar Dene" : L"Retry");
+            SetWindowTextW(g_hwndBtnInstall, g_text->retry);
             EnableWindow(g_hwndBtnInstall, TRUE);
         }
         InvalidateRect(hWnd, nullptr, FALSE);
@@ -762,7 +982,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Subtitle (Publisher)
         SelectObject(memDC, g_hFontSubtitle);
         SetTextColor(memDC, g_colors.textAccent);
-        std::wstring pubText = g_isTurkish ? L"Geliştirici & Yayıncı: Vellium  •  vellium.dev" : L"Developer & Publisher: Vellium  •  vellium.dev";
+        std::wstring pubText = g_text->publisher;
         int subY = static_cast<int>(54 * g_scale);
         TextOutW(memDC, titleX, subY, pubText.c_str(), static_cast<int>(pubText.length()));
 
@@ -778,31 +998,29 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Feature / Description
         SelectObject(memDC, g_hFontBody);
         SetTextColor(memDC, g_colors.textPrimary);
-        std::wstring desc = g_isTurkish ?
-            L"Windows 11 için modern, güvenli ve hızlı klasör simgesi kişiselleştirme aracı." :
-            L"Fast, native, and private folder icon customization designed for Windows 11.";
-        RECT rcDesc = { static_cast<int>(32 * g_scale), static_cast<int>(106 * g_scale), clientRect.right - static_cast<int>(32 * g_scale), static_cast<int>(138 * g_scale) };
+        std::wstring desc = g_text->description;
+        RECT rcDesc = { static_cast<int>(32 * g_scale), static_cast<int>(140 * g_scale), clientRect.right - static_cast<int>(32 * g_scale), static_cast<int>(174 * g_scale) };
         DrawTextW(memDC, desc.c_str(), static_cast<int>(desc.length()), &rcDesc, DT_WORDBREAK);
 
         // Sub-features
         SetTextColor(memDC, g_colors.textSecondary);
-        std::wstring bullet1 = g_isTurkish ? L"• Dosya Gezgini sağ tık menüsüne kesintisiz entegrasyon" : L"• Seamless File Explorer context menu integration";
-        std::wstring bullet2 = g_isTurkish ? L"• Çevrimdışı ve tam gizlilik (sıfır telemetri, sıfır bulut yüklemesi)" : L"• Completely offline & private (zero telemetry, zero cloud tracking)";
-        std::wstring bullet3 = g_isTurkish ? L"• PNG, JPG, WebP ve ICO formatlarından yüksek kaliteli simgeler" : L"• High-resolution icon generation from PNG, JPG, WebP & ICO";
-        
-        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(140 * g_scale), bullet1.c_str(), static_cast<int>(bullet1.length()));
-        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(162 * g_scale), bullet2.c_str(), static_cast<int>(bullet2.length()));
-        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(184 * g_scale), bullet3.c_str(), static_cast<int>(bullet3.length()));
+        std::wstring bullet1 = g_text->bullet1;
+        std::wstring bullet2 = g_text->bullet2;
+        std::wstring bullet3 = g_text->bullet3;
+
+        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(180 * g_scale), bullet1.c_str(), static_cast<int>(bullet1.length()));
+        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(202 * g_scale), bullet2.c_str(), static_cast<int>(bullet2.length()));
+        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(224 * g_scale), bullet3.c_str(), static_cast<int>(bullet3.length()));
 
         // Status text
         SelectObject(memDC, g_hFontStatus);
         SetTextColor(memDC, (g_state == InstallState::Failed) ? RGB(232, 17, 35) : g_colors.textPrimary);
-        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(248 * g_scale), g_statusText.c_str(), static_cast<int>(g_statusText.length()));
+        TextOutW(memDC, static_cast<int>(32 * g_scale), static_cast<int>(290 * g_scale), g_statusText.c_str(), static_cast<int>(g_statusText.length()));
 
         // Bottom Divider
         HPEN hPenBottom = CreatePen(PS_SOLID, 1, g_colors.border);
         hOldPen = static_cast<HPEN>(SelectObject(memDC, hPenBottom));
-        int botDivY = static_cast<int>(298 * g_scale);
+        int botDivY = static_cast<int>(338 * g_scale);
         MoveToEx(memDC, 0, botDivY, nullptr);
         LineTo(memDC, clientRect.right, botDivY);
         SelectObject(memDC, hOldPen);
@@ -904,7 +1122,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     RegisterClassExW(&wc);
 
-    RECT rc = { 0, 0, static_cast<LONG>(500 * initScale), static_cast<LONG>(370 * initScale) };
+    RECT rc = { 0, 0, static_cast<LONG>(500 * initScale), static_cast<LONG>(410 * initScale) };
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     DWORD dwExStyle = WS_EX_APPWINDOW;
     AdjustWindowRectExForDpi(&rc, dwStyle, FALSE, dwExStyle, initDpi);
@@ -919,7 +1137,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     HWND hWnd = CreateWindowExW(
         dwExStyle,
         L"OrnareInstallerClass",
-        g_isTurkish ? L"Ornare Kurulumu" : L"Ornare Setup",
+        g_text->windowTitle,
         dwStyle,
         x, y, winWidth, winHeight,
         nullptr, nullptr, hInstance, nullptr);

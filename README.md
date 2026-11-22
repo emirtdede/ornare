@@ -1,6 +1,12 @@
 <div align="center">
 
-# 🎨 Ornare — Windows 11 Klasör Simgesi & Tasarım Özelleştirici
+<a href="https://vellium.dev" target="_blank" rel="noopener noreferrer">
+  <img src="assets/folders/ornare-classic.svg" alt="Ornare" width="96" height="96" />
+</a>
+
+<br /><br />
+
+# Ornare - Native Windows 11 Folder Personalization
 
 </div>
 
@@ -8,9 +14,9 @@
 
 <div align="center">
 
-[![](https://img.shields.io/badge/Language-English-blue?style=for-the-badge&logo=google-translate)](#english-version)
+[![](https://img.shields.io/badge/Language-English-000000?style=for-the-badge&logo=googletranslate&logoColor=white)](#english-version)
 &nbsp;&nbsp;&nbsp;&nbsp;
-[![](https://img.shields.io/badge/Dil-T%C3%BCrk%C3%A7e-red?style=for-the-badge&logo=google-translate)](#turkish-version)
+[![](https://img.shields.io/badge/Dil-T%C3%BCrk%C3%A7e-000000?style=for-the-badge&logo=googletranslate&logoColor=white)](#turkish-version)
 
 </div>
 
@@ -18,226 +24,323 @@
 
 <div align="center">
 
-![WinUI 3](https://img.shields.io/badge/WinUI-3.0-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
-![C#](https://img.shields.io/badge/C%23-13.0-239120?style=for-the-badge&logo=csharp&logoColor=white)
-![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)
-![Windows 11](https://img.shields.io/badge/Platform-Windows%2011%20(24H2%2F25H2%2F26H1)-0078D6?style=for-the-badge&logo=windows&logoColor=white)
-![Architecture](https://img.shields.io/badge/Architecture-x64%20%7C%20ARM64-lightgrey?style=for-the-badge)
-![MSIX](https://img.shields.io/badge/Packaging-MSIX%20%2B%20Setup.exe-FF6F00?style=for-the-badge&logo=box)
-![SQLite](https://img.shields.io/badge/Storage-SQLite%20WAL-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Magick.NET](https://img.shields.io/badge/Image_Engine-Magick.NET-8E24AA?style=for-the-badge)
-![Zero Telemetry](https://img.shields.io/badge/Privacy-100%25%20Offline%20%2F%20Zero%20Telemetry-00C853?style=for-the-badge&logo=shield)
-![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Vellium-blueviolet?style=for-the-badge)
+[![CI](https://img.shields.io/github/actions/workflow/status/emirtdede/ornare/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI&color=000000)](https://github.com/emirtdede/ornare/actions/workflows/ci.yml)
+![Release](https://img.shields.io/badge/Release-v1.0.0-000000?style=flat-square)
+![WinUI 3](https://img.shields.io/badge/WinUI_3-Windows_App_SDK-000000?style=flat-square&logo=windows&logoColor=white)
+![.NET](https://img.shields.io/badge/.NET-10_LTS-000000?style=flat-square&logo=dotnet&logoColor=white)
+![C#](https://img.shields.io/badge/C%23-14-000000?style=flat-square&logo=csharp&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-20-000000?style=flat-square&logo=cplusplus&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-WAL_Mode-000000?style=flat-square&logo=sqlite&logoColor=white)
+![Magick.NET](https://img.shields.io/badge/Images-Magick.NET-000000?style=flat-square)
+![Languages](https://img.shields.io/badge/Languages-73_Supported-000000?style=flat-square)
+![Icons](https://img.shields.io/badge/App_Icons-8_Variants-000000?style=flat-square)
+![Windows](https://img.shields.io/badge/Windows-11_x64_%2F_ARM64-000000?style=flat-square&logo=windows&logoColor=white)
+![Privacy](https://img.shields.io/badge/Privacy-No_Account_No_Telemetry-000000?style=flat-square&logo=shield&logoColor=white)
 
 </div>
 
 ---
 
 <a id="english-version"></a>
+
 # English Version
 
 <div align="center">
-  <img src="docs/logo.svg" alt="Ornare Logo" width="130" height="130" />
-  <h3>Ornare — Windows 11 Native Folder Customization & Icon Architecture</h3>
-  <p><em>Premium, Local-First, Zero-Telemetry Folder Customizer with Modern Shell Extension & Fast Application Engine</em></p>
-  <p><strong>Developed & Published by <a href="https://vellium.dev">Vellium</a></strong></p>
+  <img src="assets/folders/ornare-classic.svg" alt="Ornare logo" width="108" height="108" />
+  <h3>Ornare - Folder Icons, Themes and Cloud Backup for Windows 11</h3>
+  <p><em>Native WinUI 3 Manager and Quick Panel, Durable Relative Icons, 8 App Icon Variants, 73-Language Catalog, and Optional User-Owned Backups</em></p>
+  <p><strong>Developed &amp; Published by <a href="https://vellium.dev">Vellium</a></strong></p>
 </div>
 
 <br>
 
-## 💻 Project Overview
+## Project Overview
 
-**Ornare** is an enterprise-grade, specification-first Windows 11 utility engineered to personalize folder icons with effortless speed, cryptographic resilience, and native platform integration. Its core interaction promise is seamless:
+**Ornare (`v1.0.0`)** is a native Windows 11 folder personalization app. It sets folder icons from images or curated emblems, keeps the result durable when folders are moved or renamed, and applies the same visual language to the whole application through themes, an accent color, eight app icon variants, and an interface scale.
 
-> **Right-click any folder → Select "Set Folder Icon" → Drop, pick, or paste an image → Done instantly.**
+Everything that matters happens on the device. There is no account, no telemetry, no advertising, no image upload and no hidden administrator requirement. The optional cloud backup writes a single JSON snapshot into a folder **you** choose (OneDrive, Google Drive, Dropbox, or any local folder) so a new PC or a clean Windows install can restore your setup.
 
-Unlike legacy icon tools that rely on web views, unstable registry hacks, or brute-force Explorer process termination, Ornare is built entirely with **WinUI 3 (Windows App SDK 1.6+)**, **.NET 10 (C# 13)**, and **native C++20**. It integrates directly with the modern Windows 11 File Explorer context menu via an out-of-process COM `IExplorerCommand` shell extension.
+The core interaction is one gesture:
 
-Ornare features a **Durable Operation Journal** and **Idempotent Reconciliation Engine**: custom icon assignments never corrupt existing folder contents or overwrite custom user `desktop.ini` configurations. It runs **100% offline** with zero telemetry, zero analytics, zero external network calls, and zero background ads.
+> **Right-click a folder -> Set Folder Icon -> Drop, pick or paste an image -> Applied.**
 
----
-
-## 🚀 Key Features
-
-- **Native Windows 11 Context Menu**: Directly accessible from File Explorer via an out-of-process, fail-safe C++20 COM `IExplorerCommand` extension.
-- **Zero-Restart Live Shell Refresh**: Changes apply immediately across all open Explorer windows and the Desktop via native `SHChangeNotify` notification broadcasts without ever killing or restarting `explorer.exe`.
-- **Durable Relative Icon Storage**: Icons are converted into high-fidelity multi-resolution `.ico` packages and stored in durable hidden subdirectories (`.ornare/icon.ico`) using relative paths—ensuring folder icons remain intact even when directories are renamed or moved across drives.
-- **Durable 2-Phase Journal & Reconciliation**: Filesystem mutations and SQLite state updates are protected by a transactional write-ahead operation journal (`journal.json`). Any system crash or power outage during an operation is automatically reconciled on the next launch.
-- **Safe Reset & Non-Destructive Rollback**: Reverting a folder removes only Ornare-owned icon semantics, preserving all existing third-party or operating system attributes in `desktop.ini`.
-- **Multi-Format Image Pipeline**: Powered by Magick.NET, supporting PNG, JPEG, WebP, BMP, and SVG files. Automatically scales and packages icons into 16x16, 24x24, 32x32, 48x48, 64x64, 128x128, and 256x256 multi-layer ICO archives with crisp downsampling and alpha-channel preservation.
-- **Compact Quick Panel & Manager UI**: Minimalist, card-free WinUI 3 interface adhering strictly to Microsoft Fluent 2 design principles, supporting system theme synchronization (Dark / Light) and high-contrast modes.
-- **Multi-Architecture Support**: Built and qualified for **x64** and **ARM64** on Windows 11 (24H2, 25H2, and 26H1).
-- **100% Bilingual (English & Turkish)**: Fully localized UI, context menus, installer, and error diagnostics based on system UI language.
-- **Privacy & Security First**: Strictly local-first. No accounts, no cloud dependencies, no image telemetry, and no hidden administrator requirements.
+<p align="center">
+  <img src="docs/screenshots/manager-library.png" alt="Ornare Manager, library section" width="760" />
+</p>
 
 ---
 
-## 🛠️ Tech Stack
+## Key Features
+
+### Native Shell Integration
+- Out-of-process C++20 COM `IExplorerCommand` shell extension registered for the Windows 11 context menu. The extension stays tiny, fails closed, and never blocks Explorer.
+- Live shell refresh through `SHChangeNotify`; `explorer.exe` is never killed or restarted.
+- Durable relative icon storage in a hidden `.ornare` subfolder, so an icon survives moving or renaming the folder and works across drives.
+
+### Durable, Non-Destructive Writes
+- Two-phase filesystem journal plus idempotent startup reconciliation: an interrupted apply is completed or rolled back on the next launch, never left half-written.
+- Reset and Undo remove only Ornare-owned icon semantics and preserve third-party `desktop.ini` values.
+- A newer external `desktop.ini` snapshot is never overwritten by a stale reset.
+
+### Image and Emblem Pipeline
+- Magick.NET pipeline for PNG, JPEG, WebP, BMP, ICO and sanitized SVG input.
+- Multi-resolution ICO output (16 to 256 px) with alpha preservation and deterministic render caching.
+- A curated emblem library (320 Fluent-derived SVGs with recorded provenance) plus nine folder templates for fast visual organization.
+
+### Personalization
+- **Themes:** System, Light, Dark, following the Windows theme by default.
+- **Accent color:** System accent or any `#RRGGBB` value, with contrast-aware foreground calculation.
+- **App icon:** 8 Ornare glyph variants (Ink, Accent, Ocean, Forest, Ember, Plum, Graphite, Gold) rendered in the accent color and applied to the window, taskbar and tray.
+- **Interface scale:** 80 to 200 percent in eight presets, with a reset action.
+- **Status presets:** visual badges for priority-style folder organization that never change filesystem priority or shell sorting.
+
+### 73-Language Catalog
+- 73 selectable languages, resolved from the Windows UI language on first launch with English fallback.
+- The setup executable offers the same 73-language picker before anything is installed, preselects the Windows language, and passes the choice to onboarding.
+- Six fully translated first-class locales: English, Turkish, German, French, Spanish, Portuguese (Brazil).
+- The remaining 67 languages are selectable and resolve to English copy until their translation lands; the picker never advertises a translation that does not exist. Parity is enforced by tests.
+
+### Four-Step Onboarding
+1. Language.
+2. Theme, accent color and interface scale.
+3. Welcome.
+4. Guided tour with the optional cloud backup opt-in.
+
+Each step is a separate screen; the flow is shown again on demand from Settings.
+
+### Optional Cloud Backup (User-Owned Folder)
+- Provider detection: `OneDriveConsumer`, `OneDrive`, `OneDriveCommercial`, `%USERPROFILE%\OneDrive`, Google Drive, Dropbox, or any folder you pick.
+- Writes `<provider root>\Ornare\ornare-cloud-sync.json` atomically (`.tmp-<pid>` + rename, copy fallback for `EBUSY`/`EPERM`).
+- Keeps `ornare-cloud-previous.json` and 15 daily `ornare-backup-YYYY-MM-DD.json` snapshots.
+- Corrupt-file recovery chain: current -> previous -> newest backup.
+- Empty local state never overwrites a populated cloud snapshot; after a reinstall the app offers **Restore** or **Start fresh**.
+- Debounced background writes (350 ms) plus a flush on close; background failures never block the UI.
+- The snapshot carries portable user intent only: settings, folder assignments and collection names. Binary icon caches stay local.
+
+### Diagnostics
+- One-click diagnostic report export with anonymized personal paths.
+- Runtime session log available only when `ORNARE_DIAGNOSTIC_SESSION=1` is set.
+
+---
+
+## Tech Stack
 
 <div align="center">
 
-![WinUI 3](https://img.shields.io/badge/WinUI_3-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![Windows App SDK](https://img.shields.io/badge/Windows_App_SDK_1.6-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![.NET 10](https://img.shields.io/badge/.NET_10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
-![C# 13](https://img.shields.io/badge/C%23_13.0-239120?style=for-the-badge&logo=csharp&logoColor=white)
-![C++20](https://img.shields.io/badge/C%2B%2B_20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite_3-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Magick.NET](https://img.shields.io/badge/Magick.NET-8E24AA?style=for-the-badge)
+![WinUI 3](https://img.shields.io/badge/WinUI_3-000000?style=flat-square&logo=windows&logoColor=white)
+![Windows App SDK](https://img.shields.io/badge/Windows_App_SDK-000000?style=flat-square)
+![.NET 10](https://img.shields.io/badge/.NET_10-000000?style=flat-square&logo=dotnet&logoColor=white)
+![C#](https://img.shields.io/badge/C%23_14-000000?style=flat-square&logo=csharp&logoColor=white)
+![C++20](https://img.shields.io/badge/C%2B%2B_20-000000?style=flat-square&logo=cplusplus&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-000000?style=flat-square&logo=sqlite&logoColor=white)
+![Magick.NET](https://img.shields.io/badge/Magick.NET-000000?style=flat-square)
+![xUnit](https://img.shields.io/badge/xUnit-000000?style=flat-square)
+![MSIX](https://img.shields.io/badge/MSIX-000000?style=flat-square)
 
 </div>
 
-### Shell Extension & Native Core (C++20)
-- **COM `IExplorerCommand`**: Out-of-process Windows 11 modern context menu integration (`Ornare.ShellExtension.dll`).
-- **Win32 Shell & Security API**: `SHChangeNotify`, folder attribute management (`FILE_ATTRIBUTE_SYSTEM` / `READONLY`), and ACL preservation.
-- **Native Bootstrapper Installer**: High-performance Win32 C++ installer (`OrnareSetup.exe`) embedding signed MSIX payloads with automatic certificate configuration.
+### Runtime and UI
+- **WinUI 3 / Windows App SDK** - Manager window, Quick Panel, onboarding and settings surfaces.
+- **.NET 10 (C# 14)** - application, core and storage layers.
+- **C++20** - out-of-process shell extension and native interop.
+- **Magick.NET** - image decode, ICO composition and preview rendering.
 
-### Application & Design System (C# 13 & WinUI 3)
-- **WinUI 3 & Windows App SDK 1.6**: Hardware-accelerated Fluent 2 user interface (Quick Panel & Library Manager).
-- **Ornare.DesignSystem**: Custom control primitives, Mica/Acrylic backdrops, accessible typography, and keyboard navigation.
-- **Magick.NET (Q16-AnyCPU)**: Production image decoding, sanitization, SVG rasterization, and multi-layer ICO encoding.
-- **Microsoft.Data.Sqlite**: Local database with Write-Ahead Logging (WAL) for tracking customized folders and undo history.
+### Data and Safety
+- **SQLite (WAL)** - folder assignments, collections, settings and history.
+- **Filesystem journal** - crash-safe two-phase apply with startup reconciliation.
+- **`SHChangeNotify`** - shell refresh without restarting Explorer.
+
+### Build, Test and Release
+- **xUnit** - core, storage, imaging, UI-contract and integration suites, including localization parity and cloud backup recovery tests.
+- **MSIX** - packaged x64 and ARM64 builds with a signed manifest.
+- **GitHub Actions** - restore, build, non-performance tests, performance tests and artifact upload.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```tree
 Ornare/
-├── .agents/                        # AI development workflows, rules & domain skills
-├── docs/                           # Specifications, logic invariants & ADRs
-│   ├── adr/                        # Architecture Decision Records
-│   ├── LOGIC_INVARIANTS.md         # Invariants & rollback integrity rules
-│   ├── QUALITY_GATES.md            # Enterprise quality gates & criteria
-│   └── REQUIREMENTS_TRACEABILITY.md# Full requirements mapping
-├── production_artifacts/           # Release candidates, WACK reports & branding
-│   ├── branding/                   # Vector logos, icons & presentation graphics
-│   └── release/                    # Certificates, checksums & store metadata
-├── scripts/                        # Automation & verification scripts
-│   ├── build-multiarch-release.ps1 # Multi-arch packaging, PRI indexing & signing
-│   ├── setup-dev-certificate.ps1   # Local cert trust setup
-│   └── verify.ps1                  # Comprehensive engineering verification
-├── src/                            # Application and core component source
-│   ├── Ornare.App/                 # WinUI 3 desktop application (Quick Panel & Manager)
-│   ├── Ornare.Core/                # Domain models, operations & contracts
-│   ├── Ornare.DesignSystem/        # Premium Windows 11 WinUI styles & controls
-│   ├── Ornare.Imaging/             # Multi-layer ICO encoder & Magick.NET image pipeline
-│   ├── Ornare.Installer/           # Native C++ Win32 bootstrapper & standalone setup
-│   ├── Ornare.Package/             # MSIX packaging assets & AppxManifest
-│   ├── Ornare.ShellExtension/      # C++20 IExplorerCommand Windows 11 shell integration
-│   ├── Ornare.Storage/             # SQLite database, journal & reconciliation engine
-│   └── Ornare.Windows/             # Windows Shell APIs, desktop.ini & refresh services
-├── tests/                          # Automated unit, integration and UI test suites
-│   ├── Ornare.Core.Tests/          # Core model & serialization tests
-│   ├── Ornare.Imaging.Tests/       # Image processing, ICO generation & SVG tests
-│   ├── Ornare.IntegrationTests/    # End-to-end folder customization & persistence tests
-│   ├── Ornare.Storage.Tests/       # SQLite journaling, crash-recovery & rollback tests
-│   └── Ornare.UiTests/             # UI smoke, window management & layout tests
-├── Ornare.slnx                     # Solution configuration file
-└── README.md                       # Master Documentation
+├── .github/                         # CI, Dependabot, issue and PR templates
+├── assets/
+│   ├── emblems/                     # Curated SVG emblem library with provenance
+│   └── folders/                     # Folder template SVGs with provenance
+├── docs/
+│   ├── adr/                         # Architecture decision records
+│   ├── screenshots/                 # Runtime evidence captured from the packaged app
+│   ├── ARCHITECTURE.md              # Layer map, invariants and data flow
+│   ├── DESIGN_SYSTEM.md             # Visual language and motion rules
+│   ├── LOCALIZATION.md              # 73-language catalog and fallback rules
+│   ├── QA_REPORT.md                 # Pre-deployment QA and architecture audit
+│   └── WORK_REPORT.md               # What was built in this release
+├── scripts/                         # Build, packaging, quality gate and release helpers
+├── src/
+│   ├── Ornare.App/                  # WinUI 3 Manager, Quick Panel, onboarding, resources
+│   ├── Ornare.Cli/                  # Automation entry point for apply, reset and diagnostics
+│   ├── Ornare.Core/                 # Domain models, locale catalog, settings, validation
+│   ├── Ornare.DesignSystem/         # Shared brushes, typography and motion tokens
+│   ├── Ornare.Installer/            # Native C++ setup executable with the 73-language picker
+│   ├── Ornare.Storage/              # SQLite storage, journal and cloud snapshot service
+│   ├── Ornare.Imaging/              # Image pipeline, ICO composition and render cache
+│   ├── Ornare.ShellExtension/       # C++20 IExplorerCommand implementation
+│   └── Ornare.Windows/              # Native interop and shell helpers
+├── tests/                           # Core, storage, imaging, UI and integration suites
+├── Ornare.slnx                      # Solution
+└── Directory.Build.props            # Warnings as errors and shared analyzers
 ```
 
 ---
 
-## 🔐 Architecture & Invariants
+## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Explorer["Windows 11 File Explorer"]
-        Folder[Folder Right-Click]
-        ShellExt["Ornare.ShellExtension.dll (C++20 COM IExplorerCommand)"]
+    subgraph SHELL["Windows 11 Shell"]
+        CTX["Context menu entry"]
+        EXP["File Explorer"]
     end
 
-    subgraph AppModel["Ornare Runtime Engine (WinUI 3 / C# 13)"]
-        Protocol["ornare:customization Protocol Activation"]
-        QuickPanel["QuickPanelWindow (Fluent UI)"]
-        Pipeline["Magick.NET Image Pipeline"]
-        ICO["Multi-Resolution ICO (16x16 -> 256x256)"]
+    subgraph EXT["Shell Extension (out-of-process, C++20)"]
+        CMD["IExplorerCommand"]
     end
 
-    subgraph StorageSafety["Resilience & Mutation Layer"]
-        Journal["Operation Journal (journal.json)"]
-        SQLite[("Local SQLite Catalog (WAL Mode)")]
-        DiskMut["Folder Mutator (.ornare/icon.ico + desktop.ini)"]
-        Notify["ShellRefreshService (SHChangeNotify Broadcast)"]
+    subgraph APP["Ornare.App (WinUI 3)"]
+        QP["Quick Panel"]
+        MG["Manager"]
+        OB["Onboarding"]
+        AS["AppearanceService"]
     end
 
-    Folder -->|Invoke| ShellExt
-    ShellExt -->|Launch URI| Protocol
-    Protocol --> QuickPanel
-    QuickPanel --> Pipeline
-    Pipeline --> ICO
-    ICO --> Journal
-    Journal -->|Stage 1: Commit Image & ini| DiskMut
-    DiskMut -->|Stage 2: Commit Record| SQLite
-    SQLite -->|Stage 3: Close Journal| Journal
-    DiskMut -->|Notify Explorer| Notify
-    Notify -.->|Live Refresh| Explorer
+    subgraph CORE["Ornare.Core"]
+        SET["UserSettings"]
+        LOC["LocaleCatalog"]
+        ICON["AppIconCatalog"]
+        VAL["Validators"]
+    end
+
+    subgraph STORE["Ornare.Storage"]
+        DB[("ornare.db (SQLite WAL)")]
+        JRN["Operation journal + reconciliation"]
+        CLOUD["CloudSyncService (JSON snapshot)"]
+    end
+
+    subgraph IMG["Ornare.Imaging"]
+        PIPE["Magick.NET pipeline"]
+        CACHE["Render cache"]
+    end
+
+    FS["Folder .ornare\\icon.ico + desktop.ini"]
+    DRIVE["User-chosen cloud or local folder"]
+    NOTIFY["SHChangeNotify"]
+
+    CTX --> CMD --> APP
+    APP --> CORE
+    APP --> IMG
+    APP --> STORE
+    STORE --> FS
+    STORE --> DB
+    JRN --> FS
+    CLOUD --> DRIVE
+    FS --> NOTIFY --> EXP
+    AS --> ICON
+    LOC --> APP
+    SET --> DB
 ```
 
-### Safety Invariants
+**Safety model.** Icon writes go through a journaled two-phase apply, so a crash can only produce a resumable state, never a corrupted folder. Shell notifications are the only Explorer interaction: no process termination, no registry hacks, no in-process injection. The shell extension is out-of-process and fails closed, so a defect in the extension cannot take Explorer down. Cloud backup is strictly additive: it reads Ornare state and writes a JSON file inside a folder the user chose, with no credentials and no network API.
 
-| Invariant | Implementation Mechanism | Safety Guarantee |
+---
+
+## Storage and Data Boundaries
+
+| Path | Protection | Contents |
 | :--- | :--- | :--- |
-| **Explorer Stability** | Out-of-process COM + `SHChangeNotify(SHCNE_UPDATEITEM)` | Explorer process is never killed or restarted. |
-| **Data Preservation** | Non-destructive `desktop.ini` parsing & relative paths | Existing folder contents and non-Ornare customizations are preserved. |
-| **Crash Recovery** | 2-phase write-ahead journal (`journal.json`) | Interrupted or aborted file writes are cleanly rolled back or replayed on reboot. |
-| **Offline Privacy** | Zero network sockets in source code | No images, file paths, or telemetry are ever transmitted outside the machine. |
+| `%LOCALAPPDATA%\Ornare\ornare.db` | SQLite WAL, transactional writes | Folder assignments, collections, settings, recent items |
+| `<folder>\.ornare\icon.ico` | Hidden, relative path | Durable folder icon |
+| `<folder>\desktop.ini` | Owned-semantics merge | Only Ornare-owned icon keys are touched |
+| `<cloud root>\Ornare\ornare-cloud-sync.json` | Atomic write + validation | Portable settings, folder and collection metadata |
+| `<cloud root>\Ornare\ornare-cloud-previous.json` | Rotated on each write | Previous good snapshot |
+| `<cloud root>\Ornare\ornare-backup-YYYY-MM-DD.json` | 15-day rotation | Daily snapshots |
+| `%LOCALAPPDATA%\Ornare\diagnostics\` | Opt-in only | Session log when explicitly enabled |
 
 ---
 
-## ⚙️ Installation & Usage
+## Screenshots
 
-### Prerequisites
-- **Operating System**: Windows 11 Version 24H2 or later (x64 or ARM64)
-- **Developer Tools**: .NET 10 SDK, Visual Studio 2022 / 2026 Build Tools (C++ Desktop Workload), Windows 11 SDK (10.0.26100.0+)
-
-### Step-by-Step Developer Setup
-
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/emirtdede/Ornare.git
-   cd Ornare
-   ```
-
-2. **Restore & Verify Solution:**
-   ```bash
-   dotnet restore Ornare.slnx --locked-mode
-   ```
-
-3. **Run Automated Test Suites:**
-   ```bash
-   # Run all 89 unit, storage, imaging, UI and integration tests
-   dotnet test Ornare.slnx -c Release
-   ```
-
-4. **Build Production Release Artifacts:**
-   ```bash
-   # Multi-architecture automated pipeline (Build -> PRI Indexing -> Pack -> Sign -> Audit)
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-multiarch-release.ps1
-   ```
+<p align="center">
+  <img src="docs/screenshots/onboarding-1-language.png" alt="Onboarding, language step" width="330" />
+  <img src="docs/screenshots/onboarding-2-theme.png" alt="Onboarding, theme step" width="330" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/onboarding-3-welcome.png" alt="Onboarding, welcome step" width="330" />
+  <img src="docs/screenshots/onboarding-4-tour.png" alt="Onboarding, tour step" width="330" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/manager-settings-en.png" alt="Settings, English" width="760" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/manager-cloud-connected.png" alt="Cloud backup card connected to OneDrive" width="760" />
+</p>
 
 ---
 
-## 📦 Pre-Compiled Distribution Packages
+## Installation and Usage
 
-Ready-to-use production packages are located inside [`production_artifacts/release/candidate/`](file:///c:/Users/emir/Desktop/Ornare/production_artifacts/release/candidate):
+### Install with the setup file
 
-- **OrnareSetup.exe**: Standalone Win32 bootstrapper with embedded signed MSIX payload and 1-click certificate configuration.
-- **Ornare_1.0.0.0_x64.msix**: Standard x64 signed application package for Windows 11.
-- **Ornare_1.0.0.0_arm64.msix**: Native ARM64 signed application package for Copilot+ PCs and ARM64 hardware.
-- **Ornare_1.0.0.0_x64_arm64.msixbundle**: Unified multi-architecture distribution bundle.
-- **SHA256SUMS.txt**: Cryptographic checksum manifests for package validation.
+1. Download `OrnareSetup 1.0.0.exe` (or build it locally, see below).
+2. Run the setup. No administrator prompt is required; the package is deployed per user.
+3. Pick your language on the first screen: all 73 languages are listed, the Windows UI language is preselected, and English is used when nothing matches.
+4. Leave **Create a desktop shortcut** checked if you want one.
+5. Select **Install**, then open **Ornare** from the Start menu. The first run opens the four-step onboarding in the language you chose during setup.
+
+**Uninstall:** Windows Settings -> Apps -> Ornare -> Uninstall. Folder icons already applied stay in place unless you reset them, because the app never deletes user files during uninstall.
+
+### Build from source
+
+Requirements: Windows 11 (25H2 baseline), .NET 10 SDK, Visual Studio 2022 with the Windows App SDK and C++ desktop workloads, and PowerShell 7.
+
+```powershell
+git clone https://github.com/emirtdede/ornare.git
+cd ornare
+
+# Restore and build
+dotnet build Ornare.slnx -c Release
+
+# Tests
+dotnet test Ornare.slnx -c Release --filter "Category!=Performance"
+dotnet test Ornare.slnx -c Release --filter "Category=Performance"
+
+# Package
+pwsh ./scripts/create-package.ps1
+```
+
+### Quality gates
+
+```powershell
+pwsh ./scripts/quality-gate.ps1      # build plus full test run
+pwsh ./scripts/dependency-audit.ps1  # vulnerable and deprecated packages
+```
 
 ---
 
-## ⚖️ License
+## Distribution
 
-Copyright © 2026 **Vellium**. All rights reserved.
+- **MSIX package** - packaged x64 and ARM64 builds with package identity, produced by the release scripts.
+- **Source tag** - `v1.0.0`.
+- **Release notes** - see [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/emirtdede/ornare/releases).
 
-Original source code, branding, visual identity, and product design are proprietary property of Vellium. Distributed under the terms of the project license agreement. See [`LICENSE.md`](file:///c:/Users/emir/Desktop/Ornare/LICENSE.md) and [`THIRD-PARTY-NOTICES.md`](file:///c:/Users/emir/Desktop/Ornare/THIRD-PARTY-NOTICES.md) for full licensing details.
+---
 
-**Official Website**: [Vellium.dev](https://vellium.dev) &bull; **Publisher**: Vellium
+## License and Publisher
+
+**Proprietary software.** Copyright © 2026 Vellium Teknoloji Anonim Şirketi. All rights reserved.
+
+No rights are granted to copy, modify, publish, distribute, sublicense, or sell the software except under a separate written agreement with Vellium Teknoloji Anonim Şirketi. See [`LICENSE.md`](LICENSE.md) for the full terms and [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for open-source attributions.
+
+- **Publisher:** Vellium Teknoloji Anonim Şirketi
+- **Website:** [vellium.dev](https://vellium.dev)
+- **Security disclosure:** [SECURITY.md](SECURITY.md)
 
 ---
 
@@ -246,206 +349,153 @@ Original source code, branding, visual identity, and product design are propriet
 ---
 
 <a id="turkish-version"></a>
+
 # Türkçe Versiyon
 
 <div align="center">
-  <img src="docs/logo.svg" alt="Ornare Logo" width="130" height="130" />
-  <h3>Ornare — Windows 11 Yerel Klasör Simgesi ve Tasarım Özelleştirici</h3>
-  <p><em>Modern Dosya Gezgini Entegrasyonuna Sahip, %100 Yerel, Sıfır Telemetrili Premium Klasör Kişiselleştirme Aracı</em></p>
+  <img src="assets/folders/ornare-classic.svg" alt="Ornare logosu" width="108" height="108" />
+  <h3>Ornare - Windows 11 İçin Klasör Simgeleri, Temalar ve Bulut Yedekleme</h3>
+  <p><em>Yerel WinUI 3 Yönetici ve Hızlı Panel, Kalıcı Göreli Simgeler, 8 Uygulama Simgesi Varyantı, 73 Dil Kataloğu ve İsteğe Bağlı Kullanıcı Sahipli Yedekleme</em></p>
   <p><strong>Geliştirici ve Yayıncı: <a href="https://vellium.dev">Vellium</a></strong></p>
 </div>
 
 <br>
 
-## 💻 Proje Genel Bakışı
+## Proje Genel Bakışı
 
-**Ornare**, Windows 11 kullanıcılarının klasör simgelerini en hızlı, en güvenli ve modern işletim sistemi standartlarına tam uyumlu şekilde kişiselleştirmesini sağlayan kurumsal düzeyde yerel bir masaüstü uygulamasıdır. Temel kullanım vaadi son derece yalındır:
+**Ornare (`v1.0.0`)**, Windows 11 için yerel bir klasör kişiselleştirme uygulamasıdır. Klasör simgelerini görsellerden veya hazır amblemlerden oluşturur, klasör taşınsa ya da adı değişse bile simgenin kalıcı kalmasını sağlar ve aynı görsel dili tema, vurgu rengi, sekiz uygulama simgesi varyantı ve arayüz ölçeğiyle tüm uygulamaya uygular.
 
-> **Herhangi bir klasöre sağ tıklayın → "Klasör Simgesini Ayarla"yı seçin → Bir görseli sürükleyin, seçin veya yapıştırın → Anında hazır.**
+Önemli olan her şey cihazda gerçekleşir. Hesap yoktur, telemetri yoktur, reklam yoktur, görsel yüklemesi yoktur ve gizli yönetici izni istenmez. İsteğe bağlı bulut yedekleme, **sizin seçtiğiniz** bir klasöre (OneDrive, Google Drive, Dropbox veya herhangi bir yerel klasör) tek bir JSON anlık görüntüsü yazar; böylece yeni bir bilgisayarda veya temiz Windows kurulumunda ayarlarınızı geri yükleyebilirsiniz.
 
-Web tabanlı hantal arayüzler kullanan, registry kayıtlarını bozan veya simgeleri yenilemek için Windows Gezgini'ni (`explorer.exe`) zorla yeniden başlatan geleneksel araçların aksine Ornare; **WinUI 3 (Windows App SDK 1.6+)**, **.NET 10 (C# 13)** ve **yerel C++20** teknolojileriyle geliştirilmiştir. Windows 11'in modern sağ tık menüsüne doğrudan harici COM `IExplorerCommand` uzantısıyla entegre olur.
+Temel etkileşim tek bir hareketle tamamlanır:
 
-Ornare, **Dayanıklı İşlem Günlüğü (Durable Journal)** ve **Idempotent Senkronizasyon Motoru** içerir: Simge uygulama veya sıfırlama işlemleri hiçbir zaman klasör içeriğini bozmaz, üçüncü taraf `desktop.ini` yapılandırmalarını ezmez. Uygulama **%100 çevrimdışı** çalışır; telemetri, analitik, harici ağ istekleri ve reklam barındırmaz.
+> **Klasöre sağ tıklayın -> Klasör Simgesini Ayarla -> Görseli bırakın, seçin veya yapıştırın -> Uygulandı.**
 
----
-
-## 🚀 Önemli Özellikler
-
-- **Windows 11 Modern Sağ Tık Menüsü**: Dosya Gezgini üzerinden süreç dışı (out-of-process) çalışan, çökmelere karşı korumalı C++20 COM `IExplorerCommand` kabuk uzantısıyla anında erişim.
-- **Yeniden Başlatmasız Canlı Tazeleme**: Gezgin sürecini (`explorer.exe`) asla kapatıp açmadan, yerel `SHChangeNotify` API çağrılarıyla masaüstü ve tüm açık klasör pencerelerinde simgeleri anında günceller.
-- **Bağıl ve Dayanıklı Simge Depolaması**: Görseller yüksek kaliteli çok katmanlı `.ico` formatına dönüştürülüp klasörün kendi içindeki gizli `.ornare/icon.ico` dizininde bağıl (relative) yolla tutulur. Klasör adı değiştirildiğinde veya başka diske taşındığında simge kaybolmaz.
-- **2 Aşamalı Güvenli İşlem Günlüğü (Journal)**: Dosya sistemi yazımları ve SQLite veritabanı kayıtları işlem günlüğüyle (`journal.json`) korunur. Elektrik kesintisi veya ani çökmelerde bir sonraki açılışta sistem kendini otomatik olarak güvenli duruma onarır.
-- **Güvenli Sıfırlama ve Geri Alma**: Klasör varsayılana döndürülürken yalnızca Ornare'e ait simge parametreleri temizlenir; `desktop.ini` içindeki diğer sistem ve üçüncü taraf ayarlar korunur.
-- **Çok Formatlı Gelişmiş Görsel İşleme**: Magick.NET motoru ile PNG, JPEG, WebP, BMP ve SVG desteği. Görselleri 16x16'dan 256x256'ya kadar tüm standart Windows çözünürlüklerinde alfa kanallı çok katmanlı ICO arşivlerine dönüştürür.
-- **Kompakt Quick Panel & Kütüphane Yöneticisi**: Microsoft Fluent 2 tasarım diline sadık, minimalist, kutu-içinde-kutu karmaşasından uzak WinUI 3 arayüzü; sistem temasıyla tam senkronizasyon (Açık/Koyu) ve yüksek kontrast desteği.
-- **Çoklu Mimari Desteği (Multi-Arch)**: Windows 11 (24H2, 25H2, 26H1) üzerinde hem **x64** hem de **ARM64** için tam uyumluluk ve derleme doğrulaması.
-- **%100 İki Dilli Altyapı (Türkçe ve İngilizce)**: Sistem diline duyarlı, eksiksiz Türkçe ve İngilizce arayüz, menü ve hata mesajları.
-- **Gizlilik ve Güvenlik Odaklı**: %100 yerel ve çevrimdışı. Hesap zorunluluğu, bulut bağlantısı, telemetri veya arka plan yönetici yetkisi gereksinimi yoktur.
+<p align="center">
+  <img src="docs/screenshots/manager-library.png" alt="Ornare Yönetici, kitaplık bölümü" width="760" />
+</p>
 
 ---
 
-## 🛠️ Teknoloji Yığını
+## Öne Çıkan Özellikler
 
-<div align="center">
+### Yerel Kabuk Entegrasyonu
+- Windows 11 bağlam menüsü için süreç dışı C++20 COM `IExplorerCommand` kabuk eklentisi. Eklenti küçük kalır, hatada güvenli tarafa kapanır ve Explorer'ı asla kilitlemez.
+- `SHChangeNotify` ile canlı kabuk yenilemesi; `explorer.exe` asla sonlandırılmaz veya yeniden başlatılmaz.
+- Gizli `.ornare` alt klasöründe göreli simge saklama; simge, klasör taşınsa veya adı değişse de çalışır, sürücüler arasında geçerlidir.
 
-![WinUI 3](https://img.shields.io/badge/WinUI_3-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![Windows App SDK](https://img.shields.io/badge/Windows_App_SDK_1.6-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![.NET 10](https://img.shields.io/badge/.NET_10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
-![C# 13](https://img.shields.io/badge/C%23_13.0-239120?style=for-the-badge&logo=csharp&logoColor=white)
-![C++20](https://img.shields.io/badge/C%2B%2B_20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite_3-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Magick.NET](https://img.shields.io/badge/Magick.NET-8E24AA?style=for-the-badge)
+### Kalıcı ve Yıkıcı Olmayan Yazma
+- İki fazlı dosya sistemi günlüğü ve açılışta idempotent uzlaştırma: yarıda kalan uygulama işlemi bir sonraki açılışta tamamlanır veya geri alınır.
+- Sıfırlama ve Geri Al yalnızca Ornare'a ait simge anahtarlarını kaldırır, üçüncü taraf `desktop.ini` değerlerini korur.
+- Dışarıdan güncellenmiş yeni bir `desktop.ini` anlık görüntüsü, eski bir sıfırlama ile asla ezilmez.
 
-</div>
+### Görsel ve Amblem Hattı
+- PNG, JPEG, WebP, BMP, ICO ve arındırılmış SVG girişleri için Magick.NET hattı.
+- 16 ile 256 piksel arası çok çözünürlüklü ICO çıktısı, alfa koruması ve deterministik render önbelleği.
+- Kaynağı belgelenmiş 320 Fluent türevi SVG amblem kitaplığı ve hızlı görsel düzenleme için dokuz klasör şablonu.
 
-### Kabuk Uzantısı ve Yerel Çekirdek (C++20)
-- **COM `IExplorerCommand`**: Windows 11 Gezgini için süreç dışı modern bağlam menüsü uzantısı (`Ornare.ShellExtension.dll`).
-- **Win32 Shell & Security API**: `SHChangeNotify`, klasör öznitelik kontrolü (`FILE_ATTRIBUTE_SYSTEM` / `READONLY`) ve ACL koruması.
-- **Yerel Kurulum Bootstrapper'ı**: İmzalı MSIX paketlerini ve sertifika yapılandırmasını tek tıkla çalıştıran bağımsız Win32 C++ kurulum sihirbazı (`OrnareSetup.exe`).
+### Kişiselleştirme
+- **Temalar:** Sistem, Açık, Koyu; varsayılan olarak Windows temasını izler.
+- **Vurgu rengi:** Sistem vurgusu veya herhangi bir `#RRGGBB` değeri; kontrast uyumlu ön plan rengi hesaplanır.
+- **Uygulama simgesi:** Vurgu rengiyle üretilen 8 Ornare glif varyantı (Ink, Accent, Ocean, Forest, Ember, Plum, Graphite, Gold); pencere, görev çubuğu ve sistem tepsisi simgesine uygulanır.
+- **Arayüz ölçeği:** Sekiz ön ayarla yüzde 80 ile 200 arası, sıfırlama düğmesiyle.
+- **Durum şablonları:** Öncelik benzeri klasör düzenlemesi için görsel rozetler; dosya sistemi önceliğini veya kabuk sıralamasını değiştirmez.
 
-### Uygulama ve Tasarım Sistemi (C# 13 & WinUI 3)
-- **WinUI 3 & Windows App SDK 1.6**: Donanım hızlandırmalı Fluent 2 modern arayüzü (Quick Panel ve Yönetici Konsolu).
-- **Ornare.DesignSystem**: Özel kontrol bileşenleri, Mica/Acrylic zemin efektleri, erişilebilir tipografi ve klavye gezintisi.
-- **Magick.NET (Q16-AnyCPU)**: Güvenli görsel ayrıştırma, SVG rasterizasyonu ve çok katmanlı ICO üretimi.
-- **Microsoft.Data.Sqlite**: Kişiselleştirilen klasörlerin ve geri alma geçmişinin tutulduğu yerel SQLite veritabanı (WAL modu).
+### 73 Dil Kataloğu
+- 73 seçilebilir dil; ilk açılışta Windows arayüz dilinden çözümlenir, eşleşme yoksa İngilizce kullanılır.
+- Kurulum dosyası, hiçbir şey kurulmadan önce aynı 73 dilli seçiciyi sunar, Windows dilini önceden seçer ve seçimi ilk kuruluma aktarır.
+- Tam çevrilmiş birinci sınıf altı dil: İngilizce, Türkçe, Almanca, Fransızca, İspanyolca, Portekizce (Brezilya).
+- Kalan 67 dil seçilebilir ve çevirisi tamamlanana kadar İngilizce metne düşer; seçici, var olmayan bir çeviriyi asla vaat etmez. Parite testlerle zorunludur.
+
+### Dört Adımlı İlk Kurulum
+1. Dil.
+2. Tema, vurgu rengi ve arayüz ölçeği.
+3. Karşılama.
+4. İsteğe bağlı bulut yedekleme onayıyla birlikte uygulama tanıtımı.
+
+Her adım ayrı bir ekrandır; akış Ayarlar'dan istenildiğinde yeniden gösterilebilir.
+
+### İsteğe Bağlı Bulut Yedekleme (Kullanıcı Sahipli Klasör)
+- Sağlayıcı algılama: `OneDriveConsumer`, `OneDrive`, `OneDriveCommercial`, `%USERPROFILE%\OneDrive`, Google Drive, Dropbox veya seçtiğiniz herhangi bir klasör.
+- `<sağlayıcı kökü>\Ornare\ornare-cloud-sync.json` dosyasına atomik yazma (`.tmp-<pid>` + rename, `EBUSY`/`EPERM` için kopyalama yedeği).
+- `ornare-cloud-previous.json` ve 15 günlük `ornare-backup-YYYY-MM-DD.json` anlık görüntüleri.
+- Bozuk dosya kurtarma zinciri: güncel -> önceki -> en yeni yedek.
+- Boş yerel veri, dolu bulut anlık görüntüsünün üzerine asla yazmaz; yeniden kurulum sonrasında uygulama **Geri Yükle** veya **Yeni Başlangıç** seçeneği sunar.
+- 350 ms gecikmeli arka plan yazımı ve kapanışta zorunlu gönderim; arka plan hataları arayüzü bloklamaz.
+- Anlık görüntü yalnızca taşınabilir kullanıcı niyetini taşır: ayarlar, klasör kayıtları ve koleksiyon adları. İkili simge önbelleği yerelde kalır.
+
+### Tanılama
+- Kişisel yolları anonimleştiren tek tıkla tanılama raporu dışa aktarma.
+- Yalnızca `ORNARE_DIAGNOSTIC_SESSION=1` ayarlandığında yazılan çalışma oturumu günlüğü.
 
 ---
 
-## 📁 Proje Klasör Yapısı
+## Teknoloji Yığını
 
-```tree
-Ornare/
-├── .agents/                        # AI geliştirme iş akışları, kurallar ve yetenekler
-├── docs/                           # Spesifikasyonlar, mantıksal kurallar ve ADR'ler
-│   ├── adr/                        # Mimari Karar Kayıtları (Architecture Decision Records)
-│   ├── LOGIC_INVARIANTS.md         # Veri bütünlüğü ve geri alma kuralları
-│   ├── QUALITY_GATES.md            # Kurumsal kalite kapıları ve test kriterleri
-│   └── REQUIREMENTS_TRACEABILITY.md# Gereksinim izlenebilirlik matrisi
-├── production_artifacts/           # Sürüm paketleri, WACK raporları ve görsel varlıklar
-│   ├── branding/                   # Vektörel logolar, simgeler ve sunum görselleri
-│   └── release/                    # Sertifikalar, sağlama özetleri ve Store metaverileri
-├── scripts/                        # Otomatik derleme, test ve doğrulama betikleri
-│   ├── build-multiarch-release.ps1 # Çok mimarili paketleme, PRI indeksleme ve imzalama
-│   ├── setup-dev-certificate.ps1   # Geliştirici sertifikası güven betiği
-│   └── verify.ps1                  # Kapsamlı mühendislik doğrulama betiği
-├── src/                            # Uygulama ve çekirdek bileşen kaynak kodları
-│   ├── Ornare.App/                 # WinUI 3 masaüstü uygulaması (Quick Panel & Manager)
-│   ├── Ornare.Core/                # Domain modelleri, operasyonlar ve arayüzler
-│   ├── Ornare.DesignSystem/        # Premium Windows 11 WinUI stilleri ve kontrolleri
-│   ├── Ornare.Imaging/             # Çok katmanlı ICO kodlayıcı ve Magick.NET görsel hattı
-│   ├── Ornare.Installer/           # Yerel C++ Win32 kurulum sihirbazı
-│   ├── Ornare.Package/             # MSIX paketleme varlıkları ve AppxManifest
-│   ├── Ornare.ShellExtension/      # C++20 IExplorerCommand Windows 11 kabuk uzantısı
-│   ├── Ornare.Storage/             # SQLite veritabanı, işlem günlüğü ve mutabakat motoru
-│   └── Ornare.Windows/             # Windows Shell API'leri, desktop.ini ve yenileme servisi
-├── tests/                          # Otomatik birim, entegrasyon ve arayüz testleri
-│   ├── Ornare.Core.Tests/          # Temel model ve serileştirme testleri
-│   ├── Ornare.Imaging.Tests/       # Görsel işleme, ICO üretimi ve SVG testleri
-│   ├── Ornare.IntegrationTests/    # Uçtan uca klasör özelleştirme ve kalıcılık testleri
-│   ├── Ornare.Storage.Tests/       # SQLite günlüğü, çökme kurtarma ve geri alma testleri
-│   └── Ornare.UiTests/             # Arayüz duman testleri ve pencere yönetimi testleri
-├── Ornare.slnx                     # Visual Studio çözüm dosyası
-└── README.md                       # Ana Dokümantasyon
+- **WinUI 3 / Windows App SDK** - Yönetici penceresi, Hızlı Panel, ilk kurulum ve ayarlar yüzeyleri.
+- **.NET 10 (C# 14)** - uygulama, çekirdek ve depolama katmanları.
+- **C++20** - süreç dışı kabuk eklentisi ve yerel birlikte çalışma.
+- **Magick.NET** - görsel çözme, ICO birleştirme ve önizleme üretimi.
+- **SQLite (WAL)** - klasör kayıtları, koleksiyonlar, ayarlar ve geçmiş.
+- **xUnit** - çekirdek, depolama, görsel, arayüz sözleşmesi ve entegrasyon testleri.
+
+---
+
+## Kurulum ve Kullanım
+
+### Paketten kurulum
+
+1. `OrnareSetup 1.0.0.exe` dosyasını indirin (veya aşağıdaki adımlarla yerel olarak derleyin).
+2. Kurulumu çalıştırın. Yönetici izni istenmez; paket kullanıcı bazında kurulur.
+3. İlk ekranda dilinizi seçin: 73 dilin tamamı listelenir, Windows arayüz dili önceden seçilir, eşleşme yoksa İngilizce kullanılır.
+4. Masaüstü kısayolu istiyorsanız **Masaüstünde kısayol oluştur** seçili kalsın.
+5. **Kur** düğmesine basın, ardından **Ornare** uygulamasını Başlat menüsünden açın. İlk çalıştırmada dört adımlı kurulum, kurulum sırasında seçtiğiniz dilde açılır.
+
+**Kaldırma:** Windows Ayarlar -> Uygulamalar -> Ornare -> Kaldır. Kaldırma sırasında kullanıcı dosyaları silinmediği için daha önce uygulanmış klasör simgeleri, siz sıfırlamadıkça yerinde kalır.
+
+### Kaynaktan derleme
+
+Gereksinimler: Windows 11 (25H2 temel çizgisi), .NET 10 SDK, Windows App SDK ve C++ masaüstü iş yükleriyle Visual Studio 2022 ve PowerShell 7.
+
+```powershell
+git clone https://github.com/emirtdede/ornare.git
+cd ornare
+
+dotnet build Ornare.slnx -c Release
+
+dotnet test Ornare.slnx -c Release --filter "Category!=Performance"
+dotnet test Ornare.slnx -c Release --filter "Category=Performance"
+
+pwsh ./scripts/create-package.ps1
+```
+
+### Kalite kapıları
+
+```powershell
+pwsh ./scripts/quality-gate.ps1
+pwsh ./scripts/dependency-audit.ps1
 ```
 
 ---
 
-## 🔐 Mimari ve Güvenlik Prensipleri
+## Ekran Görüntüleri
 
-```mermaid
-flowchart TD
-    subgraph Explorer["Windows 11 Dosya Gezgini"]
-        Folder[Klasöre Sağ Tıkla]
-        ShellExt["Ornare.ShellExtension.dll (C++20 COM IExplorerCommand)"]
-    end
-
-    subgraph AppModel["Ornare Çalışma Zamanı (WinUI 3 / C# 13)"]
-        Protocol["ornare:customization Protokol Aktivasyonu"]
-        QuickPanel["QuickPanelWindow (Fluent UI)"]
-        Pipeline["Magick.NET Görsel İşleme"]
-        ICO["Çok Katmanlı ICO (16x16 -> 256x256)"]
-    end
-
-    subgraph StorageSafety["Dayanıklılık & Yazım Katmanı"]
-        Journal["İşlem Günlüğü (journal.json)"]
-        SQLite[("Yerel SQLite Kataloğu (WAL Modu)")]
-        DiskMut["Klasör Mutatörü (.ornare/icon.ico + desktop.ini)"]
-        Notify["ShellRefreshService (SHChangeNotify Yayını)"]
-    end
-
-    Folder -->|Tıkla| ShellExt
-    ShellExt -->|URI ile Çalıştır| Protocol
-    Protocol --> QuickPanel
-    QuickPanel --> Pipeline
-    Pipeline --> ICO
-    ICO --> Journal
-    Journal -->|Aşama 1: Simgeyi ve ini'yi Yaz| DiskMut
-    DiskMut -->|Aşama 2: Veritabanına Kaydet| SQLite
-    SQLite -->|Aşama 3: Günlüğü Kapat| Journal
-    DiskMut -->|Gezgini Uyar| Notify
-    Notify -.->|Canlı Yenileme| Explorer
-```
-
-### Güvenlik ve Veri Bütünlüğü Kuralları
-
-| İlke | Teknik Mekanizma | Sağlanan Garanti |
-| :--- | :--- | :--- |
-| **Gezgin Kararlılığı** | Süreç dışı COM + `SHChangeNotify(SHCNE_UPDATEITEM)` | Gezgin süreci asla kapatılmaz veya yeniden başlatılmaz. |
-| **Veri Korunumu** | Tahribatsız `desktop.ini` ayrıştırması ve bağıl yollar | Klasör içeriği ve harici klasör yapılandırmaları korunur. |
-| **Çökme Kurtarma** | 2 aşamalı disk tabanlı işlem günlüğü (`journal.json`) | Kesintiye uğrayan yazımlar sonraki açılışta güvenle geri alınır veya tamamlanır. |
-| **Çevrimdışı Güvenlik** | Kaynak kodda sıfır dış ağ soketi | Hiçbir görsel, klasör yolu veya kullanıcı verisi cihaz dışına çıkmaz. |
+<p align="center">
+  <img src="docs/screenshots/onboarding-1-language.png" alt="İlk kurulum, dil adımı" width="330" />
+  <img src="docs/screenshots/onboarding-2-theme.png" alt="İlk kurulum, tema adımı" width="330" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/manager-settings.png" alt="Ayarlar, Türkçe" width="760" />
+</p>
 
 ---
 
-## ⚙️ Kurulum ve Kullanım (Geliştirici)
+## Lisans ve Yayıncı
 
-### Gereksinimler
-- **İşletim Sistemi**: Windows 11 Sürüm 24H2 veya üzeri (x64 veya ARM64)
-- **Geliştirici Araçları**: .NET 10 SDK, Visual Studio 2022 / 2026 Build Tools (C++ Desktop İş Yükü), Windows 11 SDK (10.0.26100.0+)
+**Tescilli yazılım.** Telif hakkı © 2026 Vellium Teknoloji Anonim Şirketi. Tüm hakları saklıdır.
 
-### Adım Adım Geliştirici Kurulumu
+Vellium Teknoloji Anonim Şirketi ile ayrı bir yazılı anlaşma olmadan yazılımı kopyalama, değiştirme, yayınlama, dağıtma, alt lisanslama veya satma hakkı verilmez. Tam koşullar için [`LICENSE.md`](LICENSE.md), açık kaynak bildirimleri için [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) dosyasına bakın.
 
-1. **Depoyu Klonlayın:**
-   ```bash
-   git clone https://github.com/emirtdede/Ornare.git
-   cd Ornare
-   ```
-
-2. **Bağımlılıkları Geri Yükleyin:**
-   ```bash
-   dotnet restore Ornare.slnx --locked-mode
-   ```
-
-3. **Otomatik Testleri Çalıştırın:**
-   ```bash
-   # Tüm 89 birim, depolama, görsel işleme, arayüz ve entegrasyon testlerini çalıştırın
-   dotnet test Ornare.slnx -c Release
-   ```
-
-4. **Production Release Paketlerini Üretin:**
-   ```bash
-   # Çok mimarili otomatik derleme betiği (Derleme -> PRI İndeksleme -> Paketleme -> İmzalama -> Denetim)
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-multiarch-release.ps1
-   ```
-
----
-
-## 📦 Dağıtım Paketleri
-
-Hazır üretim paketleri [`production_artifacts/release/candidate/`](file:///c:/Users/emir/Desktop/Ornare/production_artifacts/release/candidate) dizininde yer almaktadır:
-
-- **OrnareSetup.exe**: Gömülü imzalı MSIX yükü ve otomatik sertifika kurulumu içeren tek tıkla çalışan bağımsız Win32 kurulum sihirbazı.
-- **Ornare_1.0.0.0_x64.msix**: Windows 11 için x64 imzalı standart uygulama paketi.
-- **Ornare_1.0.0.0_arm64.msix**: Copilot+ PC'ler ve ARM64 donanımlar için yerel ARM64 imzalı uygulama paketi.
-- **Ornare_1.0.0.0_x64_arm64.msixbundle**: Her iki mimariyi de kapsayan birleşik dağıtım paketi.
-- **SHA256SUMS.txt**: Paket bütünlük doğrulama sağlama özetleri.
-
----
-
-## ⚖️ Lisans
-
-Telif Hakkı © 2026 **Vellium**. Tüm hakları saklıdır.
-
-Özgün kaynak kodları, marka, görsel kimlik ve ürün tasarımı Vellium'a aittir. Lisans koşulları ve açık kaynak üçüncü taraf bildirimleri için [`LICENSE.md`](file:///c:/Users/emir/Desktop/Ornare/LICENSE.md) ve [`THIRD-PARTY-NOTICES.md`](file:///c:/Users/emir/Desktop/Ornare/THIRD-PARTY-NOTICES.md) dosyalarına başvurabilirsiniz.
-
-**Resmi Web Sitesi**: [Vellium.dev](https://vellium.dev) &bull; **Yayıncı**: Vellium
+- **Yayıncı:** Vellium Teknoloji Anonim Şirketi
+- **Web sitesi:** [vellium.dev](https://vellium.dev)
+- **Güvenlik bildirimi:** [SECURITY.md](SECURITY.md)

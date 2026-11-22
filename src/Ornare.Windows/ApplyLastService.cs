@@ -54,7 +54,7 @@ public static class ApplyLastService
         using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(fullPath, TimeSpan.FromSeconds(5));
         if (lockHandle == null)
         {
-            return OperationResult.Failure(ErrorCode.FilesystemError, "Target folder is currently locked by another operation.");
+            return OperationResult.Failure(ErrorCode.OperationBusy, "Another operation is already running on this folder.");
         }
 
         // 1. Resolve LastAppliedRenderKey
@@ -147,11 +147,15 @@ public static class ApplyLastService
             CapturedAt = DateTimeOffset.UtcNow
         };
 
-        // 6. Apply icon to folder
-        var applyResult = customizer.ApplyIcon(fullPath, icoPath!, state =>
+        // 6. Apply icon to folder. Buffer journal transitions and flush them in order so
+        // a late fire-and-forget write cannot land after the final Completed write.
+        var journalStages = new System.Collections.Concurrent.ConcurrentQueue<JournalState>();
+        var applyResult = customizer.ApplyIcon(fullPath, icoPath!, journalStages.Enqueue);
+
+        while (journalStages.TryDequeue(out JournalState stage))
         {
-            _ = storage.UpdateJournalStateAsync(operationId, state);
-        });
+            await storage.UpdateJournalStateAsync(operationId, stage);
+        }
 
         if (!applyResult.IsSuccess || applyResult.Value == null)
         {
@@ -159,19 +163,36 @@ public static class ApplyLastService
             return OperationResult.Failure(applyResult.ErrorCode, applyResult.ErrorMessage ?? "Failed to apply icon to folder.");
         }
 
-        // 7. Post-commit: save assignment, history, NTFS identity, and complete journal
-        await storage.SaveFolderAssignmentAsync(fullPath, epochId, applyResult.Value, baseline);
-        await storage.RecordHistoryAsync(fullPath, operationId, null, entry.SourceAssetHash, "apply-last");
+        // 7. Post-commit: save assignment, history, NTFS identity, and complete journal.
+        // A metadata failure after the icon is on disk must become NeedsRepair, never Completed.
+        try
+        {
+            await storage.SaveFolderAssignmentAsync(fullPath, epochId, applyResult.Value, baseline);
+            await storage.RecordHistoryAsync(fullPath, operationId, null, entry.SourceAssetHash, "apply-last");
 
-        var ntfsId = FolderIdentityService.GetNtfsIdentity(fullPath);
-        if (ntfsId.HasValue)
-        {
-            await storage.UpdateAssignmentIdentityAsync(fullPath, ntfsId.Value.VolumeSerialNumber.ToString("X8", System.Globalization.CultureInfo.InvariantCulture), ntfsId.Value.FileId64.ToString("X16", System.Globalization.CultureInfo.InvariantCulture));
+            var ntfsId = FolderIdentityService.GetNtfsIdentity(fullPath);
+            if (ntfsId.HasValue)
+            {
+                await storage.UpdateAssignmentIdentityAsync(fullPath, ntfsId.Value.VolumeSerialNumber.ToString("X8", System.Globalization.CultureInfo.InvariantCulture), ntfsId.Value.FileId64.ToString("X16", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                var (vol, fid) = FolderIdentityService.GetFolderIdentity(fullPath);
+                await storage.UpdateAssignmentIdentityAsync(fullPath, vol, fid);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            var (vol, fid) = FolderIdentityService.GetFolderIdentity(fullPath);
-            await storage.UpdateAssignmentIdentityAsync(fullPath, vol, fid);
+            System.Diagnostics.Trace.TraceWarning($"Post-apply-last metadata persistence failed for '{fullPath}': {ex}");
+
+            await storage.UpdateJournalStateAsync(
+                operationId,
+                JournalState.NeedsRepair,
+                $"Icon applied to disk, but metadata persistence failed: {ex.Message}");
+
+            return OperationResult.Failure(
+                ErrorCode.ReconciliationFailed,
+                "The folder icon was applied, but Ornare could not save its records. Use Repair to bring them back in sync.");
         }
 
         await storage.UpdateJournalStateAsync(operationId, JournalState.Completed);

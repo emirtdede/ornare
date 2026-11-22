@@ -1,4 +1,4 @@
-# ADR 0002 — Folder-owned relative ICO plus canonical library
+# ADR 0002 - Folder-owned relative ICO plus canonical library
 
 Status: Accepted
 

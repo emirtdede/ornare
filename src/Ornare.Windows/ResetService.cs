@@ -13,8 +13,6 @@ namespace Ornare.Windows;
 /// </summary>
 public static class ResetService
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> TargetLocks = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>
     /// Executes a Reset operation on the target folder, safely reverting Ornare-owned icon semantics
     /// to the pre-customization baseline or Windows default without clobbering external customizations.
@@ -46,9 +44,16 @@ public static class ResetService
             return OperationResult.Failure(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
         }
 
-        // 2. Synchronize concurrent operations on the same target folder
-        var targetLock = TargetLocks.GetOrAdd(canonicalPath, _ => new SemaphoreSlim(1, 1));
-        await targetLock.WaitAsync(ct).ConfigureAwait(false);
+        // 2. Synchronize concurrent operations on the same target folder. This must be the
+        // same lock Apply/ApplyLast use, otherwise Apply and Reset can mutate one folder
+        // concurrently (INV-CON-001).
+        using var lockHandle = await PerTargetSyncLock
+            .TryAcquireAsync(canonicalPath, TimeSpan.FromSeconds(5), ct)
+            .ConfigureAwait(false);
+        if (lockHandle is null)
+        {
+            return OperationResult.Failure(ErrorCode.OperationBusy, "Another operation is already running on this folder.");
+        }
 
         try
         {
@@ -163,14 +168,16 @@ public static class ResetService
             await storage.RecordJournalEntryAsync(journal).ConfigureAwait(false);
             await storage.UpdateJournalStateAsync(opId, JournalState.FilesystemStaged).ConfigureAwait(false);
 
-            // 9. Execute filesystem reset
-            var resetResult = customizer.ResetIcon(
-                canonicalPath,
-                baseline,
-                stage =>
-                {
-                    _ = storage.UpdateJournalStateAsync(opId, stage);
-                });
+            // 9. Execute filesystem reset. Journal transitions are buffered and flushed in
+            // order: fire-and-forget writes could land after the final Completed write and
+            // regress a successfully reset folder (INV-TX-002).
+            var journalStages = new ConcurrentQueue<JournalState>();
+            var resetResult = customizer.ResetIcon(canonicalPath, baseline, journalStages.Enqueue);
+
+            while (journalStages.TryDequeue(out JournalState stage))
+            {
+                await storage.UpdateJournalStateAsync(opId, stage).ConfigureAwait(false);
+            }
 
             if (!resetResult.IsSuccess)
             {
@@ -178,16 +185,33 @@ public static class ResetService
                 return resetResult;
             }
 
-            // 10. Clean up storage assignment
-            await storage.RemoveFolderAssignmentAsync(canonicalPath).ConfigureAwait(false);
+            // 10. Clean up storage assignment, record history and complete the journal.
+            // The filesystem is already reverted, so a metadata failure must be
+            // repairable state, never a silent Completed (INV-FS-006, INV-TX-002).
+            try
+            {
+                await storage.RemoveFolderAssignmentAsync(canonicalPath).ConfigureAwait(false);
 
-            // 11. Record history and mark journal complete
-            await storage.RecordHistoryAsync(
-                canonicalPath,
-                opId,
-                assignment?.CurrentAssetHash,
-                baseline.PriorSemantics.IconResource ?? string.Empty,
-                "ResetIcon").ConfigureAwait(false);
+                await storage.RecordHistoryAsync(
+                    canonicalPath,
+                    opId,
+                    assignment?.CurrentAssetHash,
+                    baseline.PriorSemantics.IconResource ?? string.Empty,
+                    "ResetIcon").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning($"Post-reset metadata persistence failed for '{canonicalPath}': {ex}");
+
+                await storage.UpdateJournalStateAsync(
+                    opId,
+                    JournalState.NeedsRepair,
+                    $"Folder reverted on disk, but metadata persistence failed: {ex.Message}").ConfigureAwait(false);
+
+                return OperationResult.Failure(
+                    ErrorCode.ReconciliationFailed,
+                    "The folder was reset, but Ornare could not save its records. Use Repair to bring them back in sync.");
+            }
 
             await storage.UpdateJournalStateAsync(opId, JournalState.Completed).ConfigureAwait(false);
 
@@ -199,10 +223,6 @@ public static class ResetService
         catch (Exception ex)
         {
             return OperationResult.Failure(ErrorCode.FilesystemError, $"Reset failed due to an unexpected error: {ex.Message}");
-        }
-        finally
-        {
-            targetLock.Release();
         }
     }
 }

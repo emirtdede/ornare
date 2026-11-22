@@ -54,8 +54,8 @@ public sealed class FolderTemplateDescriptor
         SupportsColor = supportsColor;
         SupportsEmblem = supportsEmblem;
         ViewBox = string.IsNullOrWhiteSpace(viewBox) ? "0 0 256 256" : viewBox;
-        EmblemSafeZone = emblemSafeZone ?? new NormalizedRect(0.26, 0.40, 0.30, 0.30);
-        ReservedBadgeZones = reservedBadgeZones ?? [new NormalizedRect(0.58, 0.58, 0.40, 0.40)]; // Bottom-right corner reserved for F04/F05 badges
+        EmblemSafeZone = emblemSafeZone ?? new NormalizedRect(0.33, 0.42, 0.34, 0.34);
+        ReservedBadgeZones = reservedBadgeZones ?? [new NormalizedRect(0.68, 0.62, 0.32, 0.32)]; // Bottom-right corner reserved for F04/F05 badges
         DefaultPalettePolicy = string.IsNullOrWhiteSpace(defaultPalettePolicy) ? "Oklab5Tone" : defaultPalettePolicy;
         RenderPolicyVersion = renderPolicyVersion;
     }

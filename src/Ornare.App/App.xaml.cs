@@ -8,6 +8,7 @@ using Ornare.Imaging;
 using Ornare.Imaging.Emblems;
 using Ornare.Imaging.Templates;
 using Ornare.Storage;
+using Ornare.Storage.Cloud;
 using Ornare.Windows;
 using WinRT.Interop;
 
@@ -16,25 +17,68 @@ namespace Ornare.App;
 public partial class App : Application, IDisposable
 {
     private QuickPanelWindow? _window;
-    private ManagerWindow? _managerWindow;
     private Microsoft.UI.Dispatching.DispatcherQueue? _mainDispatcherQueue;
+    private bool _isExiting;
     private ImagePipeline _imagePipeline = null!;
     private FolderCustomizer _folderCustomizer = null!;
     private SqliteStorageService _storageService = null!;
     private bool _disposed;
+    private AppTrayIcon? _trayIcon;
 
     public App()
     {
         this.UnhandledException += (sender, e) =>
         {
             Log($"UNHANDLED APP EXCEPTION: {e.Message} | {e.Exception}");
+
+            // Bounded safety net for the UI dispatcher. Transient environmental faults
+            // (I/O, sharing violations, COM/picker failures) must not terminate the app
+            // from an async event handler. Genuine programmer/fatal faults are allowed
+            // to propagate so they stay visible during development and in crash reports.
+            if (IsRecoverableDispatcherFault(e.Exception))
+            {
+                e.Handled = true;
+                Log("Unhandled dispatcher exception classified as recoverable; process kept alive.");
+            }
         };
 
         InitializeComponent();
 
+        // Fire-and-forget work is used for startup data loading; an unobserved fault must
+        // still be recorded instead of disappearing when the finalizer collects the task.
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log($"UNOBSERVED TASK EXCEPTION: {e.Exception}");
+            e.SetObserved();
+        };
+
         // Heavy service initialization is deferred to OnLaunched after the
         // single-instance check. Transient redirect processes skip it entirely,
         // reducing warm activation latency from ~300 ms to < 200 ms.
+    }
+
+    /// <summary>
+    /// Returns true for exception types that represent transient environmental
+    /// failures rather than invariant violations. Deliberately excludes
+    /// <see cref="OutOfMemoryException"/>, <see cref="StackOverflowException"/>,
+    /// <see cref="AccessViolationException"/> and <see cref="NullReferenceException"/>
+    /// so real defects still fail loudly.
+    /// </summary>
+    private static bool IsRecoverableDispatcherFault(Exception? exception)
+    {
+        // Only genuinely transient environmental faults are recovered. Programming
+        // faults (InvalidOperationException, ArgumentException, NullReferenceException,
+        // etc.) must stay visible: swallowing them would hide real defects.
+        return exception switch
+        {
+            null => false,
+            OperationCanceledException => true,
+            ObjectDisposedException => true,
+            IOException => true,
+            UnauthorizedAccessException => true,
+            System.Runtime.InteropServices.COMException => true,
+            _ => false
+        };
     }
 
     private void InitializeServices()
@@ -47,13 +91,101 @@ public partial class App : Application, IDisposable
 
     internal static void Log(string msg)
     {
+        // Local-first diagnostic sink: bounded in-memory ring buffer with path
+        // redaction; verbose on-disk logging is opt-in only (see docs/LOGGING_DIAGNOSTICS.md).
+        DiagnosticLog.Write(msg);
+    }
+
+    /// <summary>
+    /// Called by the last tracked window when it closes. The app owns services that must
+    /// be disposed deterministically (SQLite handles, pending diagnostic writes), so the
+    /// process exits explicitly once no Ornare window remains.
+    /// </summary>
+    internal static void NotifyWindowClosed()
+    {
+        if (Current is App app)
+        {
+            app.TryExitIfIdle();
+        }
+    }
+
+    private void TryExitIfIdle()
+    {
+        if (_isExiting || _window is not null || ManagerWindowHost.IsOpen)
+        {
+            return;
+        }
+
+        // Application.Exit() closes every window, which raises Closed again. The flag
+        // makes the re-entrant call a no-op instead of a second Dispose/Exit.
+        _isExiting = true;
+        Dispose();
+        Exit();
+    }
+
+    /// <summary>
+    /// Creates the tray icon once per process. It is created after the first window so the
+    /// close-to-exit behaviour is unchanged: the icon lives exactly as long as the process.
+    /// </summary>
+    private void EnsureTrayIcon()
+    {
+        if (_trayIcon is not null)
+        {
+            return;
+        }
+
+        UserSettings settings;
         try
         {
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Ornare");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "activation_debug.log"), $"[{DateTime.UtcNow:O}] [PID:{Environment.ProcessId}] {msg}\n");
+            settings = _storageService.GetUserSettingsAsync().GetAwaiter().GetResult();
         }
-        catch { }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            Log($"Tray icon skipped: {exception.Message}");
+            return;
+        }
+
+        _trayIcon = AppTrayIcon.TryCreate(
+            settings,
+            OpenManagerFromTray,
+            () =>
+            {
+                Log("Exit requested from the tray menu.");
+                _isExiting = true;
+                Dispose();
+                Exit();
+            });
+    }
+
+    private void OpenManagerFromTray()
+    {
+        try
+        {
+            if (ManagerWindowHost.IsOpen)
+            {
+                ManagerWindowHost.Current?.Activate();
+                return;
+            }
+
+            ManagerWindowHost.Show(_storageService, _folderCustomizer, _imagePipeline, "Library");
+            if (ManagerWindowHost.Current is { } manager)
+            {
+                BringToFront(manager);
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or COMException or IOException)
+        {
+            Log($"Tray open failed: {exception.Message}");
+        }
+    }
+
+    /// <summary>Keeps the tray icon in step with the chosen app icon.</summary>
+    internal static void NotifyAppIconChanged(UserSettings settings)
+    {
+        if (Current is App app)
+        {
+            app._trayIcon?.UpdateIcon(settings);
+        }
     }
 
     [DllImport("user32.dll")]
@@ -122,7 +254,7 @@ public partial class App : Application, IDisposable
                 var request = ExtractLaunchRequest(eventArgs);
                 Log($"Synchronously extracted request: targetFolder='{request.TargetFolder}', isManager={request.IsManager}, cursor=({request.CursorX},{request.CursorY})");
 
-                var queue = _mainDispatcherQueue ?? _window?.DispatcherQueue ?? _managerWindow?.DispatcherQueue;
+                var queue = _mainDispatcherQueue ?? _window?.DispatcherQueue ?? ManagerWindowHost.Current?.DispatcherQueue;
                 queue?.TryEnqueue(async () =>
                 {
                     Log("UI thread executing redirected launch request...");
@@ -147,11 +279,43 @@ public partial class App : Application, IDisposable
             Log($"Handling current activation args. Kind: {currentArgs.Kind}");
             var initialRequest = ExtractLaunchRequest(currentArgs);
             await ApplyLaunchRequestAsync(initialRequest);
+            EnsureTrayIcon();
             Log("OnLaunched finished successfully.");
         }
         catch (Exception ex)
         {
             Log($"FATAL IN OnLaunched: {ex}");
+
+            // Never leave the user with no window and no explanation. A startup failure
+            // also must not be reported as a healthy running app.
+            ShowFatalStartupError();
+            Dispose();
+            Environment.Exit(1);
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
+    private const uint MB_OK = 0x00000000;
+    private const uint MB_ICONERROR = 0x00000010;
+
+    private static void ShowFatalStartupError()
+    {
+        try
+        {
+            string message = AppResources.GetString("ErrorStartupFailed", AppResources.CurrentLocale);
+            if (MessageBoxW(IntPtr.Zero, message, "Ornare", MB_OK | MB_ICONERROR) == 0)
+            {
+                // MessageBoxW returns zero only when it fails (for example, no interactive
+                // window station). Nothing further can be shown, so the process exit path
+                // remains the last resort.
+                System.Diagnostics.Trace.TraceWarning("Fatal startup MessageBoxW failed.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A failed error UI must not mask the original startup failure.
         }
     }
 
@@ -223,80 +387,71 @@ public partial class App : Application, IDisposable
             }
             else if (args.Kind == ExtendedActivationKind.Protocol)
             {
-                string? uriString = null;
+                Uri? protocolUri = null;
                 if (args.Data is global::Windows.ApplicationModel.Activation.ProtocolActivatedEventArgs concreteProtocol)
                 {
-                    uriString = concreteProtocol.Uri?.ToString();
+                    protocolUri = concreteProtocol.Uri;
                 }
                 else if (args.Data is global::Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs ifaceProtocol)
                 {
-                    uriString = ifaceProtocol.Uri?.ToString();
+                    protocolUri = ifaceProtocol.Uri;
                 }
 
-                if (!string.IsNullOrEmpty(uriString))
+                if (protocolUri is not null)
                 {
-                    var match = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]path=([^&]+)");
-                    if (match.Success)
+                    // Parse the query properly instead of matching key by key with regex:
+                    // regex parsing missed '&' inside encoded values, ignored '+' encoding
+                    // and silently accepted malformed percent escapes.
+                    Dictionary<string, string> query = ParseQueryString(protocolUri.Query);
+
+                    if (query.TryGetValue("path", out string? path))
                     {
-                        request.TargetFolder = Uri.UnescapeDataString(match.Groups[1].Value);
+                        request.TargetFolder = path;
                     }
-                    var xMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]x=(-?\d+)");
-                    if (xMatch.Success && int.TryParse(xMatch.Groups[1].Value, out int px))
+                    if (query.TryGetValue("x", out string? rawX) &&
+                        int.TryParse(rawX, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int px))
                     {
                         request.CursorX = px;
                     }
-                    var yMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]y=(-?\d+)");
-                    if (yMatch.Success && int.TryParse(yMatch.Groups[1].Value, out int py))
+                    if (query.TryGetValue("y", out string? rawY) &&
+                        int.TryParse(rawY, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int py))
                     {
                         request.CursorY = py;
                     }
-                    var uiMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]ui-state=([^&]+)");
-                    if (uiMatch.Success)
+                    if (query.TryGetValue("ui-state", out string? uiState))
                     {
-                        request.UiState = Uri.UnescapeDataString(uiMatch.Groups[1].Value);
+                        request.UiState = uiState;
                     }
-                    var themeMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]theme=([^&]+)");
-                    if (themeMatch.Success)
+                    if (query.TryGetValue("theme", out string? theme))
                     {
-                        request.Theme = Uri.UnescapeDataString(themeMatch.Groups[1].Value);
+                        request.Theme = theme;
                     }
-                    var langMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]lang=([^&]+)");
-                    if (langMatch.Success)
+                    if (query.TryGetValue("lang", out string? lang))
                     {
-                        request.Lang = Uri.UnescapeDataString(langMatch.Groups[1].Value);
+                        request.Lang = lang;
                     }
-                    var secMatch = System.Text.RegularExpressions.Regex.Match(uriString, @"[?&]section=([^&]+)");
-                    if (secMatch.Success)
+                    if (query.TryGetValue("section", out string? section))
                     {
-                        request.Section = Uri.UnescapeDataString(secMatch.Groups[1].Value);
+                        request.Section = section;
                         request.IsManager = true;
-                    }
-                    if (uriString.StartsWith("ornare://manager", StringComparison.OrdinalIgnoreCase))
-                    {
-                        request.IsManager = true;
-                    }
-                    else if (uriString.StartsWith("ornare://apply-last", StringComparison.OrdinalIgnoreCase))
-                    {
-                        request.IsApplyLast = true;
-                    }
-                    else if (uriString.StartsWith("ornare://undo", StringComparison.OrdinalIgnoreCase))
-                    {
-                        request.IsUndo = true;
-                    }
-                    else if (uriString.StartsWith("ornare://reset", StringComparison.OrdinalIgnoreCase))
-                    {
-                        request.IsReset = true;
                     }
 
-                    if (string.IsNullOrWhiteSpace(request.TargetFolder))
+                    if (protocolUri.Scheme.Equals("ornare", StringComparison.OrdinalIgnoreCase))
                     {
-                        int pathIndex = uriString.IndexOf("path=", StringComparison.OrdinalIgnoreCase);
-                        if (pathIndex >= 0)
+                        switch (protocolUri.Host.ToLowerInvariant())
                         {
-                            string sub = uriString[(pathIndex + 5)..];
-                            int ampersand = sub.IndexOf('&');
-                            if (ampersand >= 0) sub = sub[..ampersand];
-                            request.TargetFolder = Uri.UnescapeDataString(sub);
+                            case "manager":
+                                request.IsManager = true;
+                                break;
+                            case "apply-last":
+                                request.IsApplyLast = true;
+                                break;
+                            case "undo":
+                                request.IsUndo = true;
+                                break;
+                            case "reset":
+                                request.IsReset = true;
+                                break;
                         }
                     }
                 }
@@ -307,6 +462,87 @@ public partial class App : Application, IDisposable
             Log($"Error extracting launch request: {ex}");
         }
         return request;
+    }
+
+    /// <summary>
+    /// Parses an RFC 3986 query string into a case-insensitive map. Malformed percent
+    /// escapes are skipped rather than thrown, because the value arrives from an external
+    /// protocol activation and must never crash the app.
+    /// </summary>
+    private static Dictionary<string, string> ParseQueryString(string? query)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(query))
+        {
+            return result;
+        }
+
+        string trimmed = query[0] == '?' ? query[1..] : query;
+
+        foreach (string pair in trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int separator = pair.IndexOf('=');
+            string rawKey = separator >= 0 ? pair[..separator] : pair;
+            string rawValue = separator >= 0 ? pair[(separator + 1)..] : string.Empty;
+
+            if (!TryDecodeQueryComponent(rawKey, out string key) ||
+                !TryDecodeQueryComponent(rawValue, out string value))
+            {
+                continue;
+            }
+
+            if (key.Length > 0)
+            {
+                result[key] = value;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryDecodeQueryComponent(string raw, out string decoded)
+    {
+        try
+        {
+            decoded = Uri.UnescapeDataString(raw.Replace('+', ' '));
+            return true;
+        }
+        catch (UriFormatException)
+        {
+            decoded = string.Empty;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Shows the four-step welcome walkthrough once per install. The settings it collects are
+    /// persisted by the window itself, so a crash midway still keeps the user's choices.
+    /// </summary>
+    private async Task ShowFirstRunOnboardingIfNeededAsync()
+    {
+        try
+        {
+            UserSettings settings = await _storageService.GetUserSettingsAsync();
+            if (settings.OnboardingCompleted)
+            {
+                return;
+            }
+
+            settings = InstallerLanguagePreference.Apply(settings);
+            AppResources.CurrentLocale = settings.Language;
+            AppearanceService.ApplyAccent(Current, settings.AccentColor);
+
+            var completion = new TaskCompletionSource();
+            var onboarding = new OnboardingWindow(_storageService, new CloudSyncService(), settings);
+            onboarding.Closed += (_, _) => completion.TrySetResult();
+            onboarding.Activate();
+            await completion.Task;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // Onboarding is a courtesy, never a gate: a failure must not stop the app.
+            Log($"First-run onboarding skipped: {ex.Message}");
+        }
     }
 
     private async Task ApplyLaunchRequestAsync(ParsedLaunchRequest request)
@@ -348,19 +584,22 @@ public partial class App : Application, IDisposable
 
         if (request.IsManager || (string.IsNullOrWhiteSpace(request.TargetFolder) && string.IsNullOrEmpty(request.UiState)))
         {
-            if (_managerWindow == null)
+            await ShowFirstRunOnboardingIfNeededAsync();
+
+            // Route through the single process-wide host. Creating a second manager here
+            // produced two windows mutating the same SQLite store (INV-CON-003).
+            ManagerWindowHost.Show(
+                _storageService,
+                _folderCustomizer,
+                _imagePipeline,
+                request.Section ?? "Library");
+
+            if (ManagerWindowHost.Current is { } manager)
             {
-                Log("Instantiating ManagerWindow...");
-                _managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
-                _managerWindow.Closed += (_, _) =>
-                {
-                    Log("ManagerWindow Closed.");
-                    _managerWindow = null;
-                };
+                manager.ApplyVisualTestState(request.Section ?? "Library", request.Theme, request.Lang);
+                BringToFront(manager);
             }
-            _managerWindow.ApplyVisualTestState(request.Section ?? "Library", request.Theme, request.Lang);
-            _managerWindow.Activate();
-            BringToFront(_managerWindow);
+
             Log("ManagerWindow brought to front.");
         }
         else
@@ -374,6 +613,7 @@ public partial class App : Application, IDisposable
                 {
                     Log("QuickPanelWindow Closed.");
                     _window = null;
+                    NotifyWindowClosed();
                 };
             }
             _window.PositionWindow(request.CursorX, request.CursorY);
@@ -393,8 +633,7 @@ public partial class App : Application, IDisposable
         {
             if (string.IsNullOrWhiteSpace(entry.RecipeJson))
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{entry.SourceAssetHash}.ico");
+                string libraryIco = OrnareConstants.LibraryIcoPath(entry.SourceAssetHash);
                 if (File.Exists(libraryIco))
                 {
                     string? outDir = Path.GetDirectoryName(entry.CanonicalIcoPath);
@@ -426,8 +665,7 @@ public partial class App : Application, IDisposable
                 }
                 else
                 {
-                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                    string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{recipe.SourceAssetHash}.ico");
+                    string libraryIco = OrnareConstants.LibraryIcoPath(recipe.SourceAssetHash);
                     if (File.Exists(libraryIco))
                     {
                         sourceBytes = await File.ReadAllBytesAsync(libraryIco);
@@ -446,12 +684,17 @@ public partial class App : Application, IDisposable
                 Directory.CreateDirectory(dir);
             }
 
-            var renderResult = _imagePipeline.ProcessRecipe(
+            // ProcessRecipe invokes the cache callbacks synchronously. This method is
+            // entered from OnLaunched on the UI thread, so blocking those callbacks on
+            // storage with GetAwaiter().GetResult() would deadlock the dispatcher.
+            // Dispatch the render to a worker thread so the continuations never need
+            // the UI thread.
+            var renderResult = await Task.Run(() => _imagePipeline.ProcessRecipe(
                 recipe,
                 sourceBytes,
                 entry.CanonicalIcoPath,
                 cacheLookup: key => _storageService.GetRenderCacheEntryAsync(key).GetAwaiter().GetResult(),
-                cacheStore: cacheEntry => _storageService.SaveRenderCacheEntryAsync(cacheEntry).GetAwaiter().GetResult());
+                cacheStore: cacheEntry => _storageService.SaveRenderCacheEntryAsync(cacheEntry).GetAwaiter().GetResult()));
 
             if (renderResult.IsSuccess && File.Exists(entry.CanonicalIcoPath))
             {
@@ -470,6 +713,9 @@ public partial class App : Application, IDisposable
         if (!_disposed)
         {
             _disposed = true;
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            DiagnosticLog.Flush();
             _storageService.Dispose();
             GC.SuppressFinalize(this);
         }

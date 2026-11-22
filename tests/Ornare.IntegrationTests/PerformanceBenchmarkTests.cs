@@ -8,6 +8,12 @@ using Xunit.Abstractions;
 
 namespace Ornare.IntegrationTests;
 
+/// <summary>
+/// Timing gates for the end-to-end apply pipeline. Marked Performance because the
+/// thresholds are measured against a quiet machine; the quality gate runs this category
+/// on its own so a concurrent CPU-heavy test cannot fail it.
+/// </summary>
+[Trait("Category", "Performance")]
 public class PerformanceBenchmarkTests
 {
     private readonly ITestOutputHelper _output;

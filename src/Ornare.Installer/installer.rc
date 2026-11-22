@@ -2,6 +2,7 @@
 #include "resource.h"
 
 IDI_APP_ICON ICON "..\\Ornare.ShellExtension\\app.ico"
+IDR_ICON_FILE RCDATA "..\\Ornare.ShellExtension\\app.ico"
 
 IDR_MSIX_PAYLOAD RCDATA "..\\..\\production_artifacts\\release\\candidate\\Ornare_1.0.0.0_x64.msix"
 IDR_CERT_PAYLOAD RCDATA "..\\..\\production_artifacts\\release\\VelliumDevCert.cer"

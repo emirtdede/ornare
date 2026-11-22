@@ -136,9 +136,11 @@ public sealed class FolderCustomizer : IFolderCustomizer
                     File.SetLastWriteTimeUtc(targetIcoPath, DateTime.UtcNow);
                 }
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Non-critical timestamp update failure
+                // Timestamp refresh is a Shell-invalidation hint, not part of the commit.
+                // Record it so a persistent failure stays diagnosable instead of silent.
+                System.Diagnostics.Trace.TraceWarning($"Folder timestamp refresh failed for '{folderPath}': {ex.Message}");
             }
 
             // 4b. Invoke native shell folder settings hook
@@ -157,9 +159,11 @@ public sealed class FolderCustomizer : IFolderCustomizer
                     // Non-zero HRESULT is acceptable as desktop.ini was already committed
                 }
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Non-critical native hook invocation
+                // desktop.ini is already committed, so a failed native hook is not fatal;
+                // it is still logged because it explains a stale Explorer icon.
+                System.Diagnostics.Trace.TraceWarning($"SHGetSetFolderCustomSettings failed for '{folderPath}': {ex.Message}");
             }
 
             onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);
@@ -176,8 +180,12 @@ public sealed class FolderCustomizer : IFolderCustomizer
             };
 
             onJournalStageChanged?.Invoke(JournalState.MetadataCommitted);
-            onJournalStageChanged?.Invoke(JournalState.Completed);
 
+            // JournalState.Completed is deliberately NOT emitted here. The caller owns the
+            // post-commit metadata writes (assignment, library asset, history, NTFS
+            // identity) and must mark the journal complete only after those succeed.
+            // Emitting Completed here would let a crash produce a "RolledBack" journal on
+            // startup while the icon is already committed on disk (INV-FS-006).
             return OperationResult.Success(newSemantics);
         }
         catch (Exception ex)
@@ -216,6 +224,14 @@ public sealed class FolderCustomizer : IFolderCustomizer
             File.SetAttributes(targetIcoPath, FileAttributes.Hidden | FileAttributes.System);
 
             ShellRefreshService.NotifyFolderChanged(folderPath);
+
+            // This fast path mutates the filesystem just like the general revert path, so
+            // it must publish the same journal stages. Skipping them would leave a crash
+            // between here and the caller's Completed write classified as "staged", which
+            // startup reconciliation would wrongly roll back.
+            onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);
+            onJournalStageChanged?.Invoke(JournalState.ShellRefreshRequested);
+            onJournalStageChanged?.Invoke(JournalState.MetadataCommitted);
             return OperationResult.Success();
         }
 
@@ -304,9 +320,9 @@ public sealed class FolderCustomizer : IFolderCustomizer
             {
                 Directory.SetLastWriteTimeUtc(folderPath, DateTime.UtcNow);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Non-critical timestamp update failure
+                System.Diagnostics.Trace.TraceWarning($"Folder timestamp refresh failed for '{folderPath}': {ex.Message}");
             }
 
             onJournalStageChanged?.Invoke(JournalState.FilesystemCommitted);
@@ -316,8 +332,8 @@ public sealed class FolderCustomizer : IFolderCustomizer
             onJournalStageChanged?.Invoke(JournalState.ShellRefreshRequested);
 
             onJournalStageChanged?.Invoke(JournalState.MetadataCommitted);
-            onJournalStageChanged?.Invoke(JournalState.Completed);
 
+            // Completed is emitted by the calling service after its own metadata writes.
             return OperationResult.Success();
         }
         catch (Exception ex)

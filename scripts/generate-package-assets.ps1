@@ -1,4 +1,4 @@
-# Ornare — Generate Package Assets for MSIX
+# Ornare - Generate Package Assets for MSIX
 # Runs Ornare.AssetGenerator to produce complete Windows 11 & Microsoft Store visual asset suite
 param(
     [string]$OutputDir = "src/Ornare.Package/Images"

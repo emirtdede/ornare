@@ -139,6 +139,7 @@ public sealed class FolderColorsTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void RepeatedSameColorUsesRenderCacheWithZeroDecodeZeroEncode()
     {
         string cacheDir = Path.Combine(_tempDir, "render_cache");

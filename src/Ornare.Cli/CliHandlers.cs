@@ -76,6 +76,11 @@ public sealed class CliHandlers : IAsyncDisposable
 
     public async Task<int> HandleApplyAsync(string folderPath, RenderInput renderInput, bool isJson, bool isDryRun = false)
     {
+        // Measures the documented PERFORMANCE.md apply latency: valid input through
+        // durable state. Deliberately excludes process start, runtime init and native
+        // library load, which are one-off costs and not part of the apply work.
+        long applyStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+
         var validation = RenderInputValidator.Validate(renderInput);
         if (!validation.IsSuccess)
         {
@@ -341,7 +346,8 @@ public sealed class CliHandlers : IAsyncDisposable
                     TargetFolder = Path.GetFullPath(folderPath),
                     CanonicalIcoPath = applyResult.Value.CanonicalIcoPath,
                     RenderKey = applyResult.Value.RenderKey,
-                    ContentHash = applyResult.Value.ContentHash
+                    ContentHash = applyResult.Value.ContentHash,
+                    DurationMs = System.Diagnostics.Stopwatch.GetElapsedTime(applyStartTimestamp).TotalMilliseconds
                 },
                 operationId: applyResult.Value.OperationId.ToString());
 
@@ -359,7 +365,12 @@ public sealed class CliHandlers : IAsyncDisposable
             {
                 if (File.Exists(tempIco)) File.Delete(tempIco);
             }
-            catch { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Cleanup is best-effort; a leftover staging ICO is collected by the
+                // next staging pass and must not fail the command after a successful apply.
+                Console.Error.WriteLine($"Warning: could not delete staging file '{tempIco}': {ex.Message}");
+            }
         }
     }
 
@@ -1069,8 +1080,7 @@ public sealed class CliHandlers : IAsyncDisposable
         {
             if (string.IsNullOrWhiteSpace(entry.RecipeJson))
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{entry.SourceAssetHash}.ico");
+                string libraryIco = OrnareConstants.LibraryIcoPath(entry.SourceAssetHash);
                 if (File.Exists(libraryIco))
                 {
                     string? outDir = Path.GetDirectoryName(entry.CanonicalIcoPath);
@@ -1099,8 +1109,7 @@ public sealed class CliHandlers : IAsyncDisposable
                 }
                 else
                 {
-                    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                    string libraryIco = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library", $"{recipe.SourceAssetHash}.ico");
+                    string libraryIco = OrnareConstants.LibraryIcoPath(recipe.SourceAssetHash);
                     if (File.Exists(libraryIco))
                     {
                         sourceBytes = await File.ReadAllBytesAsync(libraryIco);
@@ -1125,7 +1134,12 @@ public sealed class CliHandlers : IAsyncDisposable
                 return entry.CanonicalIcoPath;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Recovery is best-effort: a failed rebuild surfaces as "no asset" to the
+            // caller, but the cause must still be visible in diagnostics.
+            Console.Error.WriteLine($"Warning: cache asset rebuild failed: {ex.Message}");
+        }
         return null;
     }
 

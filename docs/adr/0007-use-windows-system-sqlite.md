@@ -1,4 +1,4 @@
-# ADR 0007 — Use Windows system SQLite via winsqlite3
+# ADR 0007 - Use Windows system SQLite via winsqlite3
 
 - Status: Accepted
 - Date: 2026-09-24

@@ -44,7 +44,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
     private List<LibraryAsset> _allAssets = new();
     private string _currentLanguage = "System";
     private string _currentTheme = "System";
+    private string _currentSectionTag = "Library";
     private bool _isLoaded;
+    private bool _disposed;
     private readonly System.Threading.CancellationTokenSource _windowCts = new();
     private System.Threading.CancellationTokenSource? _searchCts;
 
@@ -57,6 +59,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
         InitializeComponent();
         ConfigureWindow();
         SetupKeyboardAccelerators();
+        InitializeSettingsSurface();
+
+        WebsiteHyperlink.Content = AppInfo.WebsiteDisplayName;
+        WebsiteHyperlink.NavigateUri = new Uri(AppInfo.WebsiteUrl, UriKind.Absolute);
 
         StagedFoldersListView.ItemsSource = _stagedFolders;
         RejectedFoldersListView.ItemsSource = _rejectedFolders;
@@ -70,11 +76,67 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private static void SyncItems<T>(ItemsControl control, IEnumerable<T> items)
     {
-        control.Items.Clear();
-        foreach (var item in items)
+        // Assign ItemsSource instead of Items.Clear + one Add per element. Clear/Add
+        // raises a change notification per row, forcing the ItemsControl to rebuild its
+        // layout repeatedly; binding one source updates the list in a single pass.
+        // ObservableCollection sources keep notifying on later mutations; plain lists are
+        // snapshotted so a later mutation still gets rendered.
+        control.ItemsSource = items is ObservableCollection<T> ? items : items.ToList();
+    }
+
+    /// <summary>
+    /// Executes an <c>async void</c> handler body so an exception cannot escape to the
+    /// dispatcher and terminate the process. Expected cancellation is ignored; genuine
+    /// failures are recorded through the diagnostic sink (never shown as raw backend
+    /// detail to the user).
+    /// </summary>
+    private static async Task GuardAsync(string operation, Func<Task> body)
+    {
+        try
         {
-            control.Items.Add(item);
+            await body();
         }
+        catch (OperationCanceledException)
+        {
+            // User-initiated cancellation is not a failure.
+        }
+        catch (Exception ex)
+        {
+            App.Log($"{operation} failed: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Maps a machine-readable name-validation failure to localized user copy.
+    /// The English diagnostic text produced by <see cref="LibraryNameNormalizer"/>
+    /// must never reach the UI, and the raw exception message of a storage failure
+    /// must not either: both are logged instead.
+    /// </summary>
+    /// <summary>
+    /// Resolves a resource key for the active locale. Replaces the previous tr/en
+    /// ternaries, which silently fell back to English for de-DE, fr-FR, es-ES and pt-BR.
+    /// </summary>
+    private string L(string key) => AppResources.GetString(key, _currentLanguage);
+
+    private string LocalizedNameError(LibraryNameError error) => error switch
+    {
+        LibraryNameError.Empty => AppResources.GetString("ErrorNameEmpty", _currentLanguage),
+        LibraryNameError.TooShort => AppResources.GetString("ErrorNameTooShort", _currentLanguage),
+        LibraryNameError.TooLong => AppResources.GetString("ErrorNameTooLong", _currentLanguage),
+        LibraryNameError.ControlCharacter => AppResources.GetString("ErrorNameControlCharacter", _currentLanguage),
+        _ => AppResources.GetString("ErrorUnexpected", _currentLanguage),
+    };
+
+    /// <summary>
+    /// Shows a localized, non-technical failure in a dialog and records the full
+    /// exception in the diagnostic log. The raw message can contain SQLite text,
+    /// file-system paths or schema names, which must not reach the user.
+    /// </summary>
+    private void ShowDialogError(TextBlock target, Exception ex, string operation)
+    {
+        App.Log($"{operation} failed: {ex}");
+        target.Text = AppResources.GetString("ErrorUnexpected", _currentLanguage);
+        target.Visibility = Visibility.Visible;
     }
 
     private void SetupKeyboardAccelerators()
@@ -124,7 +186,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
 
             args.Handled = true;
-            await HandleManagerPasteAsync();
+            await GuardAsync("ManagerPasteAccelerator", HandleManagerPasteAsync);
         };
         root.KeyboardAccelerators.Add(ctrlV);
 
@@ -142,7 +204,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
 
             args.Handled = true;
-            await HandleManagerUndoAsync();
+            await GuardAsync("ManagerUndoAccelerator", HandleManagerUndoAsync);
         };
         root.KeyboardAccelerators.Add(ctrlZ);
 
@@ -185,7 +247,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private async void OnTargetTrayDropZoneTapped(object sender, TappedRoutedEventArgs e)
     {
-        await OpenFolderPickerForStagingAsync();
+        await GuardAsync(nameof(OnTargetTrayDropZoneTapped), OpenFolderPickerForStagingAsync);
     }
 
     private async void OnTargetTrayDropZoneKeyDown(object sender, KeyRoutedEventArgs e)
@@ -193,7 +255,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (e.Key == global::Windows.System.VirtualKey.Enter || e.Key == global::Windows.System.VirtualKey.Space)
         {
             e.Handled = true;
-            await OpenFolderPickerForStagingAsync();
+            await GuardAsync(nameof(OnTargetTrayDropZoneKeyDown), OpenFolderPickerForStagingAsync);
         }
     }
 
@@ -257,8 +319,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
                     if (filePaths.Count > 0)
                     {
                         SwitchSection("Library");
-                        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                        string iconsDir = Path.Combine(appData, "Ornare", "icons");
+                        string iconsDir = OrnareConstants.IconsDirectory;
                         Directory.CreateDirectory(iconsDir);
 
                         foreach (var filePath in filePaths)
@@ -296,7 +357,12 @@ public sealed partial class ManagerWindow : Window, IDisposable
                                         }
                                     }
                                 }
-                                catch { }
+                                catch (Exception ex)
+                                {
+                                    // A single unreadable/unsupported dropped file must not
+                                    // abort the whole batch or vanish silently.
+                                    App.Log($"Dropped icon import failed for '{Path.GetFileName(filePath)}': {ex.Message}");
+                                }
                             }
                         }
                         await LoadLibraryAsync();
@@ -315,8 +381,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (_stagedFolders.Count > 0)
         {
             _stagedFolders.RemoveAt(_stagedFolders.Count - 1);
-            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-            StagedCountText.Text = isTr ? $"Hazırlanan Klasörler ({_stagedFolders.Count})" : $"Staged Folders ({_stagedFolders.Count})";
+            StagedCountText.Text = AppResources.Format("StagedFolders_Count", _currentLanguage, _stagedFolders.Count);
             if (_stagedFolders.Count == 0)
             {
                 TargetTrayStagedPanel.Visibility = Visibility.Collapsed;
@@ -447,25 +512,23 @@ public sealed partial class ManagerWindow : Window, IDisposable
         try
         {
             var settings = await _storageService.GetUserSettingsAsync();
+            _settings = settings;
             _currentTheme = settings.Theme;
             _currentLanguage = settings.Language;
 
             ApplyTheme(_currentTheme);
             ApplyLanguage(_currentLanguage);
+            ApplyAppearance();
 
             if (string.Equals(_currentTheme, "Light", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 1;
             else if (string.Equals(_currentTheme, "Dark", StringComparison.OrdinalIgnoreCase)) ThemeComboBox.SelectedIndex = 2;
             else ThemeComboBox.SelectedIndex = 0;
 
-            if (string.Equals(_currentLanguage, "tr-TR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "tr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 1;
-            else if (string.Equals(_currentLanguage, "en-US", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "en", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 2;
-            else if (string.Equals(_currentLanguage, "de-DE", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "de", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 3;
-            else if (string.Equals(_currentLanguage, "fr-FR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "fr", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 4;
-            else if (string.Equals(_currentLanguage, "es-ES", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "es", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 5;
-            else if (string.Equals(_currentLanguage, "pt-BR", StringComparison.OrdinalIgnoreCase) || string.Equals(_currentLanguage, "pt", StringComparison.OrdinalIgnoreCase)) LanguageComboBox.SelectedIndex = 6;
-            else LanguageComboBox.SelectedIndex = 0;
+            SelectLanguageItem(settings.Language);
 
             await RefreshAllDataAsync();
+            await RefreshCloudSurfaceAsync();
+            _ = ShowCloudRestorePromptIfNeededAsync();
             _isLoaded = true;
             NavListView.SelectedIndex = 0;
 
@@ -475,7 +538,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 {
                     await _storageService.EnsureSearchIndexReadyAsync(_windowCts.Token);
                 }
-                catch (OperationCanceledException) { }
+                catch (OperationCanceledException)
+                {
+                    // Expected: the window closed and cancelled indexing. Not a fault,
+                    // so it is not logged as one; the branch below handles real errors.
+                }
                 catch (Exception ex)
                 {
                     App.Log($"EnsureSearchIndexReadyAsync background task failed: {ex.Message}");
@@ -487,6 +554,12 @@ public sealed partial class ManagerWindow : Window, IDisposable
         catch (Exception ex)
         {
             App.Log($"EXCEPTION in LoadInitialDataAsync: {ex}");
+
+            // Do not leave the user with a silently empty manager window: an
+            // unloadable library is a visible, actionable state, not a blank screen.
+            LibraryEmptyTitle.Text = L("ErrorUnexpected");
+            LibraryEmptySubtitle.Text = L("ErrorLibraryLoadFailed");
+            LibraryEmptyPanel.Visibility = Visibility.Visible;
         }
     }
 
@@ -496,6 +569,13 @@ public sealed partial class ManagerWindow : Window, IDisposable
         await LoadRecentAsync();
         await LoadFavoritesAsync();
         await LoadFoldersAsync();
+
+        // Any user-visible data change is a backup candidate. The debounce coalesces a
+        // burst of mutations (apply, undo, collection edits) into one write.
+        if (_isLoaded && _settings.CloudSyncEnabled)
+        {
+            ScheduleCloudSync();
+        }
     }
 
     private async Task LoadLibraryAsync()
@@ -660,7 +740,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 KeepExternalButtonVisibility = keepExtVis,
                 ExpectedAssetHash = currentAssignment.CurrentAssetHash,
                 PortabilityLabel = portText,
-                PortabilityVisibility = portVis
+                PortabilityVisibility = portVis,
+                RepairText = L("Repair"),
+                KeepExternalText = L("KeepExternal"),
+                ReapplyText = L("Reapply"),
+                RepairAutomationName = L("RepairFolderAutomation"),
+                KeepExternalAutomationName = L("KeepExternalAutomation"),
+                ReapplyAutomationName = L("ReapplyAutomation"),
+                OpenFolderAutomationName = L("OpenFolderAutomation")
             });
         }
         SyncItems(FoldersListView, _folderItems);
@@ -674,8 +761,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-            e.DragUIOverride.Caption = isTr ? "Klasörleri hazırla" : "Drop folders to stage";
+            e.DragUIOverride.Caption = L("StagedFolders_DropCaption");
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
         }
@@ -718,14 +804,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
     {
         if (rawPaths == null || rawPaths.Count == 0) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         // F20-DEC-05: Reject drop if raw count > 1000 before filesystem work
         if (rawPaths.Count > FolderStagingService.MaxDropItems)
         {
-            TargetTrayLimitNotice.Text = isTr
-                ? $"Sınır aşıldı: Tek seferde en fazla {FolderStagingService.MaxDropItems} klasör bırakılabilir (alınan: {rawPaths.Count})."
-                : $"Limit exceeded: Maximum {FolderStagingService.MaxDropItems} folders per drop (received: {rawPaths.Count}).";
+            TargetTrayLimitNotice.Text = AppResources.Format(
+                "DropLimitExceeded",
+                _currentLanguage,
+                FolderStagingService.MaxDropItems,
+                rawPaths.Count);
             TargetTrayLimitNotice.Visibility = Visibility.Visible;
             return;
         }
@@ -746,8 +832,8 @@ public sealed partial class ManagerWindow : Window, IDisposable
             _stagedFolders.Clear();
             _rejectedFolders.Clear();
 
-            string portText = isTr ? "Desteklenen NTFS üzerinde taşınabilir" : "Portable on supported NTFS";
-            string existText = isTr ? "Zaten Özelleştirilmiş" : "Already Customized";
+            string portText = L("StagedFolders_PortableNtfs");
+            string existText = L("StagedFolders_AlreadyCustomized");
 
             foreach (var item in result.AcceptedItems)
             {
@@ -775,19 +861,17 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 });
             }
 
-            string stagedTitle = isTr ? $"Hazırlanan Klasörler ({_stagedFolders.Count})" : $"Staged Folders ({_stagedFolders.Count})";
+            string stagedTitle = AppResources.Format("StagedFolders_Count", _currentLanguage, _stagedFolders.Count);
             if (result.IsCancelled)
             {
-                stagedTitle += isTr ? " (Kısmi - İptal Edildi)" : " (Partial - Cancelled)";
+                stagedTitle += L("StagedFolders_Partial");
             }
             StagedCountText.Text = stagedTitle;
 
             if (_rejectedFolders.Count > 0)
             {
                 ToggleRejectionsButton.Visibility = Visibility.Visible;
-                RejectionSummaryText.Text = isTr
-                    ? $"{_rejectedFolders.Count} öğe reddedildi"
-                    : $"{_rejectedFolders.Count} items rejected";
+                RejectionSummaryText.Text = AppResources.Format("RejectedItems_Count", _currentLanguage, _rejectedFolders.Count);
             }
             else
             {
@@ -821,18 +905,13 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private LibraryItemVm CreateLibraryVm(LibraryAsset asset, bool isFavorite)
     {
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        string favToolTip = isFavorite
-            ? (isTr ? "Favorilerden Kaldır" : "Remove from Favorites")
-            : (isTr ? "Favorilere Ekle" : "Add to Favorites");
-        string toggleText = isFavorite
-            ? (isTr ? "Favorilerden Kaldır" : "Remove from Favorites")
-            : (isTr ? "Favorilere Ekle" : "Add to Favorites");
-        string explorerText = isTr ? "Dosya Gezgini'nde Göster" : "Show in File Explorer";
-        string manageTagsText = isTr ? "Etiketleri Yönet..." : "Manage Tags...";
-        string exportText = isTr ? "Dışa Aktar (.ico)..." : "Export Icon (.ico)...";
-        string exportPngText = isTr ? "Dışa Aktar (.png)" : "Export PNG (.png)";
-        string manageCollectionsText = isTr ? "Koleksiyonları Yönet..." : "Manage Collections...";
+        string favToolTip = isFavorite ? L("Unfavorite") : L("Favorite_Add");
+        string toggleText = isFavorite ? L("Unfavorite") : L("Favorite_Add");
+        string explorerText = L("ShowInFileExplorer");
+        string manageTagsText = L("Menu_ManageTags");
+        string exportText = L("Export_Ico_Menu");
+        string exportPngText = L("Export_Png_Menu");
+        string manageCollectionsText = L("Menu_ManageCollections");
 
         return new LibraryItemVm
         {
@@ -851,7 +930,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
             ContextManageTagsText = manageTagsText,
             ContextManageCollectionsText = manageCollectionsText,
             ContextExportIcoText = exportText,
-            ContextExportPngText = exportPngText
+            ContextExportPngText = exportPngText,
+            ExportPng1024Text = L("ExportPng_1024Default"),
+            ExportPng512Text = L("ExportPng_512"),
+            ExportPng256Text = L("ExportPng_256"),
+            RemoveFromCollectionText = L("RemoveFromCollection")
         };
     }
 
@@ -864,9 +947,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 return new BitmapImage(new Uri(path));
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Fallback gracefully on unreadable file
+            // Unreadable/corrupt image: fall back to a null source, but keep a trace
+            // so a systematically broken cache path is diagnosable.
+            App.Log($"TryLoadBitmap failed for '{Path.GetFileName(path)}': {ex.Message}");
         }
         return null;
     }
@@ -894,6 +979,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (LibraryView == null || RecentView == null || FavoritesView == null || FoldersView == null || SettingsView == null || SectionTitleText == null)
             return;
 
+        // Remembered so a language switch can re-title the visible section without
+        // depending on the nav ListView selection still being a ListViewItem.
+        _currentSectionTag = tag;
+
         LibraryView.Visibility = Visibility.Collapsed;
         RecentView.Visibility = Visibility.Collapsed;
         FavoritesView.Visibility = Visibility.Collapsed;
@@ -906,30 +995,28 @@ public sealed partial class ManagerWindow : Window, IDisposable
         ClearRecentButton.Visibility = Visibility.Collapsed;
         if (ImportIconButton != null) ImportIconButton.Visibility = Visibility.Collapsed;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         switch (tag)
         {
             case "Library":
                 LibraryView.Visibility = Visibility.Visible;
-                SectionTitleText.Text = isTr ? "Kitaplık" : "Library";
+                SectionTitleText.Text = AppResources.GetString("Nav_Library", _currentLanguage);
                 if (ImportIconButton != null) ImportIconButton.Visibility = Visibility.Visible;
                 if (_allAssets.Count >= 13) SearchTextBox.Visibility = Visibility.Visible;
                 break;
             case "Recent":
                 RecentView.Visibility = Visibility.Visible;
-                SectionTitleText.Text = isTr ? "Son Kullanılanlar" : "Recent";
+                SectionTitleText.Text = AppResources.GetString("Nav_Recent", _currentLanguage);
                 ClearRecentButton.Visibility = _recentItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
                 break;
             case "Favorites":
                 FavoritesView.Visibility = Visibility.Visible;
-                SectionTitleText.Text = isTr ? "Favoriler" : "Favorites";
+                SectionTitleText.Text = AppResources.GetString("Nav_Favorites", _currentLanguage);
                 break;
             case "Collections":
                 if (CollectionsView != null)
                 {
                     CollectionsView.Visibility = Visibility.Visible;
-                    SectionTitleText.Text = isTr ? "Koleksiyonlar" : "Collections";
+                    SectionTitleText.Text = AppResources.GetString("Nav_Collections", _currentLanguage);
                     _ = LoadCollectionsViewAsync();
                 }
                 break;
@@ -937,42 +1024,45 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 if (PresetsView != null)
                 {
                     PresetsView.Visibility = Visibility.Visible;
-                    SectionTitleText.Text = isTr ? "Durum Şablonları" : "Status Presets";
+                    SectionTitleText.Text = AppResources.GetString("Nav_Presets", _currentLanguage);
                     LoadPresetsView();
                 }
                 break;
             case "Folders":
                 FoldersView.Visibility = Visibility.Visible;
-                SectionTitleText.Text = isTr ? "Özelleştirilmiş Klasörler" : "Customized Folders";
+                SectionTitleText.Text = AppResources.GetString("Nav_Folders", _currentLanguage);
                 break;
             case "Settings":
                 SettingsView.Visibility = Visibility.Visible;
-                SectionTitleText.Text = isTr ? "Ayarlar" : "Settings";
+                SectionTitleText.Text = AppResources.GetString("Nav_Settings", _currentLanguage);
                 SettingsView.ChangeView(null, 0, null, true);
                 break;
         }
 
         UpdateSubtitle();
+
+        // Keyboard users lose focus when the previous section is collapsed. Restore
+        // it deterministically instead of leaving focus on a hidden element.
+        RestoreManagerFocusAfterTransition();
     }
 
     private void UpdateSubtitle()
     {
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
         if (LibraryView.Visibility == Visibility.Visible)
         {
             SectionSubtitleText.Text = _libraryItems.Count == 1
-                ? (isTr ? "1 simge" : "1 icon")
-                : (isTr ? $"{_libraryItems.Count} simge" : $"{_libraryItems.Count} icons");
+                ? L("Item_Icons_Single")
+                : AppResources.Format("Item_Icons_Count", _currentLanguage, _libraryItems.Count);
         }
         else if (FoldersView.Visibility == Visibility.Visible)
         {
             SectionSubtitleText.Text = _folderItems.Count == 1
-                ? (isTr ? "1 klasör" : "1 folder")
-                : (isTr ? $"{_folderItems.Count} klasör" : $"{_folderItems.Count} folders");
+                ? L("Item_Folders_Single")
+                : AppResources.Format("Item_Folders_Count", _currentLanguage, _folderItems.Count);
         }
         else if (PresetsView != null && PresetsView.Visibility == Visibility.Visible)
         {
-            SectionSubtitleText.Text = isTr ? "İş akışı ve durum için simgeler" : "Semantic workflow and status icons";
+            SectionSubtitleText.Text = L("Library_Subtitle");
         }
         else
         {
@@ -994,8 +1084,6 @@ public sealed partial class ManagerWindow : Window, IDisposable
             // Debounce at 120 ms
             await Task.Delay(120, token);
 
-            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
             if (string.IsNullOrEmpty(query))
             {
                 await LoadLibraryAsync();
@@ -1016,7 +1104,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
 
             var results = await _storageService.SearchLibraryAsync(query, limit: 100, cancellationToken: token);
+
+            // Re-check cancellation after the search: a newer keystroke may have
+            // cancelled this query while the search was running. Without this the
+            // stale result would then overwrite the cleared/newer view below.
+            token.ThrowIfCancellationRequested();
+
             var favIds = (await _storageService.GetFavoritesAsync()).Select(f => f.Sha256).ToHashSet();
+
+            token.ThrowIfCancellationRequested();
 
             _libraryItems.Clear();
             foreach (var a in results)
@@ -1053,19 +1149,22 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private async void OnToggleFavoriteClicked(object sender, RoutedEventArgs e)
     {
-        string? sha256 = null;
-        if (sender is Button btn && btn.Tag is string s1) sha256 = s1;
-        else if (sender is MenuFlyoutItem mfi && mfi.Tag is string s2) sha256 = s2;
-
-        if (!string.IsNullOrEmpty(sha256))
+        await GuardAsync(nameof(OnToggleFavoriteClicked), async () =>
         {
-            var favs = await _storageService.GetFavoritesAsync();
-            bool isFav = favs.Any(f => f.Sha256 == sha256);
-            await _storageService.SetFavoriteAsync(sha256, !isFav);
+            string? sha256 = null;
+            if (sender is Button btn && btn.Tag is string s1) sha256 = s1;
+            else if (sender is MenuFlyoutItem mfi && mfi.Tag is string s2) sha256 = s2;
 
-            await LoadLibraryAsync();
-            await LoadFavoritesAsync();
-        }
+            if (!string.IsNullOrEmpty(sha256))
+            {
+                var favs = await _storageService.GetFavoritesAsync();
+                bool isFav = favs.Any(f => f.Sha256 == sha256);
+                await _storageService.SetFavoriteAsync(sha256, !isFav);
+
+                await LoadLibraryAsync();
+                await LoadFavoritesAsync();
+            }
+        });
     }
 
     private void OnOpenIcoInExplorerClicked(object sender, RoutedEventArgs e)
@@ -1082,23 +1181,37 @@ public sealed partial class ManagerWindow : Window, IDisposable
             {
                 Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                App.Log($"OnOpenIcoInExplorerClicked failed: {ex.Message}");
+            }
         }
     }
 
     private async void OnClearRecentClicked(object sender, RoutedEventArgs e)
     {
-        await _storageService.ClearRecentHistoryAsync();
-        await LoadRecentAsync();
-        ClearRecentButton.Visibility = Visibility.Collapsed;
+        await GuardAsync(nameof(OnClearRecentClicked), async () =>
+        {
+            await _storageService.ClearRecentHistoryAsync();
+            await LoadRecentAsync();
+            ClearRecentButton.Visibility = Visibility.Collapsed;
+        });
     }
 
     private async void OnRepairFolderClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string folderPath)
+        await GuardAsync(nameof(OnRepairFolderClicked), async () =>
         {
+            if (sender is not Button btn || btn.Tag is not string folderPath)
+            {
+                return;
+            }
+
             var folderVm = _folderItems.FirstOrDefault(f => f.FolderPath == folderPath);
-            if (folderVm == null) return;
+            if (folderVm == null)
+            {
+                return;
+            }
 
             string canonicalIco = string.Empty;
             if (!string.IsNullOrEmpty(folderVm.ExpectedAssetHash))
@@ -1107,34 +1220,44 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 if (asset != null) canonicalIco = asset.CanonicalIcoPath;
             }
 
-            var expectedSemantics = new FolderIconSemantics
-            {
-                IconResource = @$"{OrnareConstants.CanonicalFolderName}\{OrnareConstants.CustomIconFileName},0"
-            };
+            // RepairFolder performs filesystem writes and can be slow on network or
+            // removable media; it must not block the dispatcher.
+            var res = await Task.Run(() =>
+                RepairEngine.RepairFolder(folderPath, canonicalIco, forceExternalConflictResolution: false));
 
-            var res = RepairEngine.RepairFolder(folderPath, canonicalIco, forceExternalConflictResolution: false);
             if (res.IsSuccess)
             {
                 await LoadFoldersAsync();
             }
-        }
+        });
     }
 
     private async void OnKeepExternalClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string folderPath)
+        await GuardAsync(nameof(OnKeepExternalClicked), async () =>
         {
-            await _storageService.UpdateAssignmentHealthAsync(folderPath, FolderCustomizationState.Healthy, conflictState: null);
-            await LoadFoldersAsync();
-        }
+            if (sender is Button btn && btn.Tag is string folderPath)
+            {
+                await _storageService.UpdateAssignmentHealthAsync(folderPath, FolderCustomizationState.Healthy, conflictState: null);
+                await LoadFoldersAsync();
+            }
+        });
     }
 
     private async void OnReapplyFolderClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string folderPath)
+        await GuardAsync(nameof(OnReapplyFolderClicked), async () =>
         {
+            if (sender is not Button btn || btn.Tag is not string folderPath)
+            {
+                return;
+            }
+
             var folderVm = _folderItems.FirstOrDefault(f => f.FolderPath == folderPath);
-            if (folderVm == null) return;
+            if (folderVm == null)
+            {
+                return;
+            }
 
             string canonicalIco = string.Empty;
             if (!string.IsNullOrEmpty(folderVm.ExpectedAssetHash))
@@ -1143,13 +1266,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 if (asset != null) canonicalIco = asset.CanonicalIcoPath;
             }
 
-            var res = RepairEngine.RepairFolder(folderPath, canonicalIco, forceExternalConflictResolution: true);
+            var res = await Task.Run(() =>
+                RepairEngine.RepairFolder(folderPath, canonicalIco, forceExternalConflictResolution: true));
+
             if (res.IsSuccess)
             {
                 await _storageService.UpdateAssignmentHealthAsync(folderPath, FolderCustomizationState.Healthy, conflictState: null);
                 await LoadFoldersAsync();
             }
-        }
+        });
     }
 
     private void OnOpenFolderInExplorerClicked(object sender, RoutedEventArgs e)
@@ -1160,11 +1285,19 @@ public sealed partial class ManagerWindow : Window, IDisposable
             {
                 Process.Start(new ProcessStartInfo("explorer.exe", folderPath) { UseShellExecute = true });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                App.Log($"OnOpenFolderClicked failed: {ex.Message}");
+            }
         }
     }
 
     private async void OnExportDiagnosticReportClicked(object sender, RoutedEventArgs e)
+    {
+        await GuardAsync(nameof(OnExportDiagnosticReportClicked), ExportDiagnosticReportCoreAsync);
+    }
+
+    private async Task ExportDiagnosticReportCoreAsync()
     {
         var settings = await _storageService.GetUserSettingsAsync();
         var assignments = await _storageService.GetAllFolderAssignmentsAsync();
@@ -1191,28 +1324,48 @@ public sealed partial class ManagerWindow : Window, IDisposable
         string json = System.Text.Json.JsonSerializer.Serialize(report, FolderJsonContext.Default.DiagnosticReport);
         await File.WriteAllTextAsync(reportFile, json);
 
-        ExportReportButton.Content = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? "Rapor Kaydedildi!" : "Report Exported!";
+        ExportReportButton.Content = L("ReportSaved");
     }
 
     private async void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_isLoaded) return;
+        if (_pickerUpdates.IsActive || !_isLoaded) return;
         if (ThemeComboBox.SelectedItem is ComboBoxItem item && item.Tag is string theme)
         {
-            _currentTheme = theme;
-            ApplyTheme(theme);
-            await _storageService.SaveUserSettingsAsync(new UserSettings { Theme = _currentTheme, Language = _currentLanguage });
+            try
+            {
+                _currentTheme = theme;
+                ApplyTheme(theme);
+                await PersistSettingsAsync(_settings with { Theme = theme });
+            }
+            catch (Exception ex)
+            {
+                App.Log($"OnThemeSelectionChanged failed: {ex.Message}");
+            }
         }
     }
 
     private async void OnLanguageSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_isLoaded) return;
+        if (_pickerUpdates.IsActive || !_isLoaded) return;
         if (LanguageComboBox.SelectedItem is ComboBoxItem item && item.Tag is string lang)
         {
-            _currentLanguage = lang;
-            ApplyLanguage(lang);
-            await _storageService.SaveUserSettingsAsync(new UserSettings { Theme = _currentTheme, Language = _currentLanguage });
+            try
+            {
+                // ApplyLanguage normalises to a supported BCP-47 locale; a "System" choice
+                // stays persisted as "System" so it keeps following the OS language.
+                string persisted = string.Equals(lang, "System", StringComparison.OrdinalIgnoreCase)
+                    ? UserSettings.SystemValue
+                    : AppResources.NormalizeLocale(lang);
+                ApplyLanguage(persisted);
+                await PersistSettingsAsync(_settings with { Language = persisted });
+            }
+            catch (Exception ex)
+            {
+                // Never crash the window on a settings write failure; the applied
+                // language stays in memory and the failure is recorded locally.
+                App.Log($"OnLanguageSelectionChanged failed: {ex.Message}");
+            }
         }
     }
 
@@ -1255,81 +1408,119 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     public void ApplyLanguage(string lang)
     {
-        bool isTr = string.Equals(lang, "tr-TR", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(lang, "tr", StringComparison.OrdinalIgnoreCase) ||
-                    (string.Equals(lang, "System", StringComparison.OrdinalIgnoreCase) && CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("tr", StringComparison.OrdinalIgnoreCase));
+        // All six first-class locales must round-trip: collapsing non-Turkish
+        // choices to en-US silently discarded the user's selection and persisted
+        // it back to disk as en-US.
+        string locale = AppResources.NormalizeLocale(lang);
+        _currentLanguage = locale;
 
-        _currentLanguage = isTr ? "tr-TR" : "en-US";
+        // Keep the process-wide locale in sync so helpers that do not receive the locale
+        // explicitly (settings surface, cloud status, onboarding) resolve the same language.
+        AppResources.CurrentLocale = locale;
 
-        NavTextLibrary.Text = isTr ? "Kitaplık" : "Library";
-        NavTextRecent.Text = isTr ? "Son Kullanılanlar" : "Recent";
-        NavTextFavorites.Text = isTr ? "Favoriler" : "Favorites";
-        if (NavTextCollections != null) NavTextCollections.Text = isTr ? "Koleksiyonlar" : "Collections";
-        if (NavTextPresets != null) NavTextPresets.Text = isTr ? "Durum Şablonları" : "Status Presets";
-        NavTextFolders.Text = isTr ? "Özelleştirilmiş Klasörler" : "Customized Folders";
-        NavTextSettings.Text = isTr ? "Ayarlar" : "Settings";
+        // Nav/chrome copy is resolved per key so every supported locale is honoured
+        // instead of the previous two-way tr/en ternary.
+        string L(string key) => AppResources.GetString(key, locale);
 
-        if (CollectionsListHeader != null) CollectionsListHeader.Text = isTr ? "Koleksiyonlar" : "Collections";
-        if (NewCollectionButtonText != null) NewCollectionButtonText.Text = isTr ? "Yeni" : "New";
-        if (CollectionsEmptyTitle != null) CollectionsEmptyTitle.Text = isTr ? "Henüz koleksiyon yok" : "No collections yet";
-        if (CollectionsEmptySubtitle != null) CollectionsEmptySubtitle.Text = isTr ? "Simge kitaplığınızı düzenlemek için koleksiyonlar oluşturun." : "Create one to organize icons";
-        if (CollectionAssetsEmptyTitle != null) CollectionAssetsEmptyTitle.Text = isTr ? "Koleksiyon boş" : "Collection is empty";
-        if (CollectionAssetsEmptySubtitle != null) CollectionAssetsEmptySubtitle.Text = isTr ? "Buraya eklemek için kitaplığınızdaki herhangi bir simgeye sağ tıklayın" : "Right-click any library icon to add it here";
+        NavTextLibrary.Text = L("Nav_Library");
+        if (AppSubtitleText != null) AppSubtitleText.Text = L("AppSubtitle");
+        if (RejectedItemsLabel != null) RejectedItemsLabel.Text = L("RejectedItemsLabel");
 
-        if (PresetTemplateLabel != null) PresetTemplateLabel.Text = isTr ? "Stil Şablonu:" : "Style Template:";
-        if (PresetRadioClassic != null) PresetRadioClassic.Content = isTr ? "Klasik" : "Classic";
-        if (PresetRadioSoft != null) PresetRadioSoft.Content = isTr ? "Yumuşak" : "Soft";
-        if (PresetRadioFlat != null) PresetRadioFlat.Content = isTr ? "Düz" : "Flat";
+        // Screen readers announce AutomationProperties.Name verbatim; keeping these in
+        // English made navigation and settings unusable in the other five locales.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemLibrary, L("Nav_Library"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemRecent, L("Nav_Recent"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemFavorites, L("Nav_Favorites"));
+        if (NavItemCollections != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemCollections, L("Nav_Collections"));
+        if (NavItemPresets != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemPresets, L("Nav_Presets"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemFolders, L("Nav_Folders"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemSettings, L("Nav_Settings"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SearchTextBox, L("SearchLibrary"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearRecentButton, L("ClearRecent"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, L("Staging_TrayTitle"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, L("Staging_ClearStaging"));
+        ToolTipService.SetToolTip(SearchTextBox, L("Tip_SearchLibrary"));
+        ToolTipService.SetToolTip(TargetTrayDropZone, L("Tip_AddFolders"));
+        ToolTipService.SetToolTip(ClearStagingButton, L("Tip_ClearStaging"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ThemeComboBox, L("Settings_ThemeLabel"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(LanguageComboBox, L("Settings_LanguageLabel"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ExportReportButton, L("ExportDiagnosticReport"));
+        if (ImportIconButton != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ImportIconButton, L("ImportIcon"));
+        if (ImportIconButton != null) ToolTipService.SetToolTip(ImportIconButton, L("Tip_ImportIcon"));
+        if (NewCollectionButton != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NewCollectionButton, L("Collections_NewShort"));
+        NavTextRecent.Text = L("Nav_Recent");
+        NavTextFavorites.Text = L("Nav_Favorites");
+        if (NavTextCollections != null) NavTextCollections.Text = L("Nav_Collections");
+        if (NavTextPresets != null) NavTextPresets.Text = L("Nav_Presets");
+        NavTextFolders.Text = L("Nav_Folders");
+        NavTextSettings.Text = L("Nav_Settings");
+
+        if (CollectionsListHeader != null) CollectionsListHeader.Text = L("Nav_Collections");
+        if (NewCollectionButtonText != null) NewCollectionButtonText.Text = L("Collections_NewShort");
+        if (CollectionsEmptyTitle != null) CollectionsEmptyTitle.Text = L("Collections_EmptyTitle");
+        if (CollectionsEmptySubtitle != null) CollectionsEmptySubtitle.Text = L("Collections_EmptySubtitle");
+        if (CollectionAssetsEmptyTitle != null) CollectionAssetsEmptyTitle.Text = L("Collections_NoAssetsTitle");
+        if (CollectionAssetsEmptySubtitle != null) CollectionAssetsEmptySubtitle.Text = L("Collections_NoAssetsSubtitle");
+
+        if (PresetTemplateLabel != null) PresetTemplateLabel.Text = L("Preset_StyleLabel");
+        if (PresetRadioClassic != null) PresetRadioClassic.Content = L("Template_Classic");
+        if (PresetRadioSoft != null) PresetRadioSoft.Content = L("Template_Soft");
+        if (PresetRadioFlat != null) PresetRadioFlat.Content = L("Template_Flat");
         if (PresetDisclaimerText != null)
         {
-            PresetDisclaimerText.Text = isTr
-                ? "Öncelik şablonları klasörleri görsel olarak düzenlemek içindir; Windows dosya sistemi önceliğini veya Gezgin sıralamasını değiştirmez."
-                : "Priority presets provide visual folder badges for organization and do not alter Windows filesystem priority or shell sorting.";
+            PresetDisclaimerText.Text = L("Preset_Disclaimer");
         }
 
-        LibraryEmptyTitle.Text = isTr ? "Kitaplıkta simge yok" : "No icons in library";
-        LibraryEmptySubtitle.Text = isTr ? "Özelleştirdiğiniz simgeler burada görünecektir" : "Icons you customize will appear here";
-        RecentEmptyTitle.Text = isTr ? "Son kullanılan simge yok" : "No recent icons";
-        FavoritesEmptyTitle.Text = isTr ? "Favori simge yok" : "No favorite icons";
-        FavoritesEmptySubtitle.Text = isTr
-            ? "Kitaplık'taki simgelerin üzerindeki yıldıza tıklayarak veya sağ tıklayıp 'Favorilere Ekle'yi seçerek ekleyebilirsiniz."
-            : "Click the star on any icon in the Library or right-click and select 'Add to Favorites'.";
-        FoldersEmptyTitle.Text = isTr ? "Özelleştirilmiş klasör yok" : "No customized folders";
-        TargetTrayTitle.Text = isTr ? "Klasör Hazırlama Tepsisi" : "Folder Staging Tray";
-        TargetTraySubtitle.Text = isTr
-            ? "Disk üzerinde değişiklik yapmadan klasörleri incelemek veya hazırlamak için buraya sürükleyin."
-            : "Drag and drop folders here to inspect or prepare them without modifying disk.";
-        ClearStagingButton.Content = isTr ? "Tepsiyi Temizle" : "Clear Staging";
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, isTr ? "Klasör Hazırlama Tepsisi" : "Folder Staging Tray");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, isTr ? "Hazırlanan klasörleri temizle" : "Clear staged folders");
+        LibraryEmptyTitle.Text = L("Library_EmptyTitle");
+        LibraryEmptySubtitle.Text = L("Library_EmptySubtitle");
+        RecentEmptyTitle.Text = L("Recent_EmptyTitle");
+        FavoritesEmptyTitle.Text = L("EmptyFavoritesTitle");
+        FavoritesEmptySubtitle.Text = L("Favorites_EmptySubtitle");
+        FoldersEmptyTitle.Text = L("Folders_EmptyTitle");
+        TargetTrayTitle.Text = L("Staging_TrayTitle");
+        TargetTraySubtitle.Text = L("Staging_TraySubtitle");
+        ClearStagingButton.Content = L("Staging_ClearStaging");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, L("Staging_TrayTitle"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, L("Staging_ClearStaging"));
 
-        SettingsAppearanceHeader.Text = isTr ? "Görünüm" : "Appearance";
-        SettingsThemeLabel.Text = isTr ? "Uygulama teması" : "App theme";
-        ThemeItemSystem.Content = isTr ? "Sistem varsayılanı" : "System default";
-        ThemeItemLight.Content = isTr ? "Açık" : "Light";
-        ThemeItemDark.Content = isTr ? "Koyu" : "Dark";
+        SettingsAppearanceHeader.Text = L("Settings_Appearance");
+        SettingsThemeLabel.Text = L("Settings_ThemeLabel");
+        ThemeItemSystem.Content = L("Settings_SystemDefault");
+        ThemeItemLight.Content = L("Settings_Light");
+        ThemeItemDark.Content = L("Settings_Dark");
 
-        SettingsLanguageHeader.Text = isTr ? "Dil" : "Language";
-        SettingsLanguageLabel.Text = isTr ? "Uygulama dili" : "App language";
-        LangItemSystem.Content = isTr ? "Sistem varsayılanı" : "System default";
+        SettingsLanguageHeader.Text = L("Language");
+        SettingsLanguageLabel.Text = L("Settings_LanguageLabel");
+        LangItemSystem.Content = L("Settings_SystemDefault");
 
-        SettingsDiagnosticsHeader.Text = isTr ? "Tanılama" : "Diagnostics";
-        SettingsDiagnosticsLabel.Text = isTr ? "Tanılama Raporu" : "Diagnostic Report";
-        SettingsDiagnosticsSubtext.Text = isTr ? "Kişisel yollar gizlenmiş sistem ve sağlık raporunu dışa aktarır." : "Exports system and health status with personal paths anonymized.";
-        ExportReportButton.Content = isTr ? "Tanılama Raporunu Dışa Aktar" : "Export Diagnostic Report";
-        SettingsAboutHeader.Text = isTr ? "Hakkında" : "About";
-        SettingsPublisherLabel.Text = isTr ? "Geliştirici & Yayıncı" : "Developer & Publisher";
-        SettingsWebsiteLabel.Text = isTr ? "Web Sitesi" : "Website";
-        SettingsVersionLabel.Text = isTr ? "Sürüm" : "Version";
-        SettingsArchLabel.Text = isTr ? "Mimari" : "Architecture";
-        SettingsPrivacyStatement.Text = isTr ? "Ornare tamamen çevrimdışı çalışır. Sıfır telemetri, sıfır bulut takibi, sıfır veri toplama." : "Ornare works completely offline. Zero telemetry, zero cloud tracking, zero data collection.";
-        ClearRecentButton.Content = isTr ? "Son Kullanılanları Temizle" : "Clear Recent";
-        SearchTextBox.PlaceholderText = isTr ? "Kitaplıkta ara..." : "Search library...";
-        if (ImportIconButton != null) ImportIconButton.Content = isTr ? "Simge İçe Aktar..." : "Import Icon...";
+        // A ComboBox paints the selected entry from the item's Content and does not repaint
+        // when that Content is replaced in place: the item read "Sistem varsayılanı" while
+        // the closed picker still showed "System default". Re-selecting the current index
+        // forces the selection box to render the new text.
+        RefreshComboBoxSelection(ThemeComboBox);
+        RefreshComboBoxSelection(LanguageComboBox);
 
-        if (NavListView.SelectedItem is ListViewItem cur)
+        SettingsDiagnosticsHeader.Text = L("Diagnostics");
+        SettingsDiagnosticsLabel.Text = L("Settings_DiagnosticsLabel");
+        SettingsDiagnosticsSubtext.Text = L("Settings_DiagnosticsSubtext");
+        ExportReportButton.Content = L("ExportDiagnosticReport");
+        SettingsAboutHeader.Text = L("Settings_About");
+        SettingsPublisherLabel.Text = L("Settings_PublisherLabel");
+        SettingsWebsiteLabel.Text = L("Settings_WebsiteLabel");
+        SettingsVersionLabel.Text = L("Version");
+        // Version badge must follow the shipped assembly metadata, not a design-time
+        // literal that silently drifts from the installer/packaged version.
+        SettingsVersionValue.Text = AppInfo.Version;
+        SettingsArchLabel.Text = L("Architecture");
+        SettingsPrivacyStatement.Text = L("Settings_PrivacyStatement");
+        ApplySettingsSurfaceLocalization();
+        ClearRecentButton.Content = L("ClearRecent");
+        SearchTextBox.PlaceholderText = L("Search_Placeholder");
+        if (ImportIconButton != null) ImportIconButton.Content = L("ImportIcon");
+
+        if (!string.IsNullOrEmpty(_currentSectionTag))
         {
-            SwitchSection((string)cur.Tag);
+            SwitchSection(_currentSectionTag);
         }
     }
 
@@ -1358,12 +1549,12 @@ public sealed partial class ManagerWindow : Window, IDisposable
         }
     }
 
-    private void OnLibraryItemClick(object sender, ItemClickEventArgs e)
+    private async void OnImportIconClicked(object sender, RoutedEventArgs e)
     {
-        // Reserved for future selection/details if needed
+        await GuardAsync(nameof(OnImportIconClicked), ImportIconCoreAsync);
     }
 
-    private async void OnImportIconClicked(object sender, RoutedEventArgs e)
+    private async Task ImportIconCoreAsync()
     {
         var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
         IntPtr hwnd = WindowNative.GetWindowHandle(this);
@@ -1384,8 +1575,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         try
         {
             byte[] fileBytes = await File.ReadAllBytesAsync(file.Path);
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string iconsDir = Path.Combine(appData, "Ornare", "icons");
+            string iconsDir = OrnareConstants.IconsDirectory;
             Directory.CreateDirectory(iconsDir);
 
             string ext = Path.GetExtension(file.Path).ToLowerInvariant();
@@ -1431,44 +1621,52 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private async void OnExportIcoClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuFlyoutItem item || item.Tag is not string canonicalIcoPath || string.IsNullOrEmpty(canonicalIcoPath))
+        await GuardAsync(nameof(OnExportIcoClicked), async () =>
         {
-            return;
-        }
+            if (sender is not MenuFlyoutItem item || item.Tag is not string canonicalIcoPath || string.IsNullOrEmpty(canonicalIcoPath))
+            {
+                return;
+            }
 
-        if (!File.Exists(canonicalIcoPath))
-        {
-            return;
-        }
+            if (!File.Exists(canonicalIcoPath))
+            {
+                return;
+            }
 
-        var picker = new global::Windows.Storage.Pickers.FileSavePicker();
-        IntPtr hwnd = WindowNative.GetWindowHandle(this);
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+            var picker = new global::Windows.Storage.Pickers.FileSavePicker();
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
-        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
-        picker.FileTypeChoices.Add("Windows Icon", new List<string>() { ".ico" });
-        picker.DefaultFileExtension = ".ico";
-        picker.SuggestedFileName = "icon.ico";
+            picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+            picker.FileTypeChoices.Add("Windows Icon", new List<string>() { ".ico" });
+            picker.DefaultFileExtension = ".ico";
+            picker.SuggestedFileName = "icon.ico";
 
-        var file = await picker.PickSaveFileAsync();
-        if (file == null)
-        {
-            // Cancel performs zero writes
-            return;
-        }
+            var file = await picker.PickSaveFileAsync();
+            if (file == null)
+            {
+                // Cancel performs zero writes
+                return;
+            }
 
-        var exportResult = AtomicExportWriter.ExportAtomically(
-            canonicalIcoPath,
-            file.Path,
-            customValidator: path => _imagePipeline.IsValidIco(path, expectedMinFrames: 10));
+            var exportResult = AtomicExportWriter.ExportAtomically(
+                canonicalIcoPath,
+                file.Path,
+                customValidator: path => _imagePipeline.IsValidIco(path, expectedMinFrames: 10));
 
-        if (!exportResult.IsSuccess)
-        {
-            App.Log($"Atomic export failed: {exportResult.ErrorMessage}");
-        }
+            if (!exportResult.IsSuccess)
+            {
+                App.Log($"Atomic export failed: {exportResult.ErrorMessage}");
+            }
+        });
     }
 
-    private async void OnExportPngClicked(object sender, RoutedEventArgs e)
+    private void OnExportPngClicked(object sender, RoutedEventArgs e)
+    {
+        _ = GuardAsync(nameof(OnExportPngClicked), () => ExportPngCoreAsync(sender, e));
+    }
+
+    private async Task ExportPngCoreAsync(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem item)
         {
@@ -1505,8 +1703,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             return;
         }
 
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string cacheDir = Path.Combine(appData, "Ornare", "cache");
+        string cacheDir = OrnareConstants.CacheDirectory;
 
         byte[]? sourceBytes = null;
         try
@@ -1530,13 +1727,19 @@ public sealed partial class ManagerWindow : Window, IDisposable
             TargetFrameSizes = [targetSize]
         };
 
-        var renderResult = _imagePipeline.RenderPngWithCache(
+        // RenderPngWithCache invokes the cache callbacks synchronously, so the
+        // storage calls inside them must not block on the UI dispatcher: awaiting
+        // them with GetAwaiter().GetResult() on the UI thread deadlocks instantly
+        // because the storage continuation is queued back to the same dispatcher.
+        // Running the whole render on a worker thread removes the dispatcher
+        // capture and keeps the UI responsive during a large export.
+        var renderResult = await Task.Run(() => _imagePipeline.RenderPngWithCache(
             recipe,
             sourceBytes,
             targetSize,
             cacheDirectory: cacheDir,
             cacheLookup: key => _storageService.GetRenderCacheEntryAsync(key).GetAwaiter().GetResult(),
-            cacheStore: entry => _storageService.SaveRenderCacheEntryAsync(entry).GetAwaiter().GetResult());
+            cacheStore: entry => _storageService.SaveRenderCacheEntryAsync(entry).GetAwaiter().GetResult()));
 
         if (!renderResult.IsSuccess || renderResult.Value == null)
         {
@@ -1573,8 +1776,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         TagFilterScrollViewer.Visibility = Visibility.Visible;
         TagFilterBar.Children.Clear();
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-        string allLabel = isTr ? "Tümü" : "All";
+        string allLabel = L("Category_All");
 
         // "All" pill
         var allBtn = CreateFilterPill(allLabel, null, _selectedFilterTagId == null);
@@ -1622,11 +1824,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
         }
 
-        btn.Click += async (s, e) =>
+        btn.Click += async (s, e) => await GuardAsync("ApplyTagFilter", async () =>
         {
             _selectedFilterTagId = tagId;
             await LoadLibraryAsync();
-        };
+        });
         return btn;
     }
 
@@ -1637,12 +1839,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (sender is MenuFlyoutItem mfi && mfi.Tag is string s) sha256 = s;
         if (string.IsNullOrEmpty(sha256)) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         var dialog = new ContentDialog
         {
-            Title = isTr ? "Varlık Etiketlerini Yönet" : "Manage Asset Tags",
-            CloseButtonText = isTr ? "Kapat" : "Close",
+            Title = L("ManageTags_Title"),
+            CloseButtonText = L("Close"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = this.Content.XamlRoot
         };
@@ -1661,7 +1861,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var noTagsText = new TextBlock
         {
-            Text = isTr ? "Bu varlığa henüz bir etiket atanmamış." : "No tags assigned to this asset yet.",
+            Text = L("ManageTags_Empty"),
             FontSize = 12,
             Visibility = Visibility.Collapsed
         };
@@ -1676,14 +1876,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var textBox = new TextBox
         {
-            PlaceholderText = isTr ? "Yeni etiket (1-40 karakter)..." : "Add tag (1-40 characters)...",
+            PlaceholderText = L("Tag_AddPlaceholder"),
             MaxLength = 40
         };
         Grid.SetColumn(textBox, 0);
 
         var addBtn = new Button
         {
-            Content = isTr ? "Ekle" : "Add",
+            Content = L("Add"),
             Margin = new Thickness(8, 0, 0, 0)
         };
         if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accentStyle))
@@ -1752,12 +1952,12 @@ public sealed partial class ManagerWindow : Window, IDisposable
                         BorderThickness = new Thickness(0),
                         Content = new FontIcon { Glyph = "\uE711", FontSize = 10 }
                     };
-                    removeBtn.Click += async (s, args) =>
+                    removeBtn.Click += async (s, args) => await GuardAsync("DetachTag", async () =>
                     {
                         await _storageService.DetachTagFromAssetAsync(sha256, t.Id);
                         await RefreshDialogTagsAsync();
                         await RefreshTagFilterBarAsync();
-                    };
+                    });
                     pillStack.Children.Add(removeBtn);
                     pill.Child = pillStack;
                     tagsWrap.Children.Add(pill);
@@ -1769,9 +1969,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
         {
             errorText.Visibility = Visibility.Collapsed;
             string raw = textBox.Text;
-            if (!LibraryNameNormalizer.TryValidateAndNormalize(raw, out string display, out _, out string? err))
+            if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(raw, out string display, out _, out LibraryNameError nameError))
             {
-                errorText.Text = err ?? "Invalid tag name.";
+                errorText.Text = LocalizedNameError(nameError);
                 errorText.Visibility = Visibility.Visible;
                 return;
             }
@@ -1786,18 +1986,17 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
             catch (Exception ex)
             {
-                errorText.Text = ex.Message;
-                errorText.Visibility = Visibility.Visible;
+                ShowDialogError(errorText, ex, "AddTag");
             }
         }
 
-        addBtn.Click += async (s, args) => await TryAddTagAsync();
+        addBtn.Click += async (s, args) => await GuardAsync("AddTag", TryAddTagAsync);
         textBox.KeyDown += async (s, args) =>
         {
             if (args.Key == global::Windows.System.VirtualKey.Enter)
             {
                 args.Handled = true;
-                await TryAddTagAsync();
+                await GuardAsync("AddTag", TryAddTagAsync);
             }
         };
 
@@ -1817,8 +2016,6 @@ public sealed partial class ManagerWindow : Window, IDisposable
     {
         if (_storageService == null || CollectionsListView == null) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         var collections = await _storageService.GetAllCollectionsAsync();
         _collectionItems.Clear();
 
@@ -1826,14 +2023,20 @@ public sealed partial class ManagerWindow : Window, IDisposable
         {
             var assets = await _storageService.GetAssetsInCollectionAsync(c.Id, limit: 1000);
             int count = assets.Count;
-            string countText = isTr ? $"{count} simge" : $"{count} icon{(count == 1 ? "" : "s")}";
+            string countText = count == 1
+                ? L("Item_Icons_Single")
+                : AppResources.Format("Item_Icons_Count", _currentLanguage, count);
 
             _collectionItems.Add(new CollectionItemVm
             {
                 Id = c.Id,
                 DisplayName = c.DisplayName,
                 SortKey = c.SortKey,
-                AssetCountText = countText
+                AssetCountText = countText,
+                MoveUpText = L("Collection_MoveUp"),
+                MoveDownText = L("Collection_MoveDown"),
+                RenameText = L("Collection_Rename"),
+                DeleteText = L("Delete")
             });
         }
 
@@ -1877,8 +2080,6 @@ public sealed partial class ManagerWindow : Window, IDisposable
     {
         if (_storageService == null || CollectionAssetsGridView == null) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         var selectedColl = await _storageService.GetCollectionByIdAsync(collectionId);
         if (selectedColl != null)
         {
@@ -1889,7 +2090,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
         int count = assets.Count;
         if (SelectedCollectionCount != null)
         {
-            SelectedCollectionCount.Text = isTr ? $"({count} simge)" : $"({count} icon{(count == 1 ? "" : "s")})";
+            SelectedCollectionCount.Text = count == 1
+                ? $"({L("Item_Icons_Single")})"
+                : AppResources.Format("SelectedCollectionCount", _currentLanguage, count);
         }
 
         _currentCollectionAssets.Clear();
@@ -1908,22 +2111,23 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private async void OnCollectionsListViewSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (CollectionsListView?.SelectedItem is CollectionItemVm item)
+        await GuardAsync(nameof(OnCollectionsListViewSelectionChanged), async () =>
         {
-            _selectedCollectionId = item.Id;
-            await LoadCollectionAssetsAsync(item.Id);
-        }
+            if (CollectionsListView?.SelectedItem is CollectionItemVm item)
+            {
+                _selectedCollectionId = item.Id;
+                await LoadCollectionAssetsAsync(item.Id);
+            }
+        });
     }
 
     private async void OnNewCollectionClicked(object sender, RoutedEventArgs e)
     {
         if (_storageService == null || Content?.XamlRoot == null) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         var textBox = new TextBox
         {
-            PlaceholderText = isTr ? "Koleksiyon adı (1-80 karakter)..." : "Collection name (1-80 characters)...",
+            PlaceholderText = L("Collection_NamePlaceholder"),
             MaxLength = 80
         };
 
@@ -1942,9 +2146,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var dialog = new ContentDialog
         {
-            Title = isTr ? "Yeni Koleksiyon" : "New Collection",
-            PrimaryButtonText = isTr ? "Oluştur" : "Create",
-            CloseButtonText = isTr ? "İptal" : "Cancel",
+            Title = L("Collections_NewCollectionTitle"),
+            PrimaryButtonText = L("Create"),
+            CloseButtonText = L("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
             Content = content
@@ -1955,15 +2159,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
             var deferral = args.GetDeferral();
             try
             {
-                if (!LibraryNameNormalizer.TryValidateAndNormalize(
+                if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(
                     textBox.Text,
                     out string displayName,
                     out _,
-                    out string? error,
+                    out LibraryNameError nameError,
                     maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
                 {
                     args.Cancel = true;
-                    errorText.Text = error ?? "Geçersiz ad.";
+                    errorText.Text = LocalizedNameError(nameError);
                     errorText.Visibility = Visibility.Visible;
                     return;
                 }
@@ -1975,8 +2179,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             catch (Exception ex)
             {
                 args.Cancel = true;
-                errorText.Text = ex.Message;
-                errorText.Visibility = Visibility.Visible;
+                ShowDialogError(errorText, ex, "CollectionDialog");
             }
             finally
             {
@@ -1987,15 +2190,18 @@ public sealed partial class ManagerWindow : Window, IDisposable
         await dialog.ShowAsync();
     }
 
-    private async void OnRenameCollectionClicked(object sender, RoutedEventArgs e)
+    private void OnRenameCollectionClicked(object sender, RoutedEventArgs e)
+    {
+        _ = GuardAsync(nameof(OnRenameCollectionClicked), () => RenameCollectionCoreAsync(sender, e));
+    }
+
+    private async Task RenameCollectionCoreAsync(object sender, RoutedEventArgs e)
     {
         if (_storageService == null || Content?.XamlRoot == null) return;
         if (sender is not Button btn || btn.Tag is not string collectionId) return;
 
         var collection = await _storageService.GetCollectionByIdAsync(collectionId);
         if (collection == null) return;
-
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
         var textBox = new TextBox
         {
@@ -2018,9 +2224,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var dialog = new ContentDialog
         {
-            Title = isTr ? "Koleksiyonu Yeniden Adlandır" : "Rename Collection",
-            PrimaryButtonText = isTr ? "Kaydet" : "Save",
-            CloseButtonText = isTr ? "İptal" : "Cancel",
+            Title = L("Collections_RenameTitle"),
+            PrimaryButtonText = L("Save"),
+            CloseButtonText = L("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
             Content = content
@@ -2031,15 +2237,15 @@ public sealed partial class ManagerWindow : Window, IDisposable
             var deferral = args.GetDeferral();
             try
             {
-                if (!LibraryNameNormalizer.TryValidateAndNormalize(
+                if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(
                     textBox.Text,
                     out string displayName,
                     out _,
-                    out string? error,
+                    out LibraryNameError nameError,
                     maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
                 {
                     args.Cancel = true;
-                    errorText.Text = error ?? "Geçersiz ad.";
+                    errorText.Text = LocalizedNameError(nameError);
                     errorText.Visibility = Visibility.Visible;
                     return;
                 }
@@ -2050,8 +2256,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             catch (Exception ex)
             {
                 args.Cancel = true;
-                errorText.Text = ex.Message;
-                errorText.Visibility = Visibility.Visible;
+                ShowDialogError(errorText, ex, "RenameCollection");
             }
             finally
             {
@@ -2064,76 +2269,86 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     private async void OnDeleteCollectionClicked(object sender, RoutedEventArgs e)
     {
-        if (_storageService == null || Content?.XamlRoot == null) return;
-        if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
-        var dialog = new ContentDialog
+        await GuardAsync(nameof(OnDeleteCollectionClicked), async () =>
         {
-            Title = isTr ? "Koleksiyonu Sil" : "Delete Collection",
-            Content = isTr
-                ? "Bu koleksiyonu silmek istediğinize emin misiniz? Simgeleri kitaplığınızda kalacaktır."
-                : "Are you sure you want to delete this collection? Its icons will remain in your library.",
-            PrimaryButtonText = isTr ? "Sil" : "Delete",
-            CloseButtonText = isTr ? "İptal" : "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = Content.XamlRoot
-        };
+            if (_storageService == null || Content?.XamlRoot == null) return;
+            if (sender is not Button btn || btn.Tag is not string collectionId) return;
 
-        var result = await dialog.ShowAsync();
-        if (result == ContentDialogResult.Primary)
-        {
-            await _storageService.DeleteCollectionAsync(collectionId);
-            if (_selectedCollectionId == collectionId) _selectedCollectionId = null;
-            await LoadCollectionsViewAsync();
-        }
+            var dialog = new ContentDialog
+            {
+                Title = AppResources.GetString("Collections_DeleteTitle", _currentLanguage),
+                Content = AppResources.GetString("Collections_DeleteConfirm", _currentLanguage),
+                PrimaryButtonText = AppResources.GetString("Delete", _currentLanguage),
+                CloseButtonText = AppResources.GetString("Cancel", _currentLanguage),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                await _storageService.DeleteCollectionAsync(collectionId);
+                if (_selectedCollectionId == collectionId) _selectedCollectionId = null;
+                await LoadCollectionsViewAsync();
+            }
+        });
     }
 
     private async void OnMoveCollectionUpClicked(object sender, RoutedEventArgs e)
     {
-        if (_storageService == null) return;
-        if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-        int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
-        if (idx > 0)
+        await GuardAsync(nameof(OnMoveCollectionUpClicked), async () =>
         {
-            string targetId = _collectionItems[idx - 1].Id;
-            await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: true);
-            await LoadCollectionsViewAsync();
-        }
+            if (_storageService == null) return;
+            if (sender is not Button btn || btn.Tag is not string collectionId) return;
+
+            int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
+            if (idx > 0)
+            {
+                string targetId = _collectionItems[idx - 1].Id;
+                await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: true);
+                await LoadCollectionsViewAsync();
+            }
+        });
     }
 
     private async void OnMoveCollectionDownClicked(object sender, RoutedEventArgs e)
     {
-        if (_storageService == null) return;
-        if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-        int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
-        if (idx >= 0 && idx < _collectionItems.Count - 1)
+        await GuardAsync(nameof(OnMoveCollectionDownClicked), async () =>
         {
-            string targetId = _collectionItems[idx + 1].Id;
-            await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: false);
-            await LoadCollectionsViewAsync();
-        }
+            if (_storageService == null) return;
+            if (sender is not Button btn || btn.Tag is not string collectionId) return;
+
+            int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
+            if (idx >= 0 && idx < _collectionItems.Count - 1)
+            {
+                string targetId = _collectionItems[idx + 1].Id;
+                await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: false);
+                await LoadCollectionsViewAsync();
+            }
+        });
     }
 
     private async void OnRemoveFromCurrentCollectionClicked(object sender, RoutedEventArgs e)
     {
-        if (_storageService == null || string.IsNullOrEmpty(_selectedCollectionId)) return;
-        if (sender is not MenuFlyoutItem item || item.Tag is not string sha256) return;
-
-        await _storageService.RemoveAssetFromCollectionAsync(_selectedCollectionId, sha256);
-        await LoadCollectionAssetsAsync(_selectedCollectionId);
-
-        var ci = _collectionItems.FirstOrDefault(c => c.Id == _selectedCollectionId);
-        if (ci != null)
+        await GuardAsync(nameof(OnRemoveFromCurrentCollectionClicked), async () =>
         {
-            var assets = await _storageService.GetAssetsInCollectionAsync(_selectedCollectionId, limit: 1000);
-            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-            ci.AssetCountText = isTr ? $"{assets.Count} simge" : $"{assets.Count} icon{(assets.Count == 1 ? "" : "s")}";
-            SyncItems(CollectionsListView, _collectionItems);
-        }
+            if (_storageService == null || string.IsNullOrEmpty(_selectedCollectionId)) return;
+            if (sender is not MenuFlyoutItem item || item.Tag is not string sha256) return;
+
+            await _storageService.RemoveAssetFromCollectionAsync(_selectedCollectionId, sha256);
+            await LoadCollectionAssetsAsync(_selectedCollectionId);
+
+            var ci = _collectionItems.FirstOrDefault(c => c.Id == _selectedCollectionId);
+            if (ci != null)
+            {
+                var assets = await _storageService.GetAssetsInCollectionAsync(_selectedCollectionId, limit: 1000);
+                ci.AssetCountText = string.Format(
+                    CultureInfo.CurrentCulture,
+                    AppResources.GetString("Collection_AssetCount", _currentLanguage),
+                    assets.Count);
+                SyncItems(CollectionsListView, _collectionItems);
+            }
+        });
     }
 
     private async void OnManageCollectionsClicked(object sender, RoutedEventArgs e)
@@ -2143,12 +2358,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (sender is MenuFlyoutItem mfi && mfi.Tag is string s) sha256 = s;
         if (string.IsNullOrEmpty(sha256) || Content?.XamlRoot == null) return;
 
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-
         var dialog = new ContentDialog
         {
-            Title = isTr ? "Varlık Koleksiyonlarını Yönet" : "Manage Asset Collections",
-            CloseButtonText = isTr ? "Kapat" : "Close",
+            Title = L("ManageCollections_Title"),
+            CloseButtonText = L("Close"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot
         };
@@ -2165,7 +2378,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var noCollectionsText = new TextBlock
         {
-            Text = isTr ? "Henüz koleksiyon bulunmuyor." : "No collections exist yet.",
+            Text = L("Collections_Empty"),
             FontSize = 12,
             Visibility = Visibility.Collapsed
         };
@@ -2180,14 +2393,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
         var textBox = new TextBox
         {
-            PlaceholderText = isTr ? "Yeni koleksiyon (1-80 karakter)..." : "New collection (1-80 characters)...",
+            PlaceholderText = L("Collection_NewPlaceholder"),
             MaxLength = 80
         };
         Grid.SetColumn(textBox, 0);
 
         var addBtn = new Button
         {
-            Content = isTr ? "Oluştur" : "Create",
+            Content = L("Create"),
             Margin = new Thickness(8, 0, 0, 0)
         };
         if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accentStyle))
@@ -2235,7 +2448,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
                         IsChecked = memberSet.Contains(c.Id),
                         Tag = c.Id
                     };
-                    cb.Click += async (s, args) =>
+                    cb.Click += async (s, args) => await GuardAsync("ToggleCollectionMembership", async () =>
                     {
                         if (cb.IsChecked == true)
                         {
@@ -2250,7 +2463,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
                         {
                             await LoadCollectionsViewAsync();
                         }
-                    };
+                    });
                     collectionsListPanel.Children.Add(cb);
                 }
             }
@@ -2260,9 +2473,9 @@ public sealed partial class ManagerWindow : Window, IDisposable
         {
             errorText.Visibility = Visibility.Collapsed;
             string text = textBox.Text;
-            if (!LibraryNameNormalizer.TryValidateAndNormalize(text, out string display, out _, out string? err, maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
+            if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(text, out string display, out _, out LibraryNameError nameError, maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
             {
-                errorText.Text = err ?? "Geçersiz ad.";
+                errorText.Text = LocalizedNameError(nameError);
                 errorText.Visibility = Visibility.Visible;
                 return;
             }
@@ -2280,18 +2493,17 @@ public sealed partial class ManagerWindow : Window, IDisposable
             }
             catch (Exception ex)
             {
-                errorText.Text = ex.Message;
-                errorText.Visibility = Visibility.Visible;
+                ShowDialogError(errorText, ex, "AddAssetToCollection");
             }
         }
 
-        addBtn.Click += async (s, args) => await TryCreateCollectionAsync();
+        addBtn.Click += async (s, args) => await GuardAsync("CreateCollection", TryCreateCollectionAsync);
         textBox.KeyDown += async (s, args) =>
         {
             if (args.Key == global::Windows.System.VirtualKey.Enter)
             {
                 args.Handled = true;
-                await TryCreateCollectionAsync();
+                await GuardAsync("CreateCollection", TryCreateCollectionAsync);
             }
         };
 
@@ -2304,20 +2516,21 @@ public sealed partial class ManagerWindow : Window, IDisposable
     private void LoadPresetsView()
     {
         _presetItems.Clear();
-        bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
 
         foreach (var preset in StatusPresetCatalog.All)
         {
-            string title = GetPresetTitle(preset.Id, isTr);
-            string desc = GetPresetDescription(preset.Id, isTr);
-            string applyText = isTr ? "Klasöre Uygula..." : "Apply to Folder...";
+            string title = GetPresetTitle(preset.Id);
+            string desc = GetPresetDescription(preset.Id);
+            string applyText = L("Preset_ApplyToFolder");
 
             BitmapImage? previewBitmap = null;
             try
             {
-                string tempDir = Path.Combine(Path.GetTempPath(), "OrnarePresets");
-                Directory.CreateDirectory(tempDir);
-                string previewPath = Path.Combine(tempDir, $"{preset.Id}_{_selectedPresetTemplateId}.png");
+                // Preset previews are a render cache, not scratch data: keeping them in
+                // %TEMP% left orphaned OrnarePresets folders that no code ever removed.
+                string previewDir = Path.Combine(OrnareConstants.CacheDirectory, "presets");
+                Directory.CreateDirectory(previewDir);
+                string previewPath = Path.Combine(previewDir, $"{preset.Id}_{_selectedPresetTemplateId}.png");
 
                 if (!File.Exists(previewPath))
                 {
@@ -2330,9 +2543,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
                 previewBitmap = LoadBitmapSafe(previewPath);
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback gracefully
+                // A missing preset thumbnail must not hide the preset itself.
+                App.Log($"Preset preview render failed for '{preset.Id}': {ex.Message}");
             }
 
             _presetItems.Add(new PresetItemVm
@@ -2348,27 +2562,27 @@ public sealed partial class ManagerWindow : Window, IDisposable
         SyncItems(PresetsGridView, _presetItems);
     }
 
-    private static string GetPresetTitle(string presetId, bool isTr) => presetId switch
+    private string GetPresetTitle(string presetId) => presetId switch
     {
-        "status.in-progress" => isTr ? "Devam Ediyor" : "In Progress",
-        "status.done" => isTr ? "Tamamlandı" : "Done",
-        "status.archive" => isTr ? "Arşiv" : "Archive",
-        "status.important" => isTr ? "Önemli" : "Important",
-        "priority.high" => isTr ? "Yüksek Öncelik" : "High Priority",
-        "priority.medium" => isTr ? "Orta Öncelik" : "Medium Priority",
-        "priority.low" => isTr ? "Düşük Öncelik" : "Low Priority",
+        "status.in-progress" => L("Preset_Status_InProgress"),
+        "status.done" => L("Preset_Status_Done"),
+        "status.archive" => L("Preset_Status_Archive"),
+        "status.important" => L("Preset_Status_Important"),
+        "priority.high" => L("Preset_Priority_High"),
+        "priority.medium" => L("Preset_Priority_Medium"),
+        "priority.low" => L("Preset_Priority_Low"),
         _ => presetId
     };
 
-    private static string GetPresetDescription(string presetId, bool isTr) => presetId switch
+    private string GetPresetDescription(string presetId) => presetId switch
     {
-        "status.in-progress" => isTr ? "Aktif devam eden işleri takip eder" : "Tracks active, ongoing tasks",
-        "status.done" => isTr ? "Tamamlanan görevleri ve projeleri belirtir" : "Marks completed tasks and projects",
-        "status.archive" => isTr ? "Geçmiş veya referans materyalleri depolar" : "Stores historical or reference material",
-        "status.important" => isTr ? "Acil veya kritik klasörleri vurgular" : "Highlights urgent or critical folders",
-        "priority.high" => isTr ? "Yüksek öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks high urgency items (visual organization only)",
-        "priority.medium" => isTr ? "Normal öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks normal priority items (visual organization only)",
-        "priority.low" => isTr ? "Düşük öncelikli ögeleri belirtir (yalnızca görsel düzen)" : "Marks low urgency items (visual organization only)",
+        "status.in-progress" => L("Preset_Status_InProgress_Desc"),
+        "status.done" => L("Preset_Status_Done_Desc"),
+        "status.archive" => L("Preset_Status_Archive_Desc"),
+        "status.important" => L("Preset_Status_Important_Desc"),
+        "priority.high" => L("Preset_Priority_High_Desc"),
+        "priority.medium" => L("Preset_Priority_Medium_Desc"),
+        "priority.low" => L("Preset_Priority_Low_Desc"),
         _ => string.Empty
     };
 
@@ -2377,7 +2591,13 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (sender is RadioButton selectedRadio && selectedRadio.Tag is string tag)
         {
             _selectedPresetTemplateId = tag;
-            LoadPresetsView();
+
+            // XAML assigns the default IsChecked while the tree is still being built, so the
+            // preset grid may not exist yet. The initial load fills it once the window is up.
+            if (PresetsGridView is not null)
+            {
+                LoadPresetsView();
+            }
         }
     }
 
@@ -2446,10 +2666,8 @@ public sealed partial class ManagerWindow : Window, IDisposable
                     priorBaseline);
 
                 // Copy to library & add asset
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
-                Directory.CreateDirectory(libraryDir);
-                string canonicalIco = Path.Combine(libraryDir, $"{renderResult.Value.ContentHash}.ico");
+                Directory.CreateDirectory(OrnareConstants.LibraryDirectory);
+                string canonicalIco = OrnareConstants.LibraryIcoPath(renderResult.Value.ContentHash);
                 if (!File.Exists(canonicalIco))
                 {
                     File.Copy(tempIco, canonicalIco, overwrite: true);
@@ -2509,19 +2727,65 @@ public sealed partial class ManagerWindow : Window, IDisposable
         {
             if (File.Exists(tempIco))
             {
-                try { File.Delete(tempIco); } catch { }
+                try
+                {
+                    File.Delete(tempIco);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Staging cleanup is best-effort and must not fail the export flow.
+                    App.Log($"Staging ICO cleanup failed: {ex.Message}");
+                }
             }
         }
     }
 
     public void Dispose()
     {
-        _stagingCts?.Cancel();
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        FlushCloudSync();
+
+        // Dispose may run twice and a token source may already be disposed by a
+        // completed operation; cancellation after disposal is a no-op, not a fault.
+        // These are the only intentionally silent catches in this file: the object
+        // being disposed is already unusable, so there is nothing to log and no
+        // recovery action to take.
+        try
+        {
+            _stagingCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed; nothing to cancel.
+        }
         _stagingCts?.Dispose();
-        _searchCts?.Cancel();
+
+        try
+        {
+            _searchCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed; nothing to cancel.
+        }
         _searchCts?.Dispose();
-        _windowCts.Cancel();
+
+        try
+        {
+            _windowCts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed; nothing to cancel.
+        }
         _windowCts.Dispose();
+
+        GC.SuppressFinalize(this);
     }
 }
 
@@ -2532,7 +2796,7 @@ public class StagedFolderItemVm
     public string FolderName { get; set; } = string.Empty;
     public string? ExistingAssignmentId { get; set; }
     public Visibility ExistingBadgeVisibility => ExistingAssignmentId != null ? Visibility.Visible : Visibility.Collapsed;
-    public string ExistingBadgeText { get; set; } = "Already Customized";
+    public string ExistingBadgeText { get; set; } = string.Empty;
     public string PortabilityText { get; set; } = string.Empty;
     public Visibility PortabilityVisibility => !string.IsNullOrEmpty(PortabilityText) ? Visibility.Visible : Visibility.Collapsed;
 }
@@ -2564,13 +2828,17 @@ public class LibraryItemVm
     public bool IsFavorite { get; set; }
     public string FavoriteGlyph { get; set; } = "\uE734";
     public SolidColorBrush? FavoriteBrush { get; set; }
-    public string FavoriteToolTip { get; set; } = "Favorilere Ekle";
-    public string ContextToggleFavoriteText { get; set; } = "Favorilere Ekle";
-    public string ContextOpenExplorerText { get; set; } = "Dosya Gezgini'nde Göster";
-    public string ContextManageTagsText { get; set; } = "Etiketleri Yönet...";
-    public string ContextManageCollectionsText { get; set; } = "Koleksiyonları Yönet...";
-    public string ContextExportIcoText { get; set; } = "Dışa Aktar (.ico)...";
-    public string ContextExportPngText { get; set; } = "Dışa Aktar (.png)";
+    public string FavoriteToolTip { get; set; } = string.Empty;
+    public string ContextToggleFavoriteText { get; set; } = string.Empty;
+    public string ContextOpenExplorerText { get; set; } = string.Empty;
+    public string ContextManageTagsText { get; set; } = string.Empty;
+    public string ContextManageCollectionsText { get; set; } = string.Empty;
+    public string ContextExportIcoText { get; set; } = string.Empty;
+    public string ContextExportPngText { get; set; } = string.Empty;
+    public string ExportPng1024Text { get; set; } = string.Empty;
+    public string ExportPng512Text { get; set; } = string.Empty;
+    public string ExportPng256Text { get; set; } = string.Empty;
+    public string RemoveFromCollectionText { get; set; } = string.Empty;
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]
@@ -2580,6 +2848,10 @@ public class CollectionItemVm
     public string DisplayName { get; set; } = string.Empty;
     public long SortKey { get; set; }
     public string AssetCountText { get; set; } = string.Empty;
+    public string MoveUpText { get; set; } = string.Empty;
+    public string MoveDownText { get; set; } = string.Empty;
+    public string RenameText { get; set; } = string.Empty;
+    public string DeleteText { get; set; } = string.Empty;
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]
@@ -2605,4 +2877,11 @@ public class FolderItemVm
     public string? ExpectedAssetHash { get; set; }
     public string PortabilityLabel { get; set; } = string.Empty;
     public Visibility PortabilityVisibility { get; set; } = Visibility.Collapsed;
+    public string RepairText { get; set; } = string.Empty;
+    public string KeepExternalText { get; set; } = string.Empty;
+    public string ReapplyText { get; set; } = string.Empty;
+    public string RepairAutomationName { get; set; } = string.Empty;
+    public string KeepExternalAutomationName { get; set; } = string.Empty;
+    public string ReapplyAutomationName { get; set; } = string.Empty;
+    public string OpenFolderAutomationName { get; set; } = string.Empty;
 }

@@ -448,14 +448,25 @@
                                 Margin="4,2,0,2" />
                             <GridView
                                 x:Name="FolderTemplateGridView"
+                                ItemsSource="{x:Bind FolderTemplateCards}"
                                 SelectionMode="None"
                                 IsItemClickEnabled="True"
                                 ItemClick="OnFolderTemplateCardClicked"
                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <GridView.ItemContainerStyle>
+                                    <Style TargetType="GridViewItem">
+                                        <Setter Property="MinWidth" Value="88" />
+                                        <Setter Property="MinHeight" Value="76" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="2" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                    </Style>
+                                </GridView.ItemContainerStyle>
                                 <GridView.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <ItemsWrapGrid MaximumRowsOrColumns="3" Orientation="Horizontal" />
+                                        <ItemsWrapGrid MaximumRowsOrColumns="3" Orientation="Horizontal" ItemWidth="92" ItemHeight="80" />
                                     </ItemsPanelTemplate>
                                 </GridView.ItemsPanel>
                                 <GridView.ItemTemplate>
@@ -594,14 +605,26 @@
                             <!-- Virtualized Icon Grid -->
                             <GridView
                                 x:Name="IconGridView"
-                                Height="160"
+                                Height="156"
+                                Width="274"
+                                HorizontalAlignment="Center"
                                 SelectionMode="None"
                                 IsItemClickEnabled="True"
                                 ItemClick="OnIconGridItemClick"
                                 AutomationProperties.Name="Curated vector icons grid">
+                                <GridView.ItemContainerStyle>
+                                    <Style TargetType="GridViewItem">
+                                        <Setter Property="MinWidth" Value="34" />
+                                        <Setter Property="MinHeight" Value="34" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="1" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                    </Style>
+                                </GridView.ItemContainerStyle>
                                 <GridView.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" />
+                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" ItemWidth="38" ItemHeight="38" />
                                     </ItemsPanelTemplate>
                                 </GridView.ItemsPanel>
                                 <GridView.ItemTemplate>
@@ -697,14 +720,26 @@
                             <!-- Virtualized Emoji Grid -->
                             <GridView
                                 x:Name="EmojiGridView"
-                                Height="160"
+                                Height="156"
+                                Width="274"
+                                HorizontalAlignment="Center"
                                 SelectionMode="None"
                                 IsItemClickEnabled="True"
                                 ItemClick="OnEmojiGridItemClick"
                                 AutomationProperties.Name="Curated emoji grid">
+                                <GridView.ItemContainerStyle>
+                                    <Style TargetType="GridViewItem">
+                                        <Setter Property="MinWidth" Value="34" />
+                                        <Setter Property="MinHeight" Value="34" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="1" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                    </Style>
+                                </GridView.ItemContainerStyle>
                                 <GridView.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" />
+                                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="7" ItemWidth="38" ItemHeight="38" />
                                     </ItemsPanelTemplate>
                                 </GridView.ItemsPanel>
                                 <GridView.ItemTemplate>
@@ -806,6 +841,7 @@
                                 <!-- Preset Color Swatches -->
                                 <StackPanel Spacing="4">
                                     <TextBlock
+                                        x:Name="PaletteTitleText"
                                         Text="Palette"
                                         FontSize="11"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

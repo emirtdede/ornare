@@ -423,8 +423,10 @@ public static class AtomicExportWriter
                 File.Delete(path);
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Rollback of a partially written export must not mask the original failure.
+            System.Diagnostics.Trace.TraceWarning($"Atomic export rollback failed for '{path}': {ex.Message}");
         }
     }
 }

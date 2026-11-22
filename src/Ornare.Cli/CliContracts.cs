@@ -48,6 +48,15 @@ public sealed record ApplyData
     public string CanonicalIcoPath { get; init; } = string.Empty;
     public string? RenderKey { get; init; }
     public string? ContentHash { get; init; }
+
+    /// <summary>
+    /// Wall-clock duration of the apply work itself (input validation through durable
+    /// state), measured inside the process. Added additively in schema 1 so machine
+    /// consumers can measure the documented PERFORMANCE.md apply latency without
+    /// including one-off process start and native library load. Optional: absent on
+    /// older payloads.
+    /// </summary>
+    public double? DurationMs { get; init; }
 }
 
 public sealed record ApplyLastData

@@ -19,6 +19,9 @@
     <Company>Vellium</Company>
     <Authors>Vellium</Authors>
     <Product>Ornare</Product>
+    <!-- Single source for the shipped version. The package manifest, the setup resource and
+         the CI gate all compare against this value, so a release bump is one edit here. -->
+    <Version>1.0.0</Version>
     <Copyright>© 2026 Vellium. All rights reserved.</Copyright>
     <PackageProjectUrl>https://vellium.dev</PackageProjectUrl>
   </PropertyGroup>

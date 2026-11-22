@@ -1,4 +1,4 @@
-# Ornare — One-Time Development Machine Setup: Trust Dev Certificate
+# Ornare - One-Time Development Machine Setup: Trust Dev Certificate
 # Trusts the local development public certificate in LocalMachine\TrustedPeople for MSIX deployment testing.
 # This script does NOT alter security policies, disable Defender, or bypass any OS protections.
 

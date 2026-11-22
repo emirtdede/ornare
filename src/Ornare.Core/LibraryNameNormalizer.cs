@@ -4,6 +4,15 @@ using System.Text;
 
 namespace Ornare.Core;
 
+public enum LibraryNameError
+{
+    None = 0,
+    Empty = 1,
+    TooShort = 2,
+    TooLong = 3,
+    ControlCharacter = 4,
+}
+
 public static class LibraryNameNormalizer
 {
     public const int MaxScalarsPerTag = 40;
@@ -19,6 +28,11 @@ public static class LibraryNameNormalizer
     /// Preserves user display casing in <paramref name="displayName"/> while producing deterministic
     /// NFKC-invariant normalized string in <paramref name="normalizedName"/>.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="errorMessage"/> is diagnostic English copy for logs only. User-facing text must be
+    /// produced from <see cref="TryValidateAndNormalizeDetailed(string?, out string, out string, out LibraryNameError, int)"/>
+    /// so every first-class locale is honoured.
+    /// </remarks>
     public static bool TryValidateAndNormalize(
         string? input,
         out string displayName,
@@ -26,13 +40,44 @@ public static class LibraryNameNormalizer
         out string? errorMessage,
         int maxScalars = MaxScalarsPerTag)
     {
+        bool result = TryValidateAndNormalizeDetailed(
+            input,
+            out displayName,
+            out normalizedName,
+            out LibraryNameError error,
+            maxScalars);
+
+        errorMessage = error switch
+        {
+            LibraryNameError.Empty => "Name cannot be empty or only whitespace.",
+            LibraryNameError.TooShort => $"Name must be at least {MinScalarsPerName} Unicode scalar values.",
+            LibraryNameError.TooLong => $"Name must be at most {maxScalars} Unicode scalar values.",
+            LibraryNameError.ControlCharacter => "Name cannot contain Unicode control characters.",
+            _ => null,
+        };
+
+        return result;
+    }
+
+    /// <summary>
+    /// Machine-readable overload used by the UI layer: the caller maps
+    /// <see cref="LibraryNameError"/> to a localized resource instead of showing
+    /// developer-facing English text to the user.
+    /// </summary>
+    public static bool TryValidateAndNormalizeDetailed(
+        string? input,
+        out string displayName,
+        out string normalizedName,
+        out LibraryNameError error,
+        int maxScalars = MaxScalarsPerTag)
+    {
         displayName = string.Empty;
         normalizedName = string.Empty;
-        errorMessage = null;
+        error = LibraryNameError.None;
 
         if (string.IsNullOrWhiteSpace(input))
         {
-            errorMessage = "Name cannot be empty or only whitespace.";
+            error = LibraryNameError.Empty;
             return false;
         }
 
@@ -40,7 +85,7 @@ public static class LibraryNameNormalizer
         string trimmed = TrimUnicodeWhitespace(input);
         if (string.IsNullOrEmpty(trimmed))
         {
-            errorMessage = "Name cannot be empty or only whitespace.";
+            error = LibraryNameError.Empty;
             return false;
         }
 
@@ -50,15 +95,21 @@ public static class LibraryNameNormalizer
         {
             if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Control)
             {
-                errorMessage = "Name cannot contain Unicode control characters.";
+                error = LibraryNameError.ControlCharacter;
                 return false;
             }
             scalarCount++;
         }
 
-        if (scalarCount < MinScalarsPerName || scalarCount > maxScalars)
+        if (scalarCount < MinScalarsPerName)
         {
-            errorMessage = $"Name must be between {MinScalarsPerName} and {maxScalars} Unicode scalar values (got {scalarCount}).";
+            error = LibraryNameError.TooShort;
+            return false;
+        }
+
+        if (scalarCount > maxScalars)
+        {
+            error = LibraryNameError.TooLong;
             return false;
         }
 
@@ -78,7 +129,7 @@ public static class LibraryNameNormalizer
 
         if (string.IsNullOrEmpty(finalTrimmed))
         {
-            errorMessage = "Normalized tag name cannot be empty.";
+            error = LibraryNameError.Empty;
             return false;
         }
 
@@ -86,7 +137,7 @@ public static class LibraryNameNormalizer
         {
             if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Control)
             {
-                errorMessage = "Normalized tag name cannot contain Unicode control characters.";
+                error = LibraryNameError.ControlCharacter;
                 return false;
             }
         }

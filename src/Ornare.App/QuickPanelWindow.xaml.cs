@@ -64,6 +64,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private DispatcherTimer? _autoCloseTimer;
     private bool _isPointerInside;
     private bool _isProcessing;
+    private bool _isCommitting;
+    private string? _pendingTargetPath;
     private ProcessingStage _currentStage = ProcessingStage.Idle;
     private string _currentLanguage = AppResources.NormalizeLocale(null);
     private Guid _stagedOperationId;
@@ -77,14 +79,9 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private string _stagedBackgroundColorHex = "#FFFFFF";
     private CancellationTokenSource? _previewDebounceCts;
     private string? _tempPreviewPngPath;
+    private readonly List<string> _tempThumbnailPngPaths = new();
 
-    private string? _snapshotStagedTempIcoPath;
-    private NormalizedImageResult? _snapshotStagedProcessResult;
-    private Microsoft.UI.Xaml.Media.ImageSource? _snapshotPreviewImageSource;
-    private ProcessingStage _snapshotStage;
     private string? _snapshotFolderColorHex;
-    private string _selectedTemplateId = FolderTemplateCatalog.DefaultTemplateId;
-    private int _selectedTemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion;
 
     #region Win32 P/Invoke & Structures for Native Monitor Positioning
 
@@ -165,6 +162,43 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         Closed += (_, _) => Dispose();
     }
 
+    /// <summary>
+    /// Runs an <c>async void</c> handler body so an exception cannot escape to the
+    /// dispatcher and terminate the process. Cancellation is expected and ignored;
+    /// genuine failures are recorded locally and surfaced through the error state.
+    /// </summary>
+    private async Task GuardAsync(string operation, Func<Task> body)
+    {
+        try
+        {
+            await body();
+        }
+        catch (OperationCanceledException)
+        {
+            // User-initiated cancellation is not a failure.
+        }
+        catch (Exception ex)
+        {
+            App.Log($"{operation} failed: {ex}");
+            ShowCategorizedError(QuickPanelErrorType.Generic);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a theme brush without throwing when a key is missing (for example under
+    /// high contrast or a future theme dictionary change). A missing key must degrade to
+    /// a visible fallback, never crash a visual-state update.
+    /// </summary>
+    private static Brush GetThemeBrush(string key, global::Windows.UI.Color fallback)
+    {
+        if (Application.Current.Resources.TryGetValue(key, out object? value) && value is Brush brush)
+        {
+            return brush;
+        }
+
+        return new SolidColorBrush(fallback);
+    }
+
     private void StripMinimizeMaximizeButtons()
     {
         try
@@ -181,8 +215,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // Cosmetic window-style adjustments must never prevent the panel opening;
+            // the failure is still recorded so a broken HWND is diagnosable.
+            App.Log($"StripMinimizeMaximizeButtons failed: {ex.Message}");
         }
     }
 
@@ -348,10 +385,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
 
             args.Handled = true;
-            if (!_isProcessing && _currentStage == ProcessingStage.Idle)
+            await GuardAsync("QuickPanelPasteAccelerator", async () =>
             {
-                await HandlePasteAsync();
-            }
+                if (!_isProcessing && _currentStage == ProcessingStage.Idle)
+                {
+                    await HandlePasteAsync();
+                }
+            });
         };
         root.KeyboardAccelerators.Add(ctrlV);
 
@@ -369,10 +409,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
 
             args.Handled = true;
-            if (!_isProcessing)
+            await GuardAsync("QuickPanelUndoAccelerator", async () =>
             {
-                await HandleUndoAcceleratorAsync();
-            }
+                if (!_isProcessing)
+                {
+                    await HandleUndoAcceleratorAsync();
+                }
+            });
         };
         root.KeyboardAccelerators.Add(ctrlZ);
 
@@ -699,6 +742,35 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     public async Task SetTargetFolderAsync(string folderPath)
     {
+        // A new shell activation can arrive while a commit is in flight. Swapping the
+        // target then would make the commit's filesystem mutation and its storage writes
+        // address different folders, so the request is coalesced into one pending target
+        // and applied after the commit finishes (INV-CON-002).
+        if (_isCommitting)
+        {
+            _pendingTargetPath = folderPath;
+            return;
+        }
+
+        await ApplyTargetFolderAsync(folderPath);
+    }
+
+    private async Task ApplyTargetFolderAsync(string folderPath)
+    {
+        // A new target invalidates every artefact bound to the previous folder.
+        // Without this the window (reused across activations by App.OnLaunched)
+        // would carry the previous folder's ownership epoch and staged ICO into
+        // the new target, cross-linking assignments and history rows.
+        if (!string.Equals(_currentFolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
+        {
+            CleanupStagedFiles();
+            _currentBaseline = null;
+            _currentOwnershipEpochId = Guid.NewGuid();
+            _stagedImageBytes = null;
+            _stagedProcessResult = null;
+            _stagedCustomColorHex = null;
+        }
+
         _currentFolderPath = folderPath;
         FolderNameText.Text = Path.GetFileName(folderPath.TrimEnd('\\', '/'));
         FolderPathText.Text = folderPath;
@@ -706,12 +778,21 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         OperationResult validation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!validation.IsSuccess)
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, validation.ErrorMessage ?? "Folder cannot be customized.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorFolderNotCustomizable", _currentLanguage));
             return;
         }
 
         // Query storage for existing baseline
-        _currentBaseline = await _storageService.GetLatestBaselineAsync(folderPath);
+        try
+        {
+            _currentBaseline = await _storageService.GetLatestBaselineAsync(folderPath);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"SetTargetFolderAsync: baseline lookup failed: {ex.Message}");
+            _currentBaseline = null;
+        }
+
         FolderCustomizationState state = _folderCustomizer.GetFolderState(folderPath, _currentBaseline);
 
         string? savedLang = await _storageService.GetSettingAsync("App.Language");
@@ -739,21 +820,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             StatusInfoText.Text = AppResources.GetString("Status_ReadyToApply", _currentLanguage);
         }
 
-        // Initialize staging model with default Mode B (Classic v2, #0078D4)
+        // Initialize staging model with default Mode B (Classic v2, #E8A317 / Windows Folder Amber)
         _stagingModel.Initialize(
             PersonalizationMode.FolderTemplate,
             templateState: new FolderTemplateStagingState
             {
                 TemplateId = FolderTemplateCatalog.DefaultTemplateId,
                 TemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion,
-                FolderColorHex = "#0078D4",
+                FolderColorHex = "#E8A317",
                 Emblem = FolderEmblemRecipe.None
             });
-        _selectedTemplateId = FolderTemplateCatalog.DefaultTemplateId;
-        _selectedTemplateVersion = FolderTemplateCatalog.DefaultTemplateVersion;
-
-        // Initialize the 9 template cards
-        InitializeTemplateCards();
+        // Initialize the 9 template cards        InitializeTemplateCards();
 
         // Render initial live preview
         await RefreshLivePreviewAsync();
@@ -768,14 +845,14 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
         AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
 
-        ToolTipService.SetToolTip(FolderActionButton, AppResources.GetString("Action_Folder", _currentLanguage));
-        AutomationProperties.SetName(FolderActionButton, AppResources.GetString("Action_Folder", _currentLanguage));
+        ToolTipService.SetToolTip(FolderActionButton, $"{AppResources.GetString("Template_Title", _currentLanguage)} (Alt+1)");
+        AutomationProperties.SetName(FolderActionButton, AppResources.GetString("Template_Title", _currentLanguage));
 
-        ToolTipService.SetToolTip(IconActionButton, AppResources.GetString("Action_Icon", _currentLanguage));
-        AutomationProperties.SetName(IconActionButton, AppResources.GetString("Action_Icon", _currentLanguage));
+        ToolTipService.SetToolTip(IconActionButton, $"{AppResources.GetString("Icon_Title", _currentLanguage)} (Alt+2)");
+        AutomationProperties.SetName(IconActionButton, AppResources.GetString("Icon_Title", _currentLanguage));
 
-        ToolTipService.SetToolTip(EmojiActionButton, AppResources.GetString("Action_Emoji", _currentLanguage));
-        AutomationProperties.SetName(EmojiActionButton, AppResources.GetString("Action_Emoji", _currentLanguage));
+        ToolTipService.SetToolTip(EmojiActionButton, $"{AppResources.GetString("Emoji_Title", _currentLanguage)} (Alt+3)");
+        AutomationProperties.SetName(EmojiActionButton, AppResources.GetString("Emoji_Title", _currentLanguage));
 
         ToolTipService.SetToolTip(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
         AutomationProperties.SetName(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
@@ -787,7 +864,61 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         AutomationProperties.SetName(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
 
         ApplyConfirmButton.Content = AppResources.GetString("Action_Apply", _currentLanguage);
-        ToolTipService.SetToolTip(ApplyConfirmButton, "Apply icon (Enter, Ctrl+Enter)");
+        ToolTipService.SetToolTip(ApplyConfirmButton, AppResources.GetString("Apply_Icon_ToolTip", _currentLanguage));
+        AutomationProperties.SetName(ApplyConfirmButton, AppResources.GetString("Action_Apply", _currentLanguage));
+
+        // Accessibility names are user-facing copy too: screen readers announce them
+        // verbatim, so they must follow the selected locale like any visible label.
+        AutomationProperties.SetName(DropAreaBorder, AppResources.GetString("A11y_DropArea", _currentLanguage));
+        AutomationProperties.SetName(PaddingSlider, AppResources.GetString("A11y_PaddingSlider", _currentLanguage));
+        AutomationProperties.SetName(IconSearchTextBox, AppResources.GetString("A11y_SearchVectorIcons", _currentLanguage));
+        AutomationProperties.SetName(IconCategoryComboBox, AppResources.GetString("A11y_FilterCategory", _currentLanguage));
+        AutomationProperties.SetName(IconGridView, AppResources.GetString("A11y_VectorGrid", _currentLanguage));
+        AutomationProperties.SetName(EmojiSearchTextBox, AppResources.GetString("A11y_SearchEmoji", _currentLanguage));
+        AutomationProperties.SetName(EmojiCategoryComboBox, AppResources.GetString("A11y_FilterEmojiCategory", _currentLanguage));
+        AutomationProperties.SetName(EmojiGridView, AppResources.GetString("A11y_EmojiGrid", _currentLanguage));
+        AutomationProperties.SetName(ImageActionButton, AppResources.GetString("Action_CustomImage", _currentLanguage));
+        AutomationProperties.SetName(ColorActionButton, AppResources.GetString("Action_FolderColor", _currentLanguage));
+        if (EmblemColorWhiteButton != null) AutomationProperties.SetName(EmblemColorWhiteButton, AppResources.GetString("A11y_EmblemWhite", _currentLanguage));
+        if (EmblemColorBlackButton != null) AutomationProperties.SetName(EmblemColorBlackButton, AppResources.GetString("A11y_EmblemBlack", _currentLanguage));
+        if (EmblemColorAutoButton != null)
+        {
+            EmblemColorAutoButton.Content = AppResources.GetString("Color_Auto", _currentLanguage);
+            AutomationProperties.SetName(EmblemColorAutoButton, AppResources.GetString("EmblemColorAutoAutomation", _currentLanguage));
+            ToolTipService.SetToolTip(EmblemColorAutoButton, AppResources.GetString("Tip_AutoContrast", _currentLanguage));
+        }
+        if (EmblemColorWhiteButton != null) ToolTipService.SetToolTip(EmblemColorWhiteButton, AppResources.GetString("Tip_White", _currentLanguage));
+        if (EmblemColorBlackButton != null) ToolTipService.SetToolTip(EmblemColorBlackButton, AppResources.GetString("Tip_Black", _currentLanguage));
+        ToolTipService.SetToolTip(DropAreaBorder, AppResources.GetString("Tip_DropImage", _currentLanguage));
+        ToolTipService.SetToolTip(CloseSuccessButton, AppResources.GetString("Tip_CloseEsc", _currentLanguage));
+        ToolTipService.SetToolTip(UndoButton, AppResources.GetString("Tip_Undo", _currentLanguage));
+        if (RemoveEmblemButton != null) ToolTipService.SetToolTip(RemoveEmblemButton, AppResources.GetString("Tip_RemoveEmblem", _currentLanguage));
+        if (RemoveEmojiEmblemButton != null)
+        {
+            RemoveEmojiEmblemButton.Content = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
+            ToolTipService.SetToolTip(RemoveEmojiEmblemButton, AppResources.GetString("Tip_RemoveEmblem", _currentLanguage));
+        }
+
+        if (PreviewTitleText != null) PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
+        if (PreviewSubtitleText != null) PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
+        if (CancelPreviewButton != null)
+        {
+            CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
+            ToolTipService.SetToolTip(CancelPreviewButton, AppResources.GetString("CancelPreviewToolTip", _currentLanguage));
+            AutomationProperties.SetName(CancelPreviewButton, AppResources.GetString("Cancel", _currentLanguage));
+        }
+        if (MoreActionButton != null)
+        {
+            ToolTipService.SetToolTip(MoreActionButton, AppResources.GetString("More_Options_ToolTip", _currentLanguage));
+            AutomationProperties.SetName(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
+        }
+        if (TemplateTitleText != null) TemplateTitleText.Text = AppResources.GetString("Template_Title", _currentLanguage);
+        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = AppResources.GetString("Template_Classic", _currentLanguage);
+        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = AppResources.GetString("Template_Soft", _currentLanguage);
+        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = AppResources.GetString("Template_Flat", _currentLanguage);
+        if (PaletteTitleText != null) PaletteTitleText.Text = AppResources.GetString("ColorPicker_Palette", _currentLanguage);
+        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
+        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
 
         if (FolderFlyoutTitle != null)
         {
@@ -809,6 +940,18 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         if (IconSearchTextBox != null)
         {
             IconSearchTextBox.PlaceholderText = AppResources.GetString("Placeholder_SearchIcons", _currentLanguage);
+        }
+        if (IconFlyoutTitleText != null)
+        {
+            IconFlyoutTitleText.Text = AppResources.GetString("Icon_Title", _currentLanguage);
+        }
+        if (EmojiFlyoutTitleText != null)
+        {
+            EmojiFlyoutTitleText.Text = AppResources.GetString("Emoji_Title", _currentLanguage);
+        }
+        if (EmojiSearchTextBox != null)
+        {
+            EmojiSearchTextBox.PlaceholderText = AppResources.GetString("Placeholder_SearchEmoji", _currentLanguage);
         }
         if (MoreOpenManagerMenuItem != null)
         {
@@ -855,6 +998,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             FolderTemplateCards.Add(card);
         }
 
+        if (FolderTemplateGridView != null && FolderTemplateGridView.ItemsSource == null)
+        {
+            FolderTemplateGridView.ItemsSource = FolderTemplateCards;
+        }
+
         _ = RenderTemplateCardThumbnailsAsync();
     }
 
@@ -862,8 +1010,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         if (card.IsSelected)
         {
-            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+            card.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
+            card.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else
         {
@@ -963,29 +1111,42 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnFolderTemplateCardClicked(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is FolderTemplateCardViewModel card)
+        await GuardAsync(nameof(OnFolderTemplateCardClicked), async () =>
         {
-            _stagingModel.StageFolderTemplate(card.Id, card.Version);
-            _selectedTemplateId = card.Id;
-            _selectedTemplateVersion = card.Version;
-
-            foreach (var item in FolderTemplateCards)
+            if (e.ClickedItem is FolderTemplateCardViewModel card)
             {
-                item.IsSelected = string.Equals(item.Id, card.Id, StringComparison.OrdinalIgnoreCase);
-                UpdateCardVisualState(item);
-            }
+                _stagingModel.StageFolderTemplate(card.Id, card.Version);
 
-            await RefreshLivePreviewAsync();
-        }
+                foreach (var item in FolderTemplateCards)
+                {
+                    item.IsSelected = string.Equals(item.Id, card.Id, StringComparison.OrdinalIgnoreCase);
+                    UpdateCardVisualState(item);
+                }
+
+                FolderStyleFlyout?.Hide();
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private async void OnFolderStyleFlyoutOpening(object? sender, object? e)
     {
-        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        await GuardAsync(nameof(OnFolderStyleFlyoutOpening), async () =>
         {
-            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
-            await RefreshLivePreviewAsync();
-        }
+            if (FolderTemplateCards.Count == 0)
+            {
+                InitializeTemplateCards();
+            }
+            if (FolderTemplateGridView != null && FolderTemplateGridView.ItemsSource == null)
+            {
+                FolderTemplateGridView.ItemsSource = FolderTemplateCards;
+            }
+            if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+            {
+                _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private void OnImageActionButtonClicked(object sender, RoutedEventArgs e)
@@ -995,13 +1156,16 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnIconFlyoutOpening(object? sender, object? e)
     {
-        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        await GuardAsync(nameof(OnIconFlyoutOpening), async () =>
         {
-            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
-            await RefreshLivePreviewAsync();
-        }
-        EnsureEmblemCatalogInitialized();
-        SyncEmblemSelectionState();
+            EnsureEmblemCatalogInitialized();
+            SyncEmblemSelectionState();
+            if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+            {
+                _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private void EnsureEmblemCatalogInitialized()
@@ -1052,7 +1216,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            App.Log($"Failed to initialize vector emblem catalog: {ex.Message}");
+            App.Log($"Failed to initialize vector emblem catalog: {ex}");
         }
     }
 
@@ -1082,8 +1246,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         if (card.IsSelected)
         {
-            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+            card.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
+            card.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else
         {
@@ -1133,31 +1297,43 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnIconGridItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is VectorEmblemItemViewModel card)
+        await GuardAsync(nameof(OnIconGridItemClick), async () =>
         {
-            _stagingModel.StageVectorEmblem(card.Id, _selectedEmblemColorHex);
-            SyncEmblemSelectionState();
-            await RefreshLivePreviewAsync();
-        }
+            if (e.ClickedItem is VectorEmblemItemViewModel card)
+            {
+                _stagingModel.StageVectorEmblem(card.Id, _selectedEmblemColorHex);
+                SyncEmblemSelectionState();
+                IconFlyout?.Hide();
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private async void OnRemoveEmblemClicked(object sender, RoutedEventArgs e)
     {
-        _stagingModel.RemoveEmblem();
-        SyncEmblemSelectionState();
-        SyncEmojiSelectionState();
-        await RefreshLivePreviewAsync();
+        await GuardAsync(nameof(OnRemoveEmblemClicked), async () =>
+        {
+            _stagingModel.RemoveEmblem();
+            SyncEmblemSelectionState();
+            SyncEmojiSelectionState();
+            IconFlyout?.Hide();
+            EmojiFlyout?.Hide();
+            await RefreshLivePreviewAsync();
+        });
     }
 
     private async void OnEmojiFlyoutOpening(object? sender, object? e)
     {
-        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        await GuardAsync(nameof(OnEmojiFlyoutOpening), async () =>
         {
-            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
-            await RefreshLivePreviewAsync();
-        }
-        EnsureEmojiCatalogInitialized();
-        SyncEmojiSelectionState();
+            EnsureEmojiCatalogInitialized();
+            SyncEmojiSelectionState();
+            if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+            {
+                _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private void EnsureEmojiCatalogInitialized()
@@ -1206,7 +1382,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            App.Log($"Failed to initialize emoji catalog: {ex.Message}");
+            App.Log($"Failed to initialize emoji catalog: {ex}");
         }
     }
 
@@ -1234,8 +1410,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     {
         if (card.IsSelected)
         {
-            card.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-            card.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+            card.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
+            card.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else
         {
@@ -1285,43 +1461,56 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnEmojiGridItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is EmojiItemViewModel card)
+        await GuardAsync(nameof(OnEmojiGridItemClick), async () =>
         {
-            _stagingModel.StageEmojiEmblem(card.Grapheme);
-            SyncEmojiSelectionState();
-            SyncEmblemSelectionState();
-            await RefreshLivePreviewAsync();
-        }
+            if (e.ClickedItem is EmojiItemViewModel card)
+            {
+                _stagingModel.StageEmojiEmblem(card.Grapheme);
+                SyncEmojiSelectionState();
+                SyncEmblemSelectionState();
+                EmojiFlyout?.Hide();
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private async void OnEmblemColorAutoClicked(object sender, RoutedEventArgs e)
     {
-        _selectedEmblemColorHex = "Auto";
-        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        await GuardAsync(nameof(OnEmblemColorAutoClicked), async () =>
         {
-            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
-            await RefreshLivePreviewAsync();
-        }
+            _selectedEmblemColorHex = "Auto";
+            if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+            {
+                _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private async void OnEmblemColorWhiteClicked(object sender, RoutedEventArgs e)
     {
-        _selectedEmblemColorHex = "#FFFFFF";
-        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        await GuardAsync(nameof(OnEmblemColorWhiteClicked), async () =>
         {
-            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
-            await RefreshLivePreviewAsync();
-        }
+            _selectedEmblemColorHex = "#FFFFFF";
+            if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+            {
+                _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private async void OnEmblemColorBlackClicked(object sender, RoutedEventArgs e)
     {
-        _selectedEmblemColorHex = "#000000";
-        if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+        await GuardAsync(nameof(OnEmblemColorBlackClicked), async () =>
         {
-            _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
-            await RefreshLivePreviewAsync();
-        }
+            _selectedEmblemColorHex = "#000000";
+            if (_stagingModel.StagedTemplateState.Emblem.Kind == EmblemKind.VectorIcon)
+            {
+                _stagingModel.StageVectorEmblem(_stagingModel.StagedTemplateState.Emblem.ContentId, _selectedEmblemColorHex);
+                await RefreshLivePreviewAsync();
+            }
+        });
     }
 
     private void OnDropAreaDragOver(object sender, DragEventArgs e)
@@ -1336,8 +1525,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
         {
             e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            DropAreaBorder.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-            DropAreaBorder.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+            DropAreaBorder.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
+            DropAreaBorder.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else
         {
@@ -1361,13 +1550,23 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             return;
         }
 
-        if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        try
         {
-            var items = await e.DataView.GetStorageItemsAsync();
-            if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
+            if (e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
-                await StageImageAsync(file.Path);
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
+                {
+                    await StageImageAsync(file.Path);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            // Drag payloads from elevated/virtual sources (Outlook, ZIP-in-Explorer,
+            // revoked drag sessions) throw COMException or UnauthorizedAccessException.
+            App.Log($"OnDropAreaDrop failed: {ex.Message}");
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed);
         }
     }
 
@@ -1409,24 +1608,32 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             return;
         }
 
-        var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
-        IntPtr hwnd = WindowNative.GetWindowHandle(this);
-        InitializeWithWindow.Initialize(picker, hwnd);
-
-        picker.ViewMode = global::Windows.Storage.Pickers.PickerViewMode.Thumbnail;
-        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
-        picker.FileTypeFilter.Add(".png");
-        picker.FileTypeFilter.Add(".jpg");
-        picker.FileTypeFilter.Add(".jpeg");
-        picker.FileTypeFilter.Add(".webp");
-        picker.FileTypeFilter.Add(".bmp");
-        picker.FileTypeFilter.Add(".ico");
-        picker.FileTypeFilter.Add(".svg");
-
-        var file = await picker.PickSingleFileAsync();
-        if (file != null)
+        try
         {
-            await StageImageAsync(file.Path);
+            var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+
+            picker.ViewMode = global::Windows.Storage.Pickers.PickerViewMode.Thumbnail;
+            picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".webp");
+            picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".ico");
+            picker.FileTypeFilter.Add(".svg");
+
+            var file = await picker.PickSingleFileAsync();
+            if (file != null)
+            {
+                await StageImageAsync(file.Path);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The picker throws when the window is closing or COM apartment is torn down.
+            App.Log($"OpenFilePickerAsync failed: {ex.Message}");
         }
     }
 
@@ -1437,29 +1644,39 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             return;
         }
 
-        var package = global::Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
-        if (package == null)
+        try
         {
-            return;
-        }
-
-        if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-        {
-            var items = await package.GetStorageItemsAsync();
-            if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
+            var package = global::Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            if (package == null)
             {
-                await StageImageAsync(file.Path);
+                return;
+            }
+
+            if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await package.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is global::Windows.Storage.StorageFile file)
+                {
+                    await StageImageAsync(file.Path);
+                }
+            }
+            else if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
+            {
+                var streamRef = await package.GetBitmapAsync();
+                using var stream = await streamRef.OpenReadAsync();
+                using var netStream = stream.AsStreamForRead();
+                using var ms = new MemoryStream();
+                await netStream.CopyToAsync(ms);
+
+                await StageImageBytesAsync(ms.ToArray());
             }
         }
-        else if (package.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
+        catch (Exception ex)
         {
-            var streamRef = await package.GetBitmapAsync();
-            using var stream = await streamRef.OpenReadAsync();
-            using var netStream = stream.AsStreamForRead();
-            using var ms = new MemoryStream();
-            await netStream.CopyToAsync(ms);
-
-            await StageImageBytesAsync(ms.ToArray());
+            // A clipboard held by another process (RDP, Excel, password managers)
+            // raises COMException on GetContent/GetStorageItemsAsync.
+            App.Log($"HandlePasteAsync failed: {ex.Message}");
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed);
         }
     }
 
@@ -1477,7 +1694,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, null, ex.Message);
             return;
         }
 
@@ -1493,13 +1710,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (string.IsNullOrWhiteSpace(_currentFolderPath))
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorNoFolderSelected", _currentLanguage));
             return;
         }
 
         if (imageBytes == null || imageBytes.Length == 0)
         {
-            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, "Image data was empty.");
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, AppResources.GetString("ErrorEmptyImage", _currentLanguage));
             return;
         }
 
@@ -1509,13 +1726,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             App.Log($"StageImageBytesAsync started for '{_currentFolderPath}', bytes={imageBytes.Length}");
 
             await SetProcessingStageAsync(ProcessingStage.PreparingImage);
-            await Task.Delay(40);
 
             _stagedOperationId = Guid.NewGuid();
             _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
 
             await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
-            await Task.Delay(40);
 
             var tempPath = _stagedTempIcoPath;
             var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath));
@@ -1525,11 +1740,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 CleanupStagedFiles();
                 if (processResult.ErrorCode == ErrorCode.UnsupportedImageFormat || processResult.ErrorCode == ErrorCode.ImageCorrupted)
                 {
-                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage, processResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage, null, processResult.ErrorMessage);
                 }
                 else
                 {
-                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, processResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, processResult.ErrorMessage);
                 }
                 return;
             }
@@ -1566,7 +1781,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             App.Log($"StageImageBytesAsync unhandled exception: {ex}");
             CleanupStagedFiles();
-            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, ex.Message);
         }
     }
 
@@ -1619,7 +1834,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 };
                 ToolTipService.SetToolTip(button, displayName);
                 AutomationProperties.SetName(button, displayName);
-                button.Click += async (s, args) =>
+                button.Click += async (s, args) => await GuardAsync("SelectFolderColor", async () =>
                 {
                     if (s is Button btn && btn.Tag is string hex)
                     {
@@ -1627,7 +1842,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                         await RefreshLivePreviewAsync();
                         _ = RenderTemplateCardThumbnailsAsync();
                     }
-                };
+                });
                 ColorPaletteContainer.Children.Add(button);
             }
 
@@ -1647,7 +1862,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 };
                 ToolTipService.SetToolTip(flyoutBtn, displayName);
                 AutomationProperties.SetName(flyoutBtn, displayName);
-                flyoutBtn.Click += async (s, args) =>
+                flyoutBtn.Click += async (s, args) => await GuardAsync("SelectCustomFolderColor", async () =>
                 {
                     if (s is Button btn && btn.Tag is string hex)
                     {
@@ -1656,7 +1871,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                         _ = RenderTemplateCardThumbnailsAsync();
                         CustomColorFlyout?.Hide();
                     }
-                };
+                });
                 FlyoutColorPaletteContainer.Children.Add(flyoutBtn);
             }
         }
@@ -1681,49 +1896,48 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnCustomColorFlyoutOpened(object sender, object e)
     {
-        if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
+        await GuardAsync(nameof(OnCustomColorFlyoutOpened), async () =>
         {
-            _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
-            await RefreshLivePreviewAsync();
-        }
-
-        _snapshotFolderColorHex = _stagingModel.StagedTemplateState.FolderColorHex;
-        _snapshotStagedTempIcoPath = _stagedTempIcoPath;
-        _snapshotStagedProcessResult = _stagedProcessResult;
-        _snapshotPreviewImageSource = PreviewIconImage.Source;
-        _snapshotStage = _currentStage;
-
-        if (CustomColorTitleText != null) CustomColorTitleText.Text = AppResources.GetString("ColorPicker_CustomColor", _currentLanguage);
-        if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-        if (RecentColorsTitle != null) RecentColorsTitle.Text = AppResources.GetString("ColorPicker_RecentColors", _currentLanguage);
-        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
-        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
-
-        if (CustomColorPicker != null)
-        {
-            if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
+            if (_stagingModel.ActiveMode != PersonalizationMode.FolderTemplate)
             {
-                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
-            }
-            else
-            {
-                CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+                _stagingModel.SwitchMode(PersonalizationMode.FolderTemplate);
+                await RefreshLivePreviewAsync();
             }
 
-            var currentColor = CustomColorPicker.Color;
-            string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
-            var initialPreview = FolderTemplateRenderer.RenderPreviewPng(
-                currentHex,
-                _stagingModel.StagedTemplateState.TemplateId,
-                _stagingModel.StagedTemplateState.TemplateVersion,
-                emblem: _stagingModel.StagedTemplateState.Emblem);
-            if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
-            {
-                FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
-            }
-        }
+            _snapshotFolderColorHex = _stagingModel.StagedTemplateState.FolderColorHex;
 
-        _ = LoadRecentCustomColorsToFlyoutAsync();
+            if (CustomColorTitleText != null) CustomColorTitleText.Text = AppResources.GetString("ColorPicker_CustomColor", _currentLanguage);
+            if (CustomColorSubtitleText != null) CustomColorSubtitleText.Text = AppResources.GetString("ColorPicker_Subtitle", _currentLanguage);
+            if (RecentColorsTitle != null) RecentColorsTitle.Text = AppResources.GetString("ColorPicker_RecentColors", _currentLanguage);
+            if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
+            if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
+
+            if (CustomColorPicker != null)
+            {
+                if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
+                {
+                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
+                }
+                else
+                {
+                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+                }
+
+                var currentColor = CustomColorPicker.Color;
+                string currentHex = ColorConversion.ToHex(currentColor.R, currentColor.G, currentColor.B);
+                var initialPreview = FolderTemplateRenderer.RenderPreviewPng(
+                    currentHex,
+                    _stagingModel.StagedTemplateState.TemplateId,
+                    _stagingModel.StagedTemplateState.TemplateVersion,
+                    emblem: _stagingModel.StagedTemplateState.Emblem);
+                if (initialPreview.IsSuccess && initialPreview.Value != null && FlyoutPreviewImage != null)
+                {
+                    FlyoutPreviewImage.Source = LoadPreviewBitmapFromBytes(initialPreview.Value);
+                }
+            }
+
+            _ = LoadRecentCustomColorsToFlyoutAsync();
+        });
     }
 
     private void OnCustomColorFlyoutClosed(object sender, object e)
@@ -1791,6 +2005,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
             catch (OperationCanceledException)
             {
+                // Expected: a newer color change superseded this preview. Not an error,
+                // so it is not logged; the branch below records real failures.
             }
             catch (Exception ex)
             {
@@ -1801,24 +2017,30 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnApplyCustomColorClicked(object sender, RoutedEventArgs e)
     {
-        var color = CustomColorPicker.Color;
-        string hex = ColorConversion.ToHex(color.R, color.G, color.B);
-        CustomColorFlyout.Hide();
+        await GuardAsync(nameof(OnApplyCustomColorClicked), async () =>
+        {
+            var color = CustomColorPicker.Color;
+            string hex = ColorConversion.ToHex(color.R, color.G, color.B);
+            CustomColorFlyout.Hide();
 
-        _stagingModel.StageFolderColor(hex);
-        await RefreshLivePreviewAsync();
-        _ = RenderTemplateCardThumbnailsAsync();
+            _stagingModel.StageFolderColor(hex);
+            await RefreshLivePreviewAsync();
+            _ = RenderTemplateCardThumbnailsAsync();
+        });
     }
 
     private async void OnCancelCustomColorClicked(object sender, RoutedEventArgs e)
     {
-        CustomColorFlyout.Hide();
-        if (!string.IsNullOrWhiteSpace(_snapshotFolderColorHex))
+        await GuardAsync(nameof(OnCancelCustomColorClicked), async () =>
         {
-            _stagingModel.StageFolderColor(_snapshotFolderColorHex);
-            await RefreshLivePreviewAsync();
-            _ = RenderTemplateCardThumbnailsAsync();
-        }
+            CustomColorFlyout.Hide();
+            if (!string.IsNullOrWhiteSpace(_snapshotFolderColorHex))
+            {
+                _stagingModel.StageFolderColor(_snapshotFolderColorHex);
+                await RefreshLivePreviewAsync();
+                _ = RenderTemplateCardThumbnailsAsync();
+            }
+        });
     }
 
     private async Task LoadRecentCustomColorsToFlyoutAsync()
@@ -1881,34 +2103,37 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnPlacementSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isProcessing || _stagedImageBytes == null || PlacementModeRadioButtons == null)
+        await GuardAsync(nameof(OnPlacementSelectionChanged), async () =>
         {
-            return;
-        }
+            if (_isProcessing || _stagedImageBytes == null || PlacementModeRadioButtons == null)
+            {
+                return;
+            }
 
-        int index = PlacementModeRadioButtons.SelectedIndex;
-        var newMode = index switch
-        {
-            1 => ImagePlacementMode.Cover,
-            2 => ImagePlacementMode.Fill,
-            _ => ImagePlacementMode.Contain
-        };
+            int index = PlacementModeRadioButtons.SelectedIndex;
+            var newMode = index switch
+            {
+                1 => ImagePlacementMode.Cover,
+                2 => ImagePlacementMode.Fill,
+                _ => ImagePlacementMode.Contain
+            };
 
-        if (PlacementFillWarningText != null)
-        {
-            PlacementFillWarningText.Visibility = (newMode == ImagePlacementMode.Fill)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        }
+            if (PlacementFillWarningText != null)
+            {
+                PlacementFillWarningText.Visibility = (newMode == ImagePlacementMode.Fill)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
 
-        if (_stagedPlacementMode == newMode)
-        {
-            return;
-        }
+            if (_stagedPlacementMode == newMode)
+            {
+                return;
+            }
 
-        _stagedPlacementMode = newMode;
-        _stagingModel.StagePlacement(_stagedPlacementMode, _stagedPaddingPercent, _stagedBackgroundMode, _stagedBackgroundColorHex);
-        await RefreshLivePreviewAsync();
+            _stagedPlacementMode = newMode;
+            _stagingModel.StagePlacement(_stagedPlacementMode, _stagedPaddingPercent, _stagedBackgroundMode, _stagedBackgroundColorHex);
+            await RefreshLivePreviewAsync();
+        });
     }
 
     private void OnPlacementOptionsFlyoutClosed(object sender, object e)
@@ -2039,7 +2264,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                     ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
                 });
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                // Expected: a newer preview superseded this one. Not an error, so it is
+                // not logged; the branch below records real failures.
+            }
             catch (Exception ex)
             {
                 App.Log($"Debounced preview failed: {ex.Message}");
@@ -2109,12 +2338,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async void OnApplyConfirmClicked(object sender, RoutedEventArgs e)
     {
-        if (_isProcessing || !_stagingModel.CanApply)
+        // The apply path performs filesystem writes and journal transitions; a fault
+        // escaping here would reach the dispatcher and kill the panel mid-commit.
+        await GuardAsync(nameof(OnApplyConfirmClicked), async () =>
         {
-            return;
-        }
+            if (_isProcessing || !_stagingModel.CanApply)
+            {
+                return;
+            }
 
-        await ApplyStagedPersonalizationAsync();
+            await ApplyStagedPersonalizationAsync();
+        });
     }
 
     private async Task ApplyStagedPersonalizationAsync()
@@ -2126,7 +2360,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (string.IsNullOrWhiteSpace(_currentFolderPath))
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "No folder selected.");
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorNoFolderSelected", _currentLanguage));
             return;
         }
 
@@ -2158,7 +2392,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 if (!renderResult.IsSuccess || renderResult.Value == null)
                 {
                     CleanupStagedFiles();
-                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, renderResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, renderResult.ErrorMessage);
                     return;
                 }
 
@@ -2185,17 +2419,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         catch (Exception ex)
         {
             App.Log($"ApplyStagedPersonalizationAsync exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
         }
     }
 
     private async void OnCancelPreviewClicked(object sender, RoutedEventArgs e)
     {
-        _stagingModel.Discard();
-        CleanupStagedFiles();
-        _stagedCustomColorHex = null;
-        await RefreshLivePreviewAsync();
-        await SetProcessingStageAsync(ProcessingStage.Idle);
+        await GuardAsync(nameof(OnCancelPreviewClicked), async () =>
+        {
+            _stagingModel.Discard();
+            CleanupStagedFiles();
+            _stagedCustomColorHex = null;
+            await RefreshLivePreviewAsync();
+            await SetProcessingStageAsync(ProcessingStage.Idle);
+        });
     }
 
     private void OnCloseSuccessClicked(object sender, RoutedEventArgs e)
@@ -2205,87 +2442,118 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task CommitStagedIconAsync()
     {
-        if (_isProcessing || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || !File.Exists(_stagedTempIcoPath) || _stagedProcessResult == null)
+        // Reentrancy is guarded by a dedicated commit flag, not by _isProcessing.
+        // The apply flow legitimately sets _isProcessing=true while rendering, so
+        // keying this guard on _isProcessing silently skipped every commit.
+        if (_isCommitting || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || !File.Exists(_stagedTempIcoPath) || _stagedProcessResult == null)
         {
+            if (!_isCommitting && _stagedProcessResult == null)
+            {
+                ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage));
+            }
             return;
         }
 
-        using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(_currentFolderPath, TimeSpan.FromSeconds(5));
-        if (lockHandle == null)
-        {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, "Another operation is currently modifying this folder.");
-            return;
-        }
+        // Snapshot the operation identity. SetTargetFolderAsync may be called from a new
+        // shell activation while this commit is running; every filesystem and storage
+        // write below must address the captured target, never the mutable field.
+        string targetFolder = _currentFolderPath;
+        Guid epochId = _currentOwnershipEpochId;
+        FolderBaseline? baseline = _currentBaseline;
+        Guid operationId = _stagedOperationId;
+        string stagedIcoPath = _stagedTempIcoPath;
+        var stagedResult = _stagedProcessResult;
+        string? stagedColorHex = _stagedCustomColorHex;
 
+        _isCommitting = true;
+        bool filesystemCommitted = false;
         try
         {
-            Guid operationId = _stagedOperationId;
-            string stagedIcoPath = _stagedTempIcoPath;
-            var stagedResult = _stagedProcessResult;
+            using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(targetFolder, TimeSpan.FromSeconds(5));
+            if (lockHandle == null)
+            {
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorFolderLockedMessage", _currentLanguage));
+                return;
+            }
+
+            // The journal must reference the durable library ICO, not the staging
+            // temp file: the temp file is deleted by CleanupStagedFiles() after a
+            // successful apply, so crash-recovery reconciliation would otherwise
+            // resolve TargetAssetPath to a path that no longer exists.
+            string libraryIcoPath = OrnareConstants.LibraryIcoPath(stagedResult.ContentHash);
 
             // Journal step: Prepared & AssetGenerated
             JournalEntry journal = new()
             {
                 OperationId = operationId,
                 Kind = OperationKind.Apply,
-                TargetFolderPath = _currentFolderPath,
+                TargetFolderPath = targetFolder,
                 State = JournalState.Prepared,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
-                TargetAssetPath = stagedIcoPath
+                TargetAssetPath = libraryIcoPath
             };
             await _storageService.RecordJournalEntryAsync(journal);
             await _storageService.UpdateJournalStateAsync(operationId, JournalState.AssetGenerated);
 
             // 1. Applying icon to folder
             await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
-            await Task.Delay(40);
 
-            if (_currentBaseline == null)
+            if (baseline == null)
             {
-                FolderIconSemantics prior = DesktopIniParser.ReadSemantics(_currentFolderPath);
-                _currentOwnershipEpochId = Guid.NewGuid();
-                _currentBaseline = new FolderBaseline
+                FolderIconSemantics prior = DesktopIniParser.ReadSemantics(targetFolder);
+                epochId = Guid.NewGuid();
+                baseline = new FolderBaseline
                 {
                     FolderAssignmentId = Guid.NewGuid(),
-                    OwnershipEpochId = _currentOwnershipEpochId,
+                    OwnershipEpochId = epochId,
                     PriorSemantics = prior,
                     CapturedAt = DateTimeOffset.UtcNow
                 };
             }
 
-            var applyResult = await Task.Run(() => _folderCustomizer.ApplyIcon(_currentFolderPath, stagedIcoPath, state =>
+            // Journal transitions raised by the synchronous ApplyIcon callback must be
+            // persisted in order. Fire-and-forget writes could land after the final
+            // JournalState.Completed and regress a successfully applied folder, so the
+            // states are buffered and flushed sequentially once ApplyIcon returns.
+            var journalStages = new System.Collections.Concurrent.ConcurrentQueue<JournalState>();
+            var applyResult = await Task.Run(() => _folderCustomizer.ApplyIcon(targetFolder, stagedIcoPath, journalStages.Enqueue));
+
+            while (journalStages.TryDequeue(out JournalState stage))
             {
-                _ = _storageService.UpdateJournalStateAsync(operationId, state);
-            }));
+                await _storageService.UpdateJournalStateAsync(operationId, stage);
+            }
 
             if (!applyResult.IsSuccess || applyResult.Value == null)
             {
                 App.Log($"ApplyIcon failed: {applyResult.ErrorMessage}");
                 await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, applyResult.ErrorMessage);
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, applyResult.ErrorMessage);
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, applyResult.ErrorMessage);
                 return;
             }
 
             // 2. Refreshing Explorer
             await SetProcessingStageAsync(ProcessingStage.RefreshingExplorer);
-            await Task.Delay(80);
+
+            // From this point the icon is committed on disk. Any later failure must be
+            // reported as a repairable partial success, never as a clean failure
+            // (INV-FS-006): reporting failure would invite a retry that re-applies the
+            // icon with a fresh epoch and duplicates assignment/history rows.
+            filesystemCommitted = true;
 
             // 3. Save assignment & baseline to database
             await _storageService.SaveFolderAssignmentAsync(
-                _currentFolderPath,
-                _currentOwnershipEpochId,
+                targetFolder,
+                epochId,
                 applyResult.Value,
-                _currentBaseline);
+                baseline);
 
             // Register canonical asset in Library & History
             string canonicalIcoPath = string.Empty;
             try
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string libraryDir = Path.Combine(localAppData, OrnareConstants.ApplicationName, "library");
-                Directory.CreateDirectory(libraryDir);
-                canonicalIcoPath = Path.Combine(libraryDir, $"{stagedResult.ContentHash}.ico");
+                canonicalIcoPath = OrnareConstants.LibraryIcoPath(stagedResult.ContentHash);
+                Directory.CreateDirectory(OrnareConstants.LibraryDirectory);
                 if (!File.Exists(canonicalIcoPath))
                 {
                     File.Copy(stagedIcoPath, canonicalIcoPath, overwrite: true);
@@ -2319,21 +2587,21 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 }
 
                 await _storageService.RecordHistoryAsync(
-                    _currentFolderPath,
+                    targetFolder,
                     operationId,
                     null,
                     stagedResult.ContentHash,
                     "apply");
 
-                var ntfsId = FolderIdentityService.GetNtfsIdentity(_currentFolderPath);
+                var ntfsId = FolderIdentityService.GetNtfsIdentity(targetFolder);
                 if (ntfsId.HasValue)
                 {
-                    await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, ntfsId.Value.VolumeSerialNumber, ntfsId.Value.FileId64);
+                    await _storageService.UpdateAssignmentIdentityAsync(targetFolder, ntfsId.Value.VolumeSerialNumber, ntfsId.Value.FileId64);
                 }
                 else
                 {
-                    var (vol, fid) = FolderIdentityService.GetFolderIdentity(_currentFolderPath);
-                    await _storageService.UpdateAssignmentIdentityAsync(_currentFolderPath, vol, fid);
+                    var (vol, fid) = FolderIdentityService.GetFolderIdentity(targetFolder);
+                    await _storageService.UpdateAssignmentIdentityAsync(targetFolder, vol, fid);
                 }
             }
             catch (Exception ex)
@@ -2365,26 +2633,22 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             CleanupStagedFiles();
 
             // Fire final targeted shell refresh now that all staged files are closed and committed
-            ShellRefreshService.NotifyFolderChanged(_currentFolderPath);
+            ShellRefreshService.NotifyFolderChanged(targetFolder);
 
-            App.Log($"CommitStagedIconAsync completed successfully for '{_currentFolderPath}'");
+            App.Log($"CommitStagedIconAsync completed successfully for '{targetFolder}'");
 
             // Persist recent custom color on successful folder apply (F02)
-            if (!string.IsNullOrWhiteSpace(_stagedCustomColorHex))
+            if (!string.IsNullOrWhiteSpace(stagedColorHex))
             {
                 try
                 {
                     var userSettings = await _storageService.GetUserSettingsAsync();
-                    var updatedSettings = userSettings.WithRecentCustomColor(_stagedCustomColorHex);
+                    var updatedSettings = userSettings.WithRecentCustomColor(stagedColorHex);
                     await _storageService.SaveUserSettingsAsync(updatedSettings);
                 }
                 catch (Exception ex)
                 {
                     App.Log($"Failed to record recent custom color: {ex.Message}");
-                }
-                finally
-                {
-                    _stagedCustomColorHex = null;
                 }
             }
 
@@ -2395,7 +2659,55 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         catch (Exception ex)
         {
             App.Log($"CommitStagedIconAsync unhandled exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
+
+            if (filesystemCommitted)
+            {
+                // The icon is already on disk. Record a repairable state instead of
+                // claiming a clean failure, because a retry would re-apply on top of a
+                // committed mutation.
+                try
+                {
+                    await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, ex.Message);
+                }
+                catch (Exception journalEx)
+                {
+                    App.Log($"Failed to mark journal NeedsRepair: {journalEx.Message}");
+                }
+
+                ShowCategorizedError(
+                    QuickPanelErrorType.FolderApplyFailed,
+                    AppResources.GetString("ErrorAppliedNeedsRepair", _currentLanguage),
+                    ex.Message);
+            }
+            else
+            {
+                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
+            }
+        }
+        finally
+        {
+            _isCommitting = false;
+            if (string.Equals(_currentFolderPath, targetFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentBaseline = baseline;
+                _currentOwnershipEpochId = epochId;
+                _stagedCustomColorHex = null;
+            }
+
+            // A newer activation arrived during this commit. Apply it only now, when the
+            // previous commit has fully finished, so target identity cannot interleave.
+            if (_pendingTargetPath is { } pendingTarget)
+            {
+                _pendingTargetPath = null;
+                try
+                {
+                    await ApplyTargetFolderAsync(pendingTarget);
+                }
+                catch (Exception ex)
+                {
+                    App.Log($"Deferred target switch failed for '{pendingTarget}': {ex}");
+                }
+            }
         }
     }
 
@@ -2426,13 +2738,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
             else
             {
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage ?? "Could not undo icon change.");
+                ShowServiceError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage, "ErrorUndoFailed");
             }
         }
         catch (Exception ex)
         {
             App.Log($"OnUndoClicked exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
         }
     }
 
@@ -2463,13 +2775,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             }
             else
             {
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage ?? "Could not reset folder icon.");
+                ShowServiceError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage, "ErrorResetFailed");
             }
         }
         catch (Exception ex)
         {
             App.Log($"OnResetClicked exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
         }
     }
 
@@ -2482,7 +2794,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 File.Delete(_stagedTempIcoPath);
             }
         }
-        catch { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A locked staging file is retried on the next cleanup pass; clearing the
+            // in-memory state below is what matters for correctness.
+            App.Log($"Staged ICO cleanup deferred: {ex.Message}");
+        }
         _stagedTempIcoPath = null;
         _stagedProcessResult = null;
         _stagedImageBytes = null;
@@ -2516,7 +2833,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 File.Delete(_tempPreviewPngPath);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // A locked preview file (still being decoded) is expected; log so an
+            // accumulating temp directory is diagnosable.
+            App.Log($"Preview temp delete failed: {ex.Message}");
+        }
         _tempPreviewPngPath = null;
     }
 
@@ -2530,27 +2852,72 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             _tempPreviewPngPath = newTemp;
             if (oldTemp != null && File.Exists(oldTemp))
             {
-                try { File.Delete(oldTemp); } catch { }
+                try
+                {
+                    File.Delete(oldTemp);
+                }
+                catch (IOException ex)
+                {
+                    App.Log($"Stale preview delete failed: {ex.Message}");
+                }
             }
             return LoadBitmapSafe(newTemp);
         }
-        catch
+        catch (Exception ex)
         {
+            App.Log($"LoadPreviewBitmapFromBytes failed: {ex.Message}");
             return null;
         }
     }
 
-    private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapFromBytes(byte[] pngBytes)
+    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapFromBytes(byte[] pngBytes)
     {
         try
         {
             string temp = Path.Combine(Path.GetTempPath(), $"ornare_thumb_{Guid.NewGuid():N}.png");
             File.WriteAllBytes(temp, pngBytes);
+
+            // Track the file so Dispose can remove it. Untracked thumbnails used to
+            // accumulate in %TEMP% for every hover/render (9+ files per interaction).
+            _tempThumbnailPngPaths.Add(temp);
+
+            // Bound growth in a long-lived panel: only the most recent thumbnails
+            // can still be referenced by the live template cards.
+            while (_tempThumbnailPngPaths.Count > 64)
+            {
+                string oldest = _tempThumbnailPngPaths[0];
+                _tempThumbnailPngPaths.RemoveAt(0);
+                TryDeleteTempFile(oldest);
+            }
+
             return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(temp));
         }
-        catch
+        catch (Exception ex)
         {
+            // A blank thumbnail must not be silent: surface it so temp growth or a
+            // broken pipeline is visible.
+            App.Log($"LoadBitmapFromBytes failed: {ex.Message}");
             return null;
+        }
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException ex)
+        {
+            // BitmapImage may still hold the file; it will be retried on dispose.
+            App.Log($"Temp thumbnail delete deferred: {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            App.Log($"Temp thumbnail delete denied: {ex.Message}");
         }
     }
 
@@ -2559,7 +2926,20 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _previewDebounceCts?.Cancel();
         _previewDebounceCts?.Dispose();
         _previewDebounceCts = null;
+
+        _autoCloseTimer?.Stop();
+        _autoCloseTimer = null;
+
         CleanupStagedFiles();
+
+        foreach (string temp in _tempThumbnailPngPaths)
+        {
+            TryDeleteTempFile(temp);
+        }
+
+        _tempThumbnailPngPaths.Clear();
+
+        GC.SuppressFinalize(this);
     }
 
     private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapSafe(string path)
@@ -2571,15 +2951,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path));
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UriFormatException)
         {
+            // Missing/corrupt preview files degrade to "no thumbnail", never a crash.
+            App.Log($"LoadBitmapSafe failed for '{path}': {ex.Message}");
         }
         return null;
     }
 
     private async void OnTryAgainClicked(object sender, RoutedEventArgs e)
     {
-        await SetProcessingStageAsync(ProcessingStage.Idle);
+        await GuardAsync(nameof(OnTryAgainClicked), () => SetProcessingStageAsync(ProcessingStage.Idle));
     }
 
     private void StartAutoCloseTimer()
@@ -2597,7 +2979,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _autoCloseTimer.Start();
     }
 
-    private async Task SetProcessingStageAsync(ProcessingStage stage)
+    private Task SetProcessingStageAsync(ProcessingStage stage)
     {
         _currentStage = stage;
 
@@ -2676,6 +3058,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 SuccessSubtitleText.Text = AppResources.GetString("SuccessSubtitle", _currentLanguage);
                 CloseSuccessButton.Content = AppResources.GetString("Close", _currentLanguage);
                 UndoButton.Content = AppResources.GetString("Undo", _currentLanguage);
+
+                // The success state is transient: the panel closes itself once the
+                // pointer leaves. StartAutoCloseTimer existed but was never invoked,
+                // so the documented auto-close behaviour never happened.
+                StartAutoCloseTimer();
                 break;
 
             case ProcessingStage.Error:
@@ -2689,14 +3076,47 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 break;
         }
 
-        await Task.Delay(30);
+        // Flush layout synchronously so the new stage's visible elements exist before
+        // focus is moved. A fixed sleep was used before, which both delayed every
+        // transition and still did not guarantee a laid-out focus target.
+        if (Content is FrameworkElement root)
+        {
+            root.UpdateLayout();
+        }
+
         RestoreFocusAfterTransition(stage);
+        return Task.CompletedTask;
     }
 
-    private void ShowCategorizedError(QuickPanelErrorType errorType, string? detail = null)
+    /// <summary>
+    /// Service layers report failure text for diagnostics, not for end users. When they do
+    /// supply a message it is logged; the user always sees the localized fallback copy.
+    /// </summary>
+    private void ShowServiceError(QuickPanelErrorType errorType, string? serviceErrorMessage, string fallbackKey)
+    {
+        // The user always sees the localized fallback copy. Service messages are
+        // diagnostics only and are logged, never rendered: they can contain paths and
+        // storage/schema detail (INV-UI-004).
+        string localized = AppResources.GetString(fallbackKey, _currentLanguage);
+        ShowCategorizedError(errorType, localized, serviceErrorMessage);
+    }
+
+    /// <summary>
+    /// Shows a category-specific, fully localized error.
+    /// <paramref name="localizedMessage"/> is an optional caller-supplied user copy that is
+    /// already resolved from <see cref="AppResources"/> (never raw exception text).
+    /// <paramref name="diagnosticDetail"/> is diagnostic only: raw exception text can contain
+    /// storage paths and schema names, so it is written to the diagnostic log and never rendered.
+    /// </summary>
+    private void ShowCategorizedError(QuickPanelErrorType errorType, string? localizedMessage = null, string? diagnosticDetail = null)
     {
         _isProcessing = false;
         _autoCloseTimer?.Stop();
+
+        if (!string.IsNullOrWhiteSpace(diagnosticDetail))
+        {
+            App.Log($"QuickPanel error ({errorType}): {diagnosticDetail}");
+        }
 
         string title;
         string message;
@@ -2705,32 +3125,32 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         {
             case QuickPanelErrorType.UnsupportedImage:
                 title = AppResources.GetString("ErrorUnsupportedImageTitle", _currentLanguage);
-                message = AppResources.GetString("ErrorUnsupportedImageMessage", _currentLanguage);
+                message = localizedMessage ?? AppResources.GetString("ErrorUnsupportedImageMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.ImageReadFailed:
                 title = AppResources.GetString("ErrorImageReadTitle", _currentLanguage);
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorImageReadMessage", _currentLanguage);
+                message = localizedMessage ?? AppResources.GetString("ErrorImageReadMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.IconGenerationFailed:
                 title = AppResources.GetString("ErrorIconGenerationTitle", _currentLanguage);
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage);
+                message = localizedMessage ?? AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.FolderApplyFailed:
                 title = AppResources.GetString("ErrorFolderApplyTitle", _currentLanguage);
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorFolderApplyMessage", _currentLanguage);
+                message = localizedMessage ?? AppResources.GetString("ErrorFolderApplyMessage", _currentLanguage);
                 break;
 
             case QuickPanelErrorType.ExplorerRefreshFailed:
                 title = AppResources.GetString("ErrorExplorerRefreshTitle", _currentLanguage);
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : AppResources.GetString("ErrorExplorerRefreshMessage", _currentLanguage);
+                message = localizedMessage ?? AppResources.GetString("ErrorExplorerRefreshMessage", _currentLanguage);
                 break;
 
             default:
                 title = AppResources.GetString("ApplyFailed", _currentLanguage);
-                message = !string.IsNullOrWhiteSpace(detail) ? detail : string.Empty;
+                message = localizedMessage ?? AppResources.GetString("ErrorUnexpected", _currentLanguage);
                 break;
         }
 
@@ -2778,8 +3198,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         if (string.Equals(uiState, "drag-over", StringComparison.OrdinalIgnoreCase))
         {
             _ = SetProcessingStageAsync(ProcessingStage.Idle);
-            DropAreaBorder.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-            DropAreaBorder.Background = (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+            DropAreaBorder.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
+            DropAreaBorder.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else if (string.Equals(uiState, "preparing", StringComparison.OrdinalIgnoreCase))
         {
@@ -2834,74 +3254,77 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private void OnOpenManagerClicked(object sender, RoutedEventArgs e)
     {
-        var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
-        managerWindow.Activate();
+        // Route through the shared host so repeated clicks cannot stack multiple
+        // managers over the same SQLite store.
+        ManagerWindowHost.Show(_storageService, _folderCustomizer, _imagePipeline);
     }
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
     {
-        var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
-        managerWindow.SwitchSection("Settings");
-        managerWindow.Activate();
+        ManagerWindowHost.OpenSettings(_storageService, _folderCustomizer, _imagePipeline);
     }
 
     private async void OnAboutClicked(object sender, RoutedEventArgs e)
     {
-        if (Content is FrameworkElement root && root.XamlRoot != null)
+        try
         {
-            bool isTr = _currentLanguage.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
-            var dialog = new ContentDialog
+            if (Content is FrameworkElement root && root.XamlRoot != null)
             {
-                Title = isTr ? "Ornare Hakkında" : "About Ornare",
-                CloseButtonText = isTr ? "Kapat" : "Close",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = root.XamlRoot
-            };
+                var dialog = new ContentDialog
+                {
+                    Title = AppResources.GetString("About_Title", _currentLanguage),
+                    CloseButtonText = AppResources.GetString("Close", _currentLanguage),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = root.XamlRoot
+                };
 
-            var panel = new StackPanel { Spacing = 10, MaxWidth = 360 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Ornare Folder Icons v1.0.0",
-                FontSize = 14,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = isTr
-                    ? "Geliştirici: Vellium (vellium.dev)\nTamamen yerel, çevrimdışı ve gizlilik odaklı klasör özelleştirme."
-                    : "Developer: Vellium (vellium.dev)\nLocal-only, privacy-first Windows folder personalization.",
-                FontSize = 12,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                TextWrapping = TextWrapping.Wrap
-            });
-            panel.Children.Add(new Border
-            {
-                Height = 1,
-                Background = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
-                Margin = new Thickness(0, 4, 0, 4)
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = isTr ? "Açık Kaynak Bildirimleri" : "Open-Source Acknowledgements",
-                FontSize = 12,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = "• Microsoft Fluent UI System Icons (MIT)\n• Magick.NET (Apache-2.0)\n• Microsoft.Data.Sqlite / SQLitePCLRaw (MIT / Apache-2.0)\n• Windows App SDK & WinUI 3 (Microsoft)\n• WinUIEx & CommunityToolkit (MIT)\n• System.CommandLine (MIT)",
-                FontSize = 11,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                TextWrapping = TextWrapping.Wrap
-            });
+                var panel = new StackPanel { Spacing = 10, MaxWidth = 360 };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = $"{AppResources.GetString("ApplicationTitle", _currentLanguage)} v{AppInfo.Version}",
+                    FontSize = 14,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = AppResources.GetString("About_Description", _currentLanguage),
+                    FontSize = 12,
+                    Foreground = GetThemeBrush("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                panel.Children.Add(new Border
+                {
+                    Height = 1,
+                    Background = GetThemeBrush("CardStrokeColorDefaultBrush", Microsoft.UI.Colors.Gray),
+                    Margin = new Thickness(0, 4, 0, 4)
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = AppResources.GetString("About_AcknowledgementsTitle", _currentLanguage),
+                    FontSize = 12,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = AppResources.GetString("About_AcknowledgementsBody", _currentLanguage),
+                    FontSize = 11,
+                    Foreground = GetThemeBrush("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray),
+                    TextWrapping = TextWrapping.Wrap
+                });
 
-            dialog.Content = panel;
-            await dialog.ShowAsync();
+                dialog.Content = panel;
+                await dialog.ShowAsync();
+            }
+            else
+            {
+                ManagerWindowHost.OpenSettings(_storageService, _folderCustomizer);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            var managerWindow = new ManagerWindow(_storageService, _folderCustomizer);
-            managerWindow.SwitchSection("Settings");
-            managerWindow.Activate();
+            // ShowAsync throws E_ILLEGAL_METHOD_CALL when another ContentDialog is
+            // already open (e.g. double-click on "About"). Never let that crash the app.
+            App.Log($"OnAboutClicked failed: {ex.Message}");
         }
     }
 }

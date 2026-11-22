@@ -1,4 +1,4 @@
-# ADR 0005 — Reset restores owned icon semantics, not a full desktop.ini snapshot
+# ADR 0005 - Reset restores owned icon semantics, not a full desktop.ini snapshot
 
 Status: Accepted
 

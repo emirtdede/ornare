@@ -1,4 +1,4 @@
-# Ornare Vector Emblem Catalog — Asset Provenance & Licensing
+# Ornare Vector Emblem Catalog - Asset Provenance & Licensing
 
 ## 1. Overview
 This document records the provenance, licensing, curation criteria, and security audit for the 320 monochrome vector emblem assets shipped with Ornare Quick Panel Personalization (Phase 6 / Section 18 & 19).

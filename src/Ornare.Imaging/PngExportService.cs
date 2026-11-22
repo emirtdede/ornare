@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System;
 using System.IO;
 using System.Linq;
@@ -261,7 +262,10 @@ public static class PngExportService
                     {
                         if (File.Exists(tempCacheFile)) File.Delete(tempCacheFile);
                     }
-                    catch { }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        Trace.TraceWarning($"PNG cache temp cleanup failed for '{tempCacheFile}': {ex.Message}");
+                    }
                 }
             }
             catch

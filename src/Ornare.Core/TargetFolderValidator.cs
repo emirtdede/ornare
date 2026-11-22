@@ -4,6 +4,24 @@ namespace Ornare.Core;
 
 public static class TargetFolderValidator
 {
+    /// <summary>
+    /// Windows <c>MAX_PATH</c> is 260 characters including the terminating null, so the
+    /// longest representable path is 259 characters. Shell folder customization is
+    /// documented as <c>MAX_PATH</c>-bounded (see docs/LONG_PATH_COMPATIBILITY.md), so a
+    /// 260-character path must be rejected rather than silently truncated.
+    /// </summary>
+    private const int MaxSupportedPathLength = 259;
+
+    /// <summary>
+    /// Attributes that mark a cloud placeholder (OneDrive/Dropbox Files On-Demand) whose
+    /// content is not locally present. Writing a folder icon into such a target would
+    /// trigger an unexpected hydration or fail with a sharing violation.
+    /// </summary>
+    private const FileAttributes CloudPlaceholderMask =
+        FileAttributes.Offline |
+        (FileAttributes)0x00040000 | // FILE_ATTRIBUTE_RECALL_ON_OPEN
+        (FileAttributes)0x00400000;  // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+
     public static OperationResult ValidateTarget(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -34,20 +52,23 @@ public static class TargetFolderValidator
             return OperationResult.Failure(ErrorCode.TargetIsVolumeRoot, "Volume roots cannot be customized directly.");
         }
 
-        // Check max path length
-        if (fullPath.Length > 260)
+        // Check max path length. MAX_PATH includes the null terminator, so 259 is the limit.
+        if (fullPath.Length > MaxSupportedPathLength)
         {
-            return OperationResult.Failure(ErrorCode.InvalidTarget, "Path exceeds maximum supported length (260 characters).");
+            return OperationResult.Failure(
+                ErrorCode.InvalidTarget,
+                $"Path exceeds maximum supported length ({MaxSupportedPathLength} characters).");
         }
 
-        // Protect Windows directory and Program Files
+        // Protect Windows directory and Program Files. The separator matters: a plain
+        // prefix test would also reject unrelated siblings such as "C:\Windows.old".
         string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
-        if ((!string.IsNullOrEmpty(winDir) && fullPath.StartsWith(winDir, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(progFiles) && fullPath.StartsWith(progFiles, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(progFilesX86) && fullPath.StartsWith(progFilesX86, StringComparison.OrdinalIgnoreCase)))
+        if (IsUnderDirectory(fullPath, winDir) ||
+            IsUnderDirectory(fullPath, progFiles) ||
+            IsUnderDirectory(fullPath, progFilesX86))
         {
             return OperationResult.Failure(ErrorCode.AccessDenied, "System and application program directories are protected.");
         }
@@ -59,12 +80,43 @@ public static class TargetFolderValidator
 
         DirectoryInfo dirInfo = new(fullPath);
 
-        // Reparse point check (symlink, junction)
+        // Reparse point check (symlink, junction, mount point)
         if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
         {
             return OperationResult.Failure(ErrorCode.TargetIsReparsePoint, "Symlinks, junctions, and reparse-point directories are not supported in V1.");
         }
 
+        // Cloud placeholder check (OneDrive/Dropbox Files On-Demand)
+        if ((dirInfo.Attributes & CloudPlaceholderMask) != 0)
+        {
+            return OperationResult.Failure(
+                ErrorCode.TargetIsCloudPlaceholder,
+                "Cloud placeholder folders must be fully downloaded before they can be customized.");
+        }
+
         return OperationResult.Success();
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="path"/> is the directory itself or a descendant
+    /// of <paramref name="directory"/>, using a separator boundary so siblings with a
+    /// common prefix are not misclassified.
+    /// </summary>
+    private static bool IsUnderDirectory(string path, string? directory)
+    {
+        if (string.IsNullOrEmpty(directory))
+        {
+            return false;
+        }
+
+        string normalizedPath = path.TrimEnd('\\', '/');
+        string normalizedDirectory = directory.TrimEnd('\\', '/');
+
+        if (string.Equals(normalizedPath, normalizedDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedPath.StartsWith(normalizedDirectory + "\\", StringComparison.OrdinalIgnoreCase);
     }
 }

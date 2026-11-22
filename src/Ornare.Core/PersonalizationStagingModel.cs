@@ -50,7 +50,7 @@ public sealed record FolderTemplateStagingState
 {
     public string TemplateId { get; init; } = "ornare-classic";
     public int TemplateVersion { get; init; } = 2;
-    public string FolderColorHex { get; init; } = "#0078D4";
+    public string FolderColorHex { get; init; } = "#E8A317";
     public FolderEmblemRecipe Emblem { get; init; } = FolderEmblemRecipe.None;
     public string? StatusPresetId { get; init; }
     public string? PriorityPresetId { get; init; }

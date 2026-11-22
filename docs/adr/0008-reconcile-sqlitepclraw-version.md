@@ -1,4 +1,4 @@
-# ADR 0008 — Reconcile SQLitePCLRaw bundle_winsqlite3 package version
+# ADR 0008 - Reconcile SQLitePCLRaw bundle_winsqlite3 package version
 
 - Status: Accepted
 - Date: 2026-09-24

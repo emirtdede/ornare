@@ -37,14 +37,14 @@ The app owns UI, validation, imaging, folder customization, DB, history, repair,
 
 ## 3. Proposed solution projects
 
-- `Ornare.App` — packaged WinUI 3 application, activation, quick panel, manager shell.
-- `Ornare.DesignSystem` — tokens and reusable WinUI controls.
-- `Ornare.Core` — domain contracts, operations, validation, result/error models.
-- `Ornare.Imaging` — secure decode/normalize/render/ICO pipeline.
-- `Ornare.Storage` — SQLite metadata and canonical asset files. Use `Microsoft.Data.Sqlite.Core` with `SQLitePCLRaw.bundle_winsqlite3`, which targets Windows system `winsqlite3.dll`. Initialize the bundle before first storage use as required by the selected package/version, verify the effective native library/version at Gate 1, and validate x64/ARM64 + Native AOT. Do not depend on optional SQLite extensions unless qualification proves them present on every supported baseline.
-- `Ornare.Windows` — Windows folder customization APIs, file attributes, shell refresh, platform helpers.
-- `Ornare.ShellExtension` — native C++ COM implementation.
-- `Ornare.Package` — MSIX manifest/assets/package registration.
+- `Ornare.App` - packaged WinUI 3 application, activation, quick panel, manager shell.
+- `Ornare.DesignSystem` - tokens and reusable WinUI controls.
+- `Ornare.Core` - domain contracts, operations, validation, result/error models.
+- `Ornare.Imaging` - secure decode/normalize/render/ICO pipeline.
+- `Ornare.Storage` - SQLite metadata and canonical asset files. Use `Microsoft.Data.Sqlite.Core` with `SQLitePCLRaw.bundle_winsqlite3`, which targets Windows system `winsqlite3.dll`. Initialize the bundle before first storage use as required by the selected package/version, verify the effective native library/version at Gate 1, and validate x64/ARM64 + Native AOT. Do not depend on optional SQLite extensions unless qualification proves them present on every supported baseline.
+- `Ornare.Windows` - Windows folder customization APIs, file attributes, shell refresh, platform helpers.
+- `Ornare.ShellExtension` - native C++ COM implementation.
+- `Ornare.Package` - MSIX manifest/assets/package registration.
 
 Test projects mirror behavior domains without unnecessary one-to-one project duplication.
 

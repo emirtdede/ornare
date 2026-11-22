@@ -59,8 +59,17 @@ public static class ShellRefreshService
 
         try
         {
-            uint pathFlags = ShcnfPathW | ShcnfFlush;
-            uint idFlags = ShcnfIdList | ShcnfFlush;
+            // Every notification in this method is a cache-invalidation hint, not a
+            // state transition: the durable state (desktop.ini, ICO file, journal row)
+            // is already committed before this runs. SHCNF_FLUSH makes SHChangeNotify
+            // block until each top-level window has synchronously processed the event;
+            // measured on the reference machine that cost 83 ms (item update), 14 ms
+            // (attributes), 19 ms (parent dir) and 176-429 ms (global invalidation) of
+            // the apply path. Delivering them asynchronously keeps Explorer responsive
+            // and does not change the final visible result, because Explorer re-reads
+            // the folder when it processes the queued event.
+            uint pathFlags = ShcnfPathW;
+            uint idFlags = ShcnfIdList;
 
             unsafe
             {

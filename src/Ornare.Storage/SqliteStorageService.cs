@@ -1315,25 +1315,54 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task<UserSettings> GetUserSettingsAsync()
     {
-        string theme = await GetSettingAsync("Theme") ?? "System";
-        string language = await GetSettingAsync("Language") ?? "System";
+        string theme = await GetSettingAsync("Theme") ?? UserSettings.SystemValue;
+        string language = await GetSettingAsync("Language") ?? UserSettings.SystemValue;
         string? recentColorsRaw = await GetSettingAsync("RecentCustomColors");
+        string appIconId = await GetSettingAsync("AppIconId") ?? AppIconCatalog.DefaultId;
+        string accentRaw = await GetSettingAsync("AccentColor") ?? UserSettings.SystemValue;
+        string? uiScaleRaw = await GetSettingAsync("UiScalePercent");
+        string? onboardingRaw = await GetSettingAsync("OnboardingCompleted");
+        string? cloudEnabledRaw = await GetSettingAsync("CloudSyncEnabled");
+        string cloudProvider = await GetSettingAsync("CloudSyncProvider") ?? nameof(CloudSyncProviderKind.None);
+        string? cloudRoot = await GetSettingAsync("CloudSyncRoot");
+        string? cloudLastSync = await GetSettingAsync("CloudSyncLastSyncUtc");
 
         IReadOnlyList<string> recentColors = Array.Empty<string>();
         if (!string.IsNullOrWhiteSpace(recentColorsRaw))
         {
             recentColors = recentColorsRaw
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(c => c.StartsWith('#') && c.Length == 7)
+                .Where(c => UserSettings.TryNormalizeHexColor(c, out _))
+                .Select(c => UserSettings.TryNormalizeHexColor(c, out string n) ? n : c)
                 .Take(UserSettings.MaxRecentCustomColors)
                 .ToList();
+        }
+
+        if (!UserSettings.TryNormalizeAccentColor(accentRaw, out string accent))
+        {
+            accent = UserSettings.SystemValue;
+        }
+
+        int uiScale = 100;
+        if (!string.IsNullOrWhiteSpace(uiScaleRaw) &&
+            int.TryParse(uiScaleRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedScale))
+        {
+            uiScale = UserSettings.ClampScalePercent(parsedScale);
         }
 
         return new UserSettings
         {
             Theme = theme,
             Language = language,
-            RecentCustomColors = recentColors
+            RecentCustomColors = recentColors,
+            AccentColor = accent,
+            AppIconId = AppIconCatalog.IsKnown(appIconId) ? appIconId : AppIconCatalog.DefaultId,
+            UiScalePercent = uiScale,
+            OnboardingCompleted = string.Equals(onboardingRaw, "true", StringComparison.OrdinalIgnoreCase),
+            CloudSyncEnabled = string.Equals(cloudEnabledRaw, "true", StringComparison.OrdinalIgnoreCase),
+            CloudSyncProvider = cloudProvider,
+            CloudSyncRoot = string.IsNullOrWhiteSpace(cloudRoot) ? null : cloudRoot,
+            CloudSyncLastSyncUtc = string.IsNullOrWhiteSpace(cloudLastSync) ? null : cloudLastSync
         };
     }
 
@@ -1345,6 +1374,16 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         await SetSettingAsync("Language", settings.Language);
         string recentColorsRaw = string.Join(";", settings.RecentCustomColors.Take(UserSettings.MaxRecentCustomColors));
         await SetSettingAsync("RecentCustomColors", recentColorsRaw);
+        await SetSettingAsync("AccentColor", settings.AccentColor);
+        await SetSettingAsync("AppIconId", settings.AppIconId);
+        await SetSettingAsync(
+            "UiScalePercent",
+            UserSettings.ClampScalePercent(settings.UiScalePercent).ToString(CultureInfo.InvariantCulture));
+        await SetSettingAsync("OnboardingCompleted", settings.OnboardingCompleted ? "true" : "false");
+        await SetSettingAsync("CloudSyncEnabled", settings.CloudSyncEnabled ? "true" : "false");
+        await SetSettingAsync("CloudSyncProvider", settings.CloudSyncProvider);
+        await SetSettingAsync("CloudSyncRoot", settings.CloudSyncRoot ?? string.Empty);
+        await SetSettingAsync("CloudSyncLastSyncUtc", settings.CloudSyncLastSyncUtc ?? string.Empty);
     }
 
     private static string GetDefaultDbPath()
@@ -1677,13 +1716,27 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
                 if (!string.IsNullOrEmpty(assetIcoPath) && File.Exists(assetIcoPath))
                 {
-                    try { File.Delete(assetIcoPath); } catch { }
+                    try
+                    {
+                        File.Delete(assetIcoPath);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning($"Asset file cleanup failed for '{assetIcoPath}': {ex.Message}");
+                    }
                 }
                 foreach (var rp in renderPaths)
                 {
                     if (!string.IsNullOrEmpty(rp) && File.Exists(rp))
                     {
-                        try { File.Delete(rp); } catch { }
+                        try
+                        {
+                            File.Delete(rp);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            System.Diagnostics.Trace.TraceWarning($"Render file cleanup failed for '{rp}': {ex.Message}");
+                        }
                     }
                 }
             }
@@ -1789,7 +1842,12 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 alterCmd.CommandText = "ALTER TABLE folder_assignments ADD COLUMN render_key TEXT;";
                 await alterCmd.ExecuteNonQueryAsync();
             }
-            catch (SqliteException) { }
+            catch (SqliteException ex)
+            {
+                // The column exists on an already-migrated database. Any other failure
+                // still surfaces on the next schema-dependent query.
+                System.Diagnostics.Trace.TraceWarning($"folder_assignments.render_key migration skipped: {ex.Message}");
+            }
 
             try
             {
@@ -1798,7 +1856,11 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                 alterCmd.CommandText = "ALTER TABLE history ADD COLUMN render_key TEXT;";
                 await alterCmd.ExecuteNonQueryAsync();
             }
-            catch (SqliteException) { }
+            catch (SqliteException ex)
+            {
+                // Same idempotency contract as folder_assignments above.
+                System.Diagnostics.Trace.TraceWarning($"history.render_key migration skipped: {ex.Message}");
+            }
 
             if (injectFailure)
             {

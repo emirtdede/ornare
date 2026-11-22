@@ -1,8 +1,0 @@
-{
-  "Iterations": 20,
-  "MinMs": 326.93,
-  "MaxMs": 390.33,
-  "P50Ms": 348.94,
-  "P95Ms": 390.33,
-  "PollingIntervalMs": 5
-}

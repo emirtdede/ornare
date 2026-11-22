@@ -172,7 +172,7 @@
     <value>Arquitetura</value>
   </data>
   <data name="PrivacyStatement" xml:space="preserve">
-    <value>O Ornare funciona totalmente offline. Zero telemetria, zero rastreamento em nuvem, zero coleta de dados.</value>
+    <value>O Ornare não tem conta, telemetria nem coleta de dados. O backup em nuvem opcional copia suas configurações para uma pasta escolhida por você e não envia nada por conta própria.</value>
   </data>
   <data name="Healthy" xml:space="preserve">
     <value>Íntegro</value>
@@ -337,7 +337,7 @@
     <value>Espaçamento: {0}%</value>
   </data>
   <data name="Padding_ToolTip" xml:space="preserve">
-    <value>Espaçamento interno por lado (0–30%)</value>
+    <value>Espaçamento interno por lado (0-30%)</value>
   </data>
   <data name="Background_Title" xml:space="preserve">
     <value>Plano de fundo</value>
@@ -363,15 +363,9 @@
   <data name="Template_Title" xml:space="preserve">
     <value>Estilo</value>
   </data>
-  <data name="Template_Classic" xml:space="preserve">
-    <value>Clássico</value>
-  </data>
-  <data name="Template_Soft" xml:space="preserve">
-    <value>Suave</value>
-  </data>
-  <data name="Template_Flat" xml:space="preserve">
-    <value>Plano</value>
-  </data>
+  
+  
+  
   <data name="Template_Glass" xml:space="preserve">
     <value>Vidro</value>
   </data>
@@ -414,8 +408,17 @@
   <data name="Action_RemoveEmblem" xml:space="preserve">
     <value>Remover emblema</value>
   </data>
+  <data name="Icon_Title" xml:space="preserve">
+    <value>Ícone vetorial</value>
+  </data>
+  <data name="Emoji_Title" xml:space="preserve">
+    <value>Emoji</value>
+  </data>
   <data name="Placeholder_SearchIcons" xml:space="preserve">
     <value>Pesquisar ícones...</value>
+  </data>
+  <data name="Placeholder_SearchEmoji" xml:space="preserve">
+    <value>Pesquisar emoji...</value>
   </data>
   <data name="Category_All" xml:space="preserve">
     <value>Todos</value>
@@ -555,12 +558,8 @@
   <data name="Collections_MoveDown" xml:space="preserve">
     <value>Mover para baixo</value>
   </data>
-  <data name="Collections_EmptyTitle" xml:space="preserve">
-    <value>Nenhuma coleção ainda</value>
-  </data>
-  <data name="Collections_EmptySubtitle" xml:space="preserve">
-    <value>Crie coleções para organizar sua biblioteca de ícones.</value>
-  </data>
+  
+  
   <data name="Collections_NoAssetsTitle" xml:space="preserve">
     <value>A coleção está vazia</value>
   </data>
@@ -705,4 +704,11 @@
   <data name="More_About" xml:space="preserve">
     <value>Sobre / Agradecimentos de código aberto</value>
   </data>
-</root>
+  
+<data name="ErrorFolderLockedMessage" xml:space="preserve"><value>Outra operação do Ornare está modificando esta pasta. Tente novamente.</value></data><data name="Nav_Library" xml:space="preserve"><value>Biblioteca</value></data><data name="Nav_Recent" xml:space="preserve"><value>Recentes</value></data><data name="Nav_Favorites" xml:space="preserve"><value>Favoritos</value></data><data name="Nav_Folders" xml:space="preserve"><value>Pastas personalizadas</value></data><data name="Nav_Settings" xml:space="preserve"><value>Configurações</value></data><data name="Collections_NewShort" xml:space="preserve"><value>Novo</value></data><data name="Collections_EmptyTitle" xml:space="preserve"><value>Ainda não há coleções</value></data><data name="Collections_EmptySubtitle" xml:space="preserve"><value>Crie uma para organizar os ícones</value></data><data name="Preset_StyleLabel" xml:space="preserve"><value>Modelo de estilo:</value></data><data name="Preset_Disclaimer" xml:space="preserve"><value>Os modelos de prioridade adicionam selos visuais às pastas e não alteram a prioridade do sistema de arquivos do Windows nem a ordenação do shell.</value></data><data name="Library_EmptyTitle" xml:space="preserve"><value>Nenhum ícone na biblioteca</value></data><data name="Library_EmptySubtitle" xml:space="preserve"><value>Os ícones que você personalizar aparecerão aqui</value></data><data name="Recent_EmptyTitle" xml:space="preserve"><value>Nenhum ícone recente</value></data><data name="Folders_EmptyTitle" xml:space="preserve"><value>Nenhuma pasta personalizada</value></data><data name="Settings_Appearance" xml:space="preserve"><value>Aparência</value></data><data name="Settings_SystemDefault" xml:space="preserve"><value>Padrão do sistema</value></data><data name="Settings_Light" xml:space="preserve"><value>Claro</value></data><data name="Settings_Dark" xml:space="preserve"><value>Escuro</value></data><data name="Settings_About" xml:space="preserve"><value>Sobre</value></data><data name="Settings_PrivacyStatement" xml:space="preserve"><value>O Ornare não tem conta, telemetria nem coleta de dados. O backup em nuvem opcional copia suas configurações para uma pasta escolhida por você e não envia nada por conta própria.</value></data><data name="Search_Placeholder" xml:space="preserve"><value>Pesquisar na biblioteca...</value></data><data name="Template_Classic" xml:space="preserve"><value>Clássico</value></data><data name="Template_Soft" xml:space="preserve"><value>Suave</value></data><data name="Template_Flat" xml:space="preserve"><value>Plano</value></data><data name="ErrorFolderNotCustomizable" xml:space="preserve"><value>Esta pasta não pode ser personalizada.</value></data><data name="ErrorUnexpected" xml:space="preserve"><value>Algo deu errado. Tente novamente.</value></data><data name="ErrorUndoFailed" xml:space="preserve"><value>Não foi possível desfazer a alteração do ícone.</value></data><data name="ErrorResetFailed" xml:space="preserve"><value>Não foi possível redefinir o ícone da pasta.</value></data><data name="ErrorNoFolderSelected" xml:space="preserve"><value>Nenhuma pasta selecionada.</value></data><data name="ErrorEmptyImage" xml:space="preserve"><value>Os dados da imagem estavam vazios.</value></data><data name="About_Title" xml:space="preserve"><value>Sobre o Ornare</value></data><data name="About_Description" xml:space="preserve"><value>Desenvolvedor: Vellium (vellium.dev)
+Personalização de pastas do Windows totalmente local e focada em privacidade.</value></data><data name="About_AcknowledgementsTitle" xml:space="preserve"><value>Agradecimentos de código aberto</value></data><data name="About_AcknowledgementsBody" xml:space="preserve"><value>- Microsoft Fluent UI System Icons (MIT)
+- Magick.NET (Apache-2.0)
+- Microsoft.Data.Sqlite / SQLitePCLRaw (MIT / Apache-2.0)
+- Windows App SDK &amp; WinUI 3 (Microsoft)
+- WinUIEx &amp; CommunityToolkit (MIT)
+- System.CommandLine (MIT)</value></data><data name="Collection_AssetCount" xml:space="preserve"><value>{0} ícones</value></data><data name="App_ShortcutDescription" xml:space="preserve"><value>Ornare - Personalizador de ícones de pasta</value></data><data name="Tray_Exit" xml:space="preserve"><value>Sair do Ornare</value></data></root>

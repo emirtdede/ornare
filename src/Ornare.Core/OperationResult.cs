@@ -29,7 +29,9 @@ public enum ErrorCode
     NoUndoAvailable,
     TargetChanged,
     NotCustomized,
-    UnsupportedTarget
+    UnsupportedTarget,
+    TargetIsCloudPlaceholder,
+    OperationBusy
 }
 
 public sealed class OperationResult

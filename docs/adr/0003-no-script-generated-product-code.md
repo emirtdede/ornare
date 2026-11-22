@@ -1,4 +1,4 @@
-# ADR 0003 — No script-generated product code or UI
+# ADR 0003 - No script-generated product code or UI
 
 Status: Accepted
 
