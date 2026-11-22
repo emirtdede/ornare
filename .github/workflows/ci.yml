@@ -61,8 +61,10 @@ jobs:
       - name: Tests (behaviour and contracts)
         run: dotnet test Ornare.slnx -c Release --no-build --filter "Category!=Performance&Category!=InstalledPackage" --logger "trx;LogFileName=behaviour.trx" --results-directory TestResults
 
+      # -m:1 runs one test project at a time. Timing gates measured while another assembly is
+      # rendering images or inserting ten thousand rows report the other assembly's work.
       - name: Tests (performance gates)
-        run: dotnet test Ornare.slnx -c Release --no-build --filter "Category=Performance" --logger "trx;LogFileName=performance.trx" --results-directory TestResults
+        run: dotnet test Ornare.slnx -c Release --no-build -m:1 --filter "Category=Performance" --logger "trx;LogFileName=performance.trx" --results-directory TestResults
 
       - name: Upload test results
         if: always()

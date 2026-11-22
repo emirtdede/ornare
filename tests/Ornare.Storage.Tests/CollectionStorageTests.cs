@@ -2,16 +2,33 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Ornare.Core;
 using Ornare.Storage;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Ornare.Storage.Tests;
 
 public sealed class CollectionStorageTests
 {
+    private readonly ITestOutputHelper? _output;
+
+    public CollectionStorageTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
+    /// <summary>Nearest-rank percentile over a sample set, so a gate states a distribution.</summary>
+    private static double Percentile(List<double> values, double percentile)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        int index = (int)Math.Ceiling(percentile * sorted.Count) - 1;
+        return sorted[Math.Clamp(index, 0, sorted.Count - 1)];
+    }
+
     private static string CreateTempDbPath() =>
         Path.Combine(Path.GetTempPath(), $"ornare_coll_test_{Guid.NewGuid():N}.db");
 
@@ -531,16 +548,33 @@ public sealed class CollectionStorageTests
                 tx.Commit();
             }
 
-            // JIT warm-up
-            await storage.GetAssetsInCollectionAsync(coll.Id, limit: 1, offset: 0);
+            // Warm up: the first calls after a 10,000-row transaction absorb JIT and the WAL
+            // checkpoint the bulk insert left behind. Neither is query cost.
+            for (int warmup = 0; warmup < 5; warmup++)
+            {
+                _ = await storage.GetAssetsInCollectionAsync(coll.Id, limit: 100, offset: 0);
+            }
 
-            // Benchmark paged query: fetching first page of 100 assets
-            var sw = Stopwatch.StartNew();
+            // Benchmark paged query: fetching the first page of 100 assets.
+            // A single timing cannot express a percentile, so the gate is the P95 of 100
+            // executions of the same query.
+            var latencies = new List<double>(100);
             var page = await storage.GetAssetsInCollectionAsync(coll.Id, limit: 100, offset: 0);
-            sw.Stop();
+            Assert.Equal(100, page.Count);
+            for (int i = 0; i < 100; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                page = await storage.GetAssetsInCollectionAsync(coll.Id, limit: 100, offset: 0);
+                sw.Stop();
+                latencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
 
             Assert.Equal(100, page.Count);
-            Assert.True(sw.ElapsedMilliseconds < 50, $"Indexed query took {sw.ElapsedMilliseconds} ms, expected < 50 ms");
+            double p95 = Percentile(latencies, 0.95);
+            _output?.WriteLine(
+                FormattableString.Invariant(
+                    $"Collection page P50={Percentile(latencies, 0.50):F2} ms, P95={p95:F2} ms"));
+            Assert.True(p95 < 50, $"Indexed query P95 took {p95:F2} ms, expected < 50 ms");
         }
         finally
         {

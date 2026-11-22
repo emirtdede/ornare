@@ -252,7 +252,9 @@ if (-not $SkipTests) {
     dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category!=Performance&Category!=InstalledPackage' | Out-Host
     if ($LASTEXITCODE -ne 0) { Add-Failure 'behaviour tests failed' } else { Write-Pass 'behaviour tests passed' }
 
-    dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category=Performance' | Out-Host
+    # -m:1 runs one test project at a time. Without it MSBuild starts the three assemblies
+    # together, and the imaging, storage and integration timings then measure each other.
+    dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo -m:1 --filter 'Category=Performance' | Out-Host
     if ($LASTEXITCODE -ne 0) { Add-Failure 'performance gates failed' } else { Write-Pass 'performance gates passed' }
 }
 

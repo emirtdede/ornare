@@ -2,16 +2,33 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Ornare.Core;
 using Ornare.Storage;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Ornare.Storage.Tests;
 
 public sealed class LibraryTagsStorageTests
 {
+    private readonly ITestOutputHelper? _output;
+
+    public LibraryTagsStorageTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
+    /// <summary>Nearest-rank percentile over a sample set, so a gate states a distribution.</summary>
+    private static double Percentile(List<double> values, double percentile)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        int index = (int)Math.Ceiling(percentile * sorted.Count) - 1;
+        return sorted[Math.Clamp(index, 0, sorted.Count - 1)];
+    }
+
     [Fact]
     public async Task VerifyForeignKeysEnabledOnStorageConnection()
     {
@@ -565,28 +582,61 @@ public sealed class LibraryTagsStorageTests
                 tx.Commit();
             }
 
-            // Benchmark 1: Query assets by tag among 10k assets / 5k tags
-            var sw = Stopwatch.StartNew();
-            var assets = await storage.GetAssetsByTagAsync("tag_42");
-            sw.Stop();
-
-            Assert.Equal(10, assets.Count);
-            // Must complete in well under 50 ms (indexed query usually takes < 2 ms)
-            Assert.True(sw.ElapsedMilliseconds < 50, $"Query by tag took {sw.ElapsedMilliseconds} ms, expected < 50 ms.");
-
-            // Benchmark 2: Bulk get tags for 100 assets
+            // Benchmark 1 and 2 share this sample set: 100 asset hashes spread across the table.
             var sampleHashes = new List<string>();
             for (int i = 0; i < 100; i++)
             {
                 sampleHashes.Add(i.ToString("D64", System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            sw.Restart();
+            // Warm up: the first calls after a 35,000-row transaction absorb JIT and the WAL
+            // checkpoint the bulk insert left behind. Neither is query cost.
+            for (int warmup = 0; warmup < 5; warmup++)
+            {
+                _ = await storage.GetAssetsByTagAsync("tag_42");
+                _ = await storage.GetTagsForAssetsAsync(sampleHashes);
+            }
+
+            // Benchmark 1: Query assets by tag among 10k assets / 5k tags.
+            // One timing of one query is a coin flip; the gate is the P95 of 100 executions,
+            // which still fails a real regression and no longer fails because the scheduler
+            // paused the thread once.
+            var singleQueryLatencies = new List<double>(100);
+            var assets = await storage.GetAssetsByTagAsync("tag_42");
+            Assert.Equal(10, assets.Count);
+            for (int i = 0; i < 100; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                assets = await storage.GetAssetsByTagAsync("tag_42");
+                sw.Stop();
+                singleQueryLatencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
+
+            Assert.Equal(10, assets.Count);
+            double queryP95 = Percentile(singleQueryLatencies, 0.95);
+            _output?.WriteLine(
+                FormattableString.Invariant(
+                    $"Tag query P50={Percentile(singleQueryLatencies, 0.50):F2} ms, P95={queryP95:F2} ms"));
+            // Must complete in well under 50 ms (indexed query usually takes < 2 ms)
+            Assert.True(queryP95 < 50, $"Query by tag P95 took {queryP95:F2} ms, expected < 50 ms.");
+
+            // Benchmark 2: Bulk get tags for 100 assets
+            var bulkLatencies = new List<double>(100);
             var tagsDict = await storage.GetTagsForAssetsAsync(sampleHashes);
-            sw.Stop();
+            for (int i = 0; i < 100; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                tagsDict = await storage.GetTagsForAssetsAsync(sampleHashes);
+                sw.Stop();
+                bulkLatencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
 
             Assert.Equal(100, tagsDict.Count);
-            Assert.True(sw.ElapsedMilliseconds < 50, $"Bulk get tags for 100 assets took {sw.ElapsedMilliseconds} ms, expected < 50 ms.");
+            double bulkP95 = Percentile(bulkLatencies, 0.95);
+            _output?.WriteLine(
+                FormattableString.Invariant(
+                    $"Bulk tag query P50={Percentile(bulkLatencies, 0.50):F2} ms, P95={bulkP95:F2} ms"));
+            Assert.True(bulkP95 < 50, $"Bulk get tags for 100 assets P95 took {bulkP95:F2} ms, expected < 50 ms.");
         }
         finally
         {
