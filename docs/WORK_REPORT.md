@@ -129,8 +129,10 @@ run proceeds, and the evidence is still a true rendering of the real window, not
 | Gate | Result |
 | :--- | :--- |
 | Release build, all projects | 0 errors, 0 warnings (warnings are errors in this repository) |
-| Behaviour suite (`Category!=Performance`) | 614 passed, 0 failed |
-| Performance gates (`Category=Performance`) | 13 passed, 0 failed |
+| Behaviour suite (`Category!=Performance&Category!=InstalledPackage`) | 606 passed, 0 failed |
+| Performance gates (`Category=Performance`) | 21 passed, 0 failed |
+| Installed package (`Category=InstalledPackage`) | 1 passed, 0 failed, run on the machine with the package installed |
+| CI workflow, `0e43b36` | build, behaviour, performance and static gates all green |
 | `scripts/quality-gate.ps1` end to end | all automatable gates passed, exit code 0 |
 | Localization parity | Enforced by test and by gate step 5: every key exists in all six complete locales |
 | Dash policy | 0 em dashes, 0 en dashes, 0 horizontal bars across source, resources, docs and scripts |

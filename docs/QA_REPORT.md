@@ -16,7 +16,7 @@ Three independent passes, in this order, and repeated until the third pass was c
 | Pass | Question | Evidence |
 | :--- | :--- | :--- |
 | Behaviour | Does the product do what the requirements say, on a real installed package? | Packaged MSIX, driven through UI Automation, captured in `docs/screenshots` |
-| Contracts | Do the layers agree with each other and with the specification? | 614 behaviour tests plus 13 performance gates |
+| Contracts | Do the layers agree with each other and with the specification? | 606 behaviour tests plus 21 performance gates |
 | Hygiene | Are there leaks in language, characters, assets, versions or repository layout? | Repository scans documented in section 6 |
 
 The passes were run against the **installed** application, not the build output, because package identity, resource loading, `MRT` lookup and the shell integration only exist once the package is deployed.
@@ -109,7 +109,7 @@ Captured as `manager-settings.png` (Turkish) and `manager-settings-en.png` (Engl
 
 ## 4. Test results
 
-Two runs, because the performance gates must not compete with the behaviour suite for CPU.
+Three runs, because the performance gates must not compete with the behaviour suite for CPU and one suite needs an installed package.
 
 ### Behaviour and contracts
 
@@ -117,23 +117,33 @@ Two runs, because the performance gates must not compete with the behaviour suit
 | :--- | ---: | ---: |
 | `Ornare.Core.Tests` | 133 | 0 |
 | `Ornare.UiTests` | 45 | 0 |
-| `Ornare.Storage.Tests` | 64 | 0 |
-| `Ornare.Imaging.Tests` | 212 | 0 |
-| `Ornare.IntegrationTests` | 160 | 0 |
-| **Total** | **614** | **0** |
+| `Ornare.Storage.Tests` | 62 | 0 |
+| `Ornare.Imaging.Tests` | 207 | 0 |
+| `Ornare.IntegrationTests` | 159 | 0 |
+| **Total** | **606** | **0** |
 
 ### Performance gates
 
 | Suite | Passed | Failed |
 | :--- | ---: | ---: |
-| `Ornare.Imaging.Tests` | 1 | 0 |
-| `Ornare.Storage.Tests` | 1 | 0 |
-| `Ornare.IntegrationTests` | 11 | 0 |
-| **Total** | **13** | **0** |
+| `Ornare.Imaging.Tests` | 6 | 0 |
+| `Ornare.Storage.Tests` | 3 | 0 |
+| `Ornare.IntegrationTests` | 12 | 0 |
+| **Total** | **21** | **0** |
 
-The tenth search benchmark moved from the behaviour run into the performance run during this audit. It measures wall clock latency, so it belongs with the other timing gates and must not share a parallel run with 600 other tests.
+Every timing assertion now lives in this run. The search benchmarks and the render, palette, emblem-search and template-load budgets used to sit inside the behaviour suite, where they shared a parallel run with hundreds of other tests and measured the scheduler as much as the product.
 
-Build: `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+### Installed package
+
+| Suite | Passed | Failed |
+| :--- | ---: | ---: |
+| `Ornare.IntegrationTests` (`Category=InstalledPackage`) | 1 | 0 |
+
+`VerifyInvokeLaunchesPackagedApplication` drives `IExplorerCommand.Invoke` and requires the packaged application to appear. It can only run where Ornare is installed and signed, so it is excluded from the CI run explicitly, with the reason in the workflow, and is run through `scripts/quality-gate.ps1 -InstalledPackageOnly` on the release machine.
+
+The numbers above are the CI run for commit `0e43b36`, which is the first run that also executed the performance job. Build: `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+
+The counts differ from the earlier draft of this report because three classification defects were fixed rather than papered over; finding 18 records them.
 
 New suites added for this release:
 
@@ -182,8 +192,10 @@ New suites added for this release:
 | 13 | The About panel advertised the licence as **MIT** while the repository licence is proprietary, and its link targeted `LICENSE`, a file that does not exist, so it opened a 404 | `AppInfo.LicenseDisplayName` is now `Proprietary` and `LicenseUrl` points at `LICENSE.md`; the shipped build was read back through UI Automation to confirm the label |
 | 14 | The acknowledgement list used a bullet character in four locales and a hyphen in two, so the same panel looked different depending on the chosen language | The bullet was replaced with `-` across `AppResources.cs` and the four affected `.resw` files; all six locales now render identically and the dash policy holds |
 | 15 | `Ornare.Storage.Tests` reported one failure that could not be reproduced. Two teardown paths deleted temp files without tolerating a handle that was still open: `LibraryStorageAndScaleTests` deleted inside a bare `finally`, and `CloudSyncServiceTests` caught only `IOException`. A throw from teardown replaces the real result with an infrastructure failure | Both now delete best effort, ignoring `IOException` and `UnauthorizedAccessException`, matching the pattern the other storage suites already used. Eight consecutive suite runs before the change and three after were green |
-| 16 | The first real CI run, which is the first time the suite ran on a clean machine, failed six tests that were green locally. The SVG provenance gate hashed checkout bytes, so a Windows line-ending conversion broke a hash that is a statement about the artwork; four shell-extension tests require the native DLL that `dotnet build` does not produce; and the ten-thousand-asset search benchmark ran inside the behaviour job where 600 other tests compete for the CPU | The provenance hash normalizes CRLF to LF before hashing and `.gitattributes` pins `*.svg` to LF; CI builds the shell extension with MSBuild before the test step; and the benchmark carries `Category=Performance`, warms up ten queries and samples 100 instead of 50 so P95 is not the second-worst single measurement. Verified locally: 614 behaviour tests, 13 performance gates, 0 failures |
+| 16 | The first real CI run, which is the first time the suite ran on a clean machine, failed six tests that were green locally. The SVG provenance gate hashed checkout bytes, so a Windows line-ending conversion broke a hash that is a statement about the artwork; four shell-extension tests require the native DLL that `dotnet build` does not produce; and the ten-thousand-asset search benchmark ran inside the behaviour job where 600 other tests compete for the CPU | The provenance hash normalizes CRLF to LF before hashing and `.gitattributes` pins `*.svg` to LF; CI builds the shell extension with MSBuild before the test step; and the benchmark carries `Category=Performance`, warms up ten queries and samples 100 instead of 50 so P95 is not the second-worst single measurement |
 | 17 | `scripts/quality-gate.ps1` called a deleted `spec-audit.ps1`, pointed at deleted `docs/QUALITY_GATES.md` and `templates/QUALITY_GATE_REPORT.md`, and its version step searched `AppInfo.cs` for a literal the file never contained, so the documented local gate could not pass and the CI version check would have thrown on its first run | The gate now reads the single `<Version>` in `Directory.Build.props` and compares it with `Package.appxmanifest` and `installer.rc`; the version check, dash policy, strict UTF-8, emoji, resource-parity and screenshot-reference scans are all implemented in one script that CI and a developer run identically |
+| 18 | The performance gates had never actually run in CI. The second job depended on the first, and the first failed, so the timing job was skipped; every earlier claim about performance gates was a local measurement only. Meanwhile six timing tests were classified as behaviour tests, so on CI they would have run in parallel with hundreds of others, and one behaviour test needed the installed package | The workflow now builds the shell extension before testing, the timing tests carry `Category=Performance`, the installed-package test carries its own category and a comment that explains the exclusion, and the first successful CI run executed all three groups: 606 behaviour, 21 performance, and the package test on the release machine |
+| 19 | While validating locally, the apply-latency gate failed at 726 to 984 ms against its 500 ms budget on a machine where spawning `cmd /c exit` took 150 to 200 ms, because a game and three IDEs were saturating all 16 threads. The same build met the budget minutes earlier and meets it in CI. The first hypothesis, that the product had regressed, was disproved by instrumenting the phases: initialisation, render and commit each scaled with host load rather than with any change in the tree | Recorded as an environment observation, not a threshold change. The budget stays at 500 ms. When the host went idle, `cmd /c exit` dropped to 14 to 31 ms and the same binaries passed all 21 gates, which is the evidence that the failure was the host and not the product. Lowering the number to turn a red run green would have hidden exactly the regression the gate exists to catch |
 
 ---
 

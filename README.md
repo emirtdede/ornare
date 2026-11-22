@@ -308,8 +308,11 @@ cd ornare
 dotnet build Ornare.slnx -c Release
 
 # Tests
-dotnet test Ornare.slnx -c Release --filter "Category!=Performance"
+dotnet test Ornare.slnx -c Release --filter "Category!=Performance&Category!=InstalledPackage"
 dotnet test Ornare.slnx -c Release --filter "Category=Performance"
+
+# The one test that needs the package installed and signed
+pwsh ./scripts/quality-gate.ps1 -InstalledPackageOnly
 
 # Package
 pwsh ./scripts/create-package.ps1
@@ -463,8 +466,11 @@ cd ornare
 
 dotnet build Ornare.slnx -c Release
 
-dotnet test Ornare.slnx -c Release --filter "Category!=Performance"
+dotnet test Ornare.slnx -c Release --filter "Category!=Performance&Category!=InstalledPackage"
 dotnet test Ornare.slnx -c Release --filter "Category=Performance"
+
+# Paketi kurulu makinede çalışan tek test
+pwsh ./scripts/quality-gate.ps1 -InstalledPackageOnly
 
 pwsh ./scripts/create-package.ps1
 ```
