@@ -16,7 +16,7 @@ Three independent passes, in this order, and repeated until the third pass was c
 | Pass | Question | Evidence |
 | :--- | :--- | :--- |
 | Behaviour | Does the product do what the requirements say, on a real installed package? | Packaged MSIX, driven through UI Automation, captured in `docs/screenshots` |
-| Contracts | Do the layers agree with each other and with the specification? | 615 behaviour tests plus 12 performance gates |
+| Contracts | Do the layers agree with each other and with the specification? | 614 behaviour tests plus 13 performance gates |
 | Hygiene | Are there leaks in language, characters, assets, versions or repository layout? | Repository scans documented in section 6 |
 
 The passes were run against the **installed** application, not the build output, because package identity, resource loading, `MRT` lookup and the shell integration only exist once the package is deployed.
@@ -117,17 +117,21 @@ Two runs, because the performance gates must not compete with the behaviour suit
 | :--- | ---: | ---: |
 | `Ornare.Core.Tests` | 133 | 0 |
 | `Ornare.UiTests` | 45 | 0 |
-| `Ornare.Storage.Tests` | 65 | 0 |
+| `Ornare.Storage.Tests` | 64 | 0 |
 | `Ornare.Imaging.Tests` | 212 | 0 |
 | `Ornare.IntegrationTests` | 160 | 0 |
-| **Total** | **615** | **0** |
+| **Total** | **614** | **0** |
 
 ### Performance gates
 
 | Suite | Passed | Failed |
 | :--- | ---: | ---: |
 | `Ornare.Imaging.Tests` | 1 | 0 |
+| `Ornare.Storage.Tests` | 1 | 0 |
 | `Ornare.IntegrationTests` | 11 | 0 |
+| **Total** | **13** | **0** |
+
+The tenth search benchmark moved from the behaviour run into the performance run during this audit. It measures wall clock latency, so it belongs with the other timing gates and must not share a parallel run with 600 other tests.
 
 Build: `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
 
@@ -178,6 +182,8 @@ New suites added for this release:
 | 13 | The About panel advertised the licence as **MIT** while the repository licence is proprietary, and its link targeted `LICENSE`, a file that does not exist, so it opened a 404 | `AppInfo.LicenseDisplayName` is now `Proprietary` and `LicenseUrl` points at `LICENSE.md`; the shipped build was read back through UI Automation to confirm the label |
 | 14 | The acknowledgement list used a bullet character in four locales and a hyphen in two, so the same panel looked different depending on the chosen language | The bullet was replaced with `-` across `AppResources.cs` and the four affected `.resw` files; all six locales now render identically and the dash policy holds |
 | 15 | `Ornare.Storage.Tests` reported one failure that could not be reproduced. Two teardown paths deleted temp files without tolerating a handle that was still open: `LibraryStorageAndScaleTests` deleted inside a bare `finally`, and `CloudSyncServiceTests` caught only `IOException`. A throw from teardown replaces the real result with an infrastructure failure | Both now delete best effort, ignoring `IOException` and `UnauthorizedAccessException`, matching the pattern the other storage suites already used. Eight consecutive suite runs before the change and three after were green |
+| 16 | The first real CI run, which is the first time the suite ran on a clean machine, failed six tests that were green locally. The SVG provenance gate hashed checkout bytes, so a Windows line-ending conversion broke a hash that is a statement about the artwork; four shell-extension tests require the native DLL that `dotnet build` does not produce; and the ten-thousand-asset search benchmark ran inside the behaviour job where 600 other tests compete for the CPU | The provenance hash normalizes CRLF to LF before hashing and `.gitattributes` pins `*.svg` to LF; CI builds the shell extension with MSBuild before the test step; and the benchmark carries `Category=Performance`, warms up ten queries and samples 100 instead of 50 so P95 is not the second-worst single measurement. Verified locally: 614 behaviour tests, 13 performance gates, 0 failures |
+| 17 | `scripts/quality-gate.ps1` called a deleted `spec-audit.ps1`, pointed at deleted `docs/QUALITY_GATES.md` and `templates/QUALITY_GATE_REPORT.md`, and its version step searched `AppInfo.cs` for a literal the file never contained, so the documented local gate could not pass and the CI version check would have thrown on its first run | The gate now reads the single `<Version>` in `Directory.Build.props` and compares it with `Package.appxmanifest` and `installer.rc`; the version check, dash policy, strict UTF-8, emoji, resource-parity and screenshot-reference scans are all implemented in one script that CI and a developer run identically |
 
 ---
 
@@ -211,7 +217,7 @@ These are stated rather than hidden, and none of them blocks the evaluation buil
 2. **ARM64 is built and signed but not qualified on hardware.** There is no ARM64 device in this environment, and inventing a test target is not acceptable. The scripts produce the ARM64 package; qualification is deferred to a machine with the hardware.
 3. **Windows 11 26H1 is not qualified** for the same reason: no supported hardware and build is available here.
 4. **The setup certificate is a development certificate.** Public distribution requires a trusted code-signing certificate and Store identity.
-5. **CI compiles and tests the managed solution.** The shell extension and the setup are C++ projects that need the Windows 11 26100 SDK, the MSIX packaging tools and, for the setup, a previously built MSIX payload to embed. CI therefore does not build them; `scripts/create-package.ps1` and `scripts/build-multiarch-release.ps1` do, and both were run on this machine. This is a stated gap in CI coverage rather than a claim that the C++ projects are covered.
+5. **CI compiles the managed solution and the x64 shell extension.** The setup is a C++ project that needs the Windows 11 26100 SDK, the MSIX packaging tools and a previously built MSIX payload to embed, so CI does not build it; `scripts/create-package.ps1` and `scripts/build-multiarch-release.ps1` do, and both were run on this machine. The ARM64 builds of both native projects are likewise produced by the release scripts rather than by CI. This is a stated gap in CI coverage rather than a claim that those artifacts are covered.
 
 ---
 

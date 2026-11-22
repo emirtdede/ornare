@@ -39,6 +39,22 @@ jobs:
       - name: Build (Release, warnings are errors)
         run: dotnet build Ornare.slnx -c Release --no-restore
 
+      # Several integration tests load the real shell extension rather than a stub, so the
+      # native DLL has to exist before the test step. Building it here keeps that coverage
+      # instead of quietly skipping it.
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build shell extension (x64)
+        shell: pwsh
+        run: |
+          msbuild src/Ornare.ShellExtension/Ornare.ShellExtension.vcxproj `
+            /p:Configuration=Release /p:Platform=x64 /t:Rebuild /nodeReuse:false /nologo
+          if ($LASTEXITCODE -ne 0) { throw "Shell extension build failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path 'src/Ornare.ShellExtension/x64/Release/Ornare.ShellExtension.dll')) {
+            throw 'Shell extension DLL was not produced'
+          }
+
       - name: Tests (behaviour and contracts)
         run: dotnet test Ornare.slnx -c Release --no-build --filter "Category!=Performance" --logger "trx;LogFileName=behaviour.trx" --results-directory TestResults
 

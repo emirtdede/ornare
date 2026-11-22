@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ImageMagick;
 using Ornare.Core;
@@ -237,7 +238,11 @@ public sealed class NineTemplatesAcceptanceGateTests : IDisposable
             Assert.True(File.Exists(svgPath), $"SVG file missing: {svgPath}");
 
             byte[] fileBytes = File.ReadAllBytes(svgPath);
-            string expectedHash = Convert.ToHexString(SHA256.HashData(fileBytes));
+            // Hash the logical content, not the checkout. The provenance record is a statement
+            // about the artwork, so a line-ending conversion on a different machine must not
+            // invalidate it; any real edit still changes the hash.
+            string normalized = Encoding.UTF8.GetString(fileBytes).Replace("\r\n", "\n", StringComparison.Ordinal);
+            string expectedHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
 
             Assert.Contains(expectedHash, provContent, StringComparison.OrdinalIgnoreCase);
         }

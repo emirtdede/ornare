@@ -500,6 +500,7 @@ public sealed class LibrarySearchStorageTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public async Task SyntheticMetadataSearchBenchmarkWarmCacheTenThousandAssets()
     {
         string tempDb = CreateTempDbPath();
@@ -555,9 +556,18 @@ public sealed class LibrarySearchStorageTests
             var warmResults = await service.SearchLibraryAsync("AssetWord 1");
             Assert.NotEmpty(warmResults);
 
-            // Execute 50 queries across varying prefix terms
+            // Discard a warm-up block: the first calls absorb JIT and page faults, which have
+            // nothing to do with query cost.
+            for (int warmup = 0; warmup < 10; warmup++)
+            {
+                await service.SearchLibraryAsync($"assetword_{warmup}");
+            }
+
+            // Execute 100 queries across varying prefix terms. The previous sample size of 50
+            // made P95 the second-worst single measurement, so one scheduling hiccup decided
+            // the verdict.
             var latencies = new List<double>();
-            for (int q = 0; q < 50; q++)
+            for (int q = 0; q < 100; q++)
             {
                 string term = $"assetword_{q * 7 % 500}";
                 var sw = Stopwatch.StartNew();
