@@ -207,6 +207,7 @@ public class ShellExtensionFlyoutTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void VerifyMenuConstructionPerformanceWithin10MsBudget()
     {
         string localDll = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\src\Ornare.ShellExtension\x64\Release\Ornare.ShellExtension.dll"));

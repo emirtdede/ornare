@@ -501,6 +501,7 @@ public sealed class LibraryTagsStorageTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public async Task IndexedTagQueryBenchmark10kAssets5kTags()
     {
         string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_bench_{Guid.NewGuid():N}.db");

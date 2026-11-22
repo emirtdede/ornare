@@ -236,6 +236,7 @@ public class SvgRecoloringTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void BenchmarkOneThousandBuiltInTemplateRecolors()
     {
         string semanticSvg = @"

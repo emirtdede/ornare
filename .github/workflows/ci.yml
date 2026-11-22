@@ -55,8 +55,11 @@ jobs:
             throw 'Shell extension DLL was not produced'
           }
 
+      # InstalledPackage is excluded: those tests activate the registered MSIX, and this agent
+      # has no installed package. They are run on a machine where Ornare is installed; see
+      # docs/QA_REPORT.md, which records that as a gate rather than as CI coverage.
       - name: Tests (behaviour and contracts)
-        run: dotnet test Ornare.slnx -c Release --no-build --filter "Category!=Performance" --logger "trx;LogFileName=behaviour.trx" --results-directory TestResults
+        run: dotnet test Ornare.slnx -c Release --no-build --filter "Category!=Performance&Category!=InstalledPackage" --logger "trx;LogFileName=behaviour.trx" --results-directory TestResults
 
       - name: Tests (performance gates)
         run: dotnet test Ornare.slnx -c Release --no-build --filter "Category=Performance" --logger "trx;LogFileName=performance.trx" --results-directory TestResults

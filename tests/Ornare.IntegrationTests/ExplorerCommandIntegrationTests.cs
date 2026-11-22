@@ -186,25 +186,13 @@ public class ExplorerCommandIntegrationTests
                 Assert.Equal(0, cmdState); // ECS_ENABLED = 0
                 _output.WriteLine($"GetState on valid directory verified: {cmdState} (ECS_ENABLED)");
 
-                // 5. Invoke launches Ornare
+                // 5. Invoke completes with S_OK. Whether the packaged application then starts
+                // is a property of the machine rather than of the command, so it is asserted by
+                // VerifyInvokeLaunchesPackagedApplication, which needs Ornare installed.
                 hr = command.Invoke(itemArray, IntPtr.Zero);
                 Assert.Equal(0, hr);
                 _output.WriteLine($"Invoke completed: HRESULT {hr}");
 
-                Thread.Sleep(2000);
-                var procs = Process.GetProcessesByName("Ornare.App");
-                _output.WriteLine($"Ornare.App running instances: {procs.Length}");
-                Assert.True(procs.Length > 0, "Packaged Ornare.App must launch following IExplorerCommand.Invoke");
-
-                foreach (var p in procs)
-                {
-                    try
-                    {
-                        p.Kill();
-                        p.WaitForExit();
-                    }
-                    catch { }
-                }
                 // Test GetState on file (must be ECS_DISABLED = 1)
                 string testFile = Path.Combine(testFolder, "sample_file.txt");
                 File.WriteAllText(testFile, "hello");
@@ -241,6 +229,110 @@ public class ExplorerCommandIntegrationTests
         {
             // Note: Do not call FreeLibrary(hModule) here as CLR COM infrastructure and thread-local
             // caches may still hold references; the test host process handles module unload on termination.
+        }
+    }
+
+    /// <summary>
+    /// Exercises the whole way from the shell to the packaged application: the command is
+    /// invoked and Ornare.App has to appear. The command activates the registered package, so
+    /// this test can only run on a machine where Ornare is installed and signed. It carries its
+    /// own category because a build agent has no installed package to activate; the release
+    /// gate runs it on the machine that installed the package, and CI does not pretend to.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "InstalledPackage")]
+    public void VerifyInvokeLaunchesPackagedApplication()
+    {
+        string dllPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\src\Ornare.ShellExtension\x64\Release\Ornare.ShellExtension.dll"));
+        Assert.True(File.Exists(dllPath), $"ShellExtension DLL must exist at {dllPath}");
+
+        IntPtr hModule = NativeShell.LoadLibrary(dllPath);
+        Assert.NotEqual(IntPtr.Zero, hModule);
+
+        string testFolder = Path.Combine(Path.GetTempPath(), $"ornare_cmd_launch_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testFolder);
+
+        try
+        {
+            IntPtr pFunc = NativeShell.GetProcAddress(hModule, "DllGetClassObject");
+            Assert.NotEqual(IntPtr.Zero, pFunc);
+            var dllGetClassObject = Marshal.GetDelegateForFunctionPointer<NativeShell.DllGetClassObjectDelegate>(pFunc);
+
+            Guid clsid = ClsidOrnareCommand;
+            Guid iidFactory = IidIClassFactory;
+            int hr = dllGetClassObject(ref clsid, ref iidFactory, out IntPtr pFactory);
+            Assert.Equal(0, hr);
+
+            IClassFactory factory = (IClassFactory)Marshal.GetObjectForIUnknown(pFactory);
+            Marshal.Release(pFactory);
+
+            Guid iidUnknown = new("00000000-0000-0000-C000-000000000046");
+            hr = factory.CreateInstance(null, ref iidUnknown, out IntPtr pUnk);
+            Assert.Equal(0, hr);
+
+            IExplorerCommand command = (IExplorerCommand)Marshal.GetObjectForIUnknown(pUnk);
+            Marshal.Release(pUnk);
+
+            NativeShell.SHCreateItemFromParsingName(testFolder, IntPtr.Zero, IidIShellItem, out IShellItem shellItem);
+            NativeShell.SHCreateShellItemArrayFromShellItem(shellItem, IidIShellItemArray, out IShellItemArray itemArray);
+
+            // A stale instance would make the launch assertion pass without the command doing
+            // anything, so the check starts from zero running instances.
+            foreach (var existing in Process.GetProcessesByName("Ornare.App"))
+            {
+                try
+                {
+                    existing.Kill();
+                    existing.WaitForExit();
+                }
+                catch
+                {
+                    // A process that refuses to stop will fail the assertion below, which is the
+                    // honest outcome; swallowing it here would hide the cause.
+                }
+            }
+
+            hr = command.Invoke(itemArray, IntPtr.Zero);
+            Assert.Equal(0, hr);
+
+            Process[] procs = Array.Empty<Process>();
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                Thread.Sleep(500);
+                procs = Process.GetProcessesByName("Ornare.App");
+                if (procs.Length > 0)
+                {
+                    break;
+                }
+            }
+
+            _output.WriteLine($"Invoke HRESULT {hr}, Ornare.App running instances: {procs.Length}");
+            Assert.True(procs.Length > 0, "Invoking the shell command must start the packaged Ornare.App");
+
+            foreach (var p in procs)
+            {
+                try
+                {
+                    p.Kill();
+                    p.WaitForExit();
+                }
+                catch
+                {
+                    // Same reasoning: the assertion above already proved the launch happened.
+                }
+            }
+
+            if (itemArray != null) Marshal.FinalReleaseComObject(itemArray);
+            if (shellItem != null) Marshal.FinalReleaseComObject(shellItem);
+            Marshal.FinalReleaseComObject(command);
+            Marshal.FinalReleaseComObject(factory);
+        }
+        finally
+        {
+            if (Directory.Exists(testFolder))
+            {
+                Directory.Delete(testFolder, true);
+            }
         }
     }
 }

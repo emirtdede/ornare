@@ -487,6 +487,7 @@ public sealed class CollectionStorageTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public async Task TenThousandAssetMembershipQueryBenchmarkUnder50Ms()
     {
         string tempDb = CreateTempDbPath();

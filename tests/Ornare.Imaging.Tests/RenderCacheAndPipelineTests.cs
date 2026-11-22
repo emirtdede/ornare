@@ -244,6 +244,7 @@ public class RenderCacheAndPipelineTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void BenchmarkRenderStageCacheMissVsCacheHitHitUnder5Ms()
     {
         string testDir = Path.Combine(Path.GetTempPath(), $"ornare_test_bench_{Guid.NewGuid():N}");

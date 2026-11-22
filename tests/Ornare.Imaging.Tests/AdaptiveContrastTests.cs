@@ -193,6 +193,7 @@ public sealed class AdaptiveContrastTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void BenchmarkPaletteGenerationTenThousandIterations()
     {
         // Warm-up JIT

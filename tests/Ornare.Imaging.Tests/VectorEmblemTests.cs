@@ -108,6 +108,7 @@ public sealed class VectorEmblemTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void LocalSearchMeetsP95FiftyMsBudgetAndFiltersCorrectly()
     {
         // Warm up

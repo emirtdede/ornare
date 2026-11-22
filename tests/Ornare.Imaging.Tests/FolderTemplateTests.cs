@@ -76,6 +76,7 @@ public sealed class FolderTemplateTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void CatalogMetadataLoadsInSubMillisecond()
     {
         // Warm up

@@ -2,7 +2,12 @@ param(
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
     [string]$Version = '1.0.0',
     [switch]$SkipBuild,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    # Runs only the tests that need Ornare installed and signed, because they activate the
+    # registered package through the shell command. They are excluded from the default run:
+    # a build agent has no installed package, and pretending otherwise would either fail
+    # every push or silently drop the coverage.
+    [switch]$InstalledPackageOnly
 )
 $ErrorActionPreference = 'Stop'
 
@@ -232,11 +237,19 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Add-Failure 'Release build failed' } else { Write-Pass 'Release build clean' }
 }
 
+if ($InstalledPackageOnly) {
+    Write-Host '9. Installed package'
+    dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category=InstalledPackage' | Out-Host
+    if ($LASTEXITCODE -ne 0) { Add-Failure 'installed-package tests failed' } else { Write-Pass 'installed-package tests passed' }
+}
+
 if (-not $SkipTests) {
     Write-Host '8. Tests'
     # The two categories run separately: the performance gates measure wall clock time and
-    # cannot share a parallel run with the behaviour suites.
-    dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category!=Performance' | Out-Host
+    # cannot share a parallel run with the behaviour suites. Tests marked InstalledPackage are
+    # excluded here because they activate the registered MSIX; that category is listed in
+    # docs/QA_REPORT.md as a gate for a machine where Ornare is installed.
+    dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category!=Performance&Category!=InstalledPackage' | Out-Host
     if ($LASTEXITCODE -ne 0) { Add-Failure 'behaviour tests failed' } else { Write-Pass 'behaviour tests passed' }
 
     dotnet test (Join-Path $Root 'Ornare.slnx') -c Release --no-build --nologo --filter 'Category=Performance' | Out-Host
