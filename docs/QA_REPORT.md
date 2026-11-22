@@ -131,7 +131,7 @@ Three runs, because the performance gates must not compete with the behaviour su
 | `Ornare.IntegrationTests` | 12 | 0 |
 | **Total** | **21** | **0** |
 
-Every timing assertion now lives in this run. The search benchmarks and the render, palette, emblem-search and template-load budgets used to sit inside the behaviour suite, where they shared a parallel run with hundreds of other tests and measured the scheduler as much as the product.
+Every timing assertion now lives in this run. The search benchmarks and the render, palette, emblem-search and template-load budgets used to sit inside the behaviour suite, where they shared a parallel run with hundreds of other tests and measured the scheduler as much as the product. The performance job runs one test assembly at a time (`-m:1`), so an imaging encode or a ten-thousand-row insert cannot be charged to a timing gate in another assembly; finding 20 records why that matters.
 
 ### Installed package
 
@@ -141,7 +141,7 @@ Every timing assertion now lives in this run. The search benchmarks and the rend
 
 `VerifyInvokeLaunchesPackagedApplication` drives `IExplorerCommand.Invoke` and requires the packaged application to appear. It can only run where Ornare is installed and signed, so it is excluded from the CI run explicitly, with the reason in the workflow, and is run through `scripts/quality-gate.ps1 -InstalledPackageOnly` on the release machine.
 
-The numbers above are the CI run for commit `0e43b36`, which is the first run that also executed the performance job. Build: `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+The numbers above are the CI run for commit `0adfe5d`, which is the latest green run: the build, 606 behaviour tests, 21 performance gates and the static gate job all passed. `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
 
 The counts differ from the earlier draft of this report because three classification defects were fixed rather than papered over; finding 18 records them.
 
