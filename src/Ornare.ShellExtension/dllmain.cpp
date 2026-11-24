@@ -1,4 +1,4 @@
-﻿#include <windows.h>
+#include <windows.h>
 #include <unknwn.h>
 #include <shobjidl_core.h>
 #include <shellapi.h>

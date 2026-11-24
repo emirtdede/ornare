@@ -1,4 +1,4 @@
-﻿namespace Ornare.App;
+namespace Ornare.App;
 
 using System.IO;
 using System.Runtime.InteropServices;

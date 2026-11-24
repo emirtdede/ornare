@@ -1,4 +1,4 @@
-﻿namespace Ornare.Core;
+namespace Ornare.Core;
 
 /// <summary>
 /// Why Windows may ignore a correct <c>desktop.ini</c>.

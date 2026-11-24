@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.IO;
 using Microsoft.Data.Sqlite;
 using Ornare.Core;

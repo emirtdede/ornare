@@ -1,4 +1,4 @@
-﻿namespace Ornare.App;
+namespace Ornare.App;
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
