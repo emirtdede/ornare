@@ -1,263 +1,22 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
+using System.Text;
 using Microsoft.Data.Sqlite;
 using Ornare.Core;
 
 namespace Ornare.Storage;
 
-public sealed class SqliteStorageService : IStorageService, IDisposable
+public sealed partial class SqliteStorageService : IStorageService, IDisposable
 {
     private string _connectionString = string.Empty;
     private bool _isInitialized;
     private bool _isReadOnly;
+    private bool _isDisposed;
     private readonly SemaphoreSlim _dbLock = new(1, 1);
 
-    public bool IsInitialized => _isInitialized;
+    public bool IsInitialized => _isInitialized && !_isDisposed;
     public bool IsReadOnly => _isReadOnly;
 
-    private void EnsureWritable()
-    {
-        if (_isReadOnly)
-        {
-            throw new InvalidOperationException("Cannot perform write operations on storage in read-only / DryRun mode.");
-        }
-    }
-
-    public async Task InitializeReadOnlyAsync(string? dbPath = null)
-    {
-        if (_isInitialized)
-        {
-            return;
-        }
-
-        await _dbLock.WaitAsync();
-        try
-        {
-            if (_isInitialized)
-            {
-                return;
-            }
-
-            SQLitePCL.Batteries_V2.Init();
-
-            string databasePath = dbPath ?? GetDefaultDbPath();
-            if (!File.Exists(databasePath))
-            {
-                _connectionString = new SqliteConnectionStringBuilder
-                {
-                    DataSource = ":memory:",
-                    Mode = SqliteOpenMode.Memory,
-                    ForeignKeys = true
-                }.ToString();
-            }
-            else
-            {
-                _connectionString = new SqliteConnectionStringBuilder
-                {
-                    DataSource = databasePath,
-                    Mode = SqliteOpenMode.ReadOnly,
-                    ForeignKeys = true
-                }.ToString();
-            }
-
-            _isReadOnly = true;
-            _isInitialized = true;
-        }
-        finally
-        {
-            _dbLock.Release();
-        }
-    }
-
-    public async Task InitializeAsync(string? dbPath = null)
-    {
-        if (_isInitialized)
-        {
-            return;
-        }
-
-        await _dbLock.WaitAsync();
-        try
-        {
-            if (_isInitialized)
-            {
-                return;
-            }
-
-            SQLitePCL.Batteries_V2.Init();
-
-            string databasePath = dbPath ?? GetDefaultDbPath();
-            string? dir = Path.GetDirectoryName(databasePath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            _connectionString = new SqliteConnectionStringBuilder
-            {
-                DataSource = databasePath,
-                Mode = SqliteOpenMode.ReadWriteCreate,
-                ForeignKeys = true
-            }.ToString();
-
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
-
-            using (var pragmaCmd = connection.CreateCommand())
-            {
-                pragmaCmd.CommandText = @"
-                    PRAGMA journal_mode = WAL;
-                    PRAGMA synchronous = NORMAL;
-                    PRAGMA foreign_keys = ON;
-                ";
-                await pragmaCmd.ExecuteNonQueryAsync();
-            }
-
-            int currentVersion = 0;
-            using (var versionCheckCmd = connection.CreateCommand())
-            {
-                versionCheckCmd.CommandText = "PRAGMA user_version;";
-                object? vObj = await versionCheckCmd.ExecuteScalarAsync();
-                currentVersion = vObj is long l ? (int)l : Convert.ToInt32(vObj, CultureInfo.InvariantCulture);
-            }
-
-            if (currentVersion == 0)
-            {
-                using var tx = connection.BeginTransaction();
-                using var command = connection.CreateCommand();
-                command.Transaction = tx;
-                command.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS folder_assignments (
-                        id TEXT PRIMARY KEY,
-                        folder_path TEXT NOT NULL UNIQUE,
-                        ownership_epoch_id TEXT NOT NULL,
-                        icon_relative_path TEXT NOT NULL,
-                        status INTEGER NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        volume_serial TEXT,
-                        file_id TEXT,
-                        current_asset_hash TEXT,
-                        conflict_state TEXT,
-                        volume_serial_number INTEGER,
-                        file_id_blob BLOB
-                    );
-
-                    CREATE TABLE IF NOT EXISTS folder_baselines (
-                        id TEXT PRIMARY KEY,
-                        folder_assignment_id TEXT NOT NULL,
-                        ownership_epoch_id TEXT NOT NULL,
-                        prior_semantics_json TEXT NOT NULL,
-                        captured_at TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS operation_journal (
-                        operation_id TEXT PRIMARY KEY,
-                        operation_kind INTEGER NOT NULL,
-                        target_folder_path TEXT NOT NULL,
-                        state INTEGER NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        target_asset_path TEXT,
-                        prior_semantics_json TEXT,
-                        new_semantics_json TEXT,
-                        error_details TEXT
-                    );
-
-                    CREATE TABLE IF NOT EXISTS assets (
-                        id TEXT PRIMARY KEY,
-                        sha256 TEXT UNIQUE NOT NULL,
-                        canonical_ico_path TEXT NOT NULL,
-                        source_format TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        last_used_at TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS favorites (
-                        asset_id TEXT PRIMARY KEY,
-                        created_at TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        folder_path TEXT NOT NULL,
-                        operation_id TEXT NOT NULL,
-                        previous_asset_hash TEXT,
-                        new_asset_hash TEXT NOT NULL,
-                        operation_type TEXT NOT NULL,
-                        timestamp TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS settings (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    );
-
-                    CREATE INDEX IF NOT EXISTS idx_journal_state ON operation_journal(state);
-                    CREATE INDEX IF NOT EXISTS idx_assets_sha256 ON assets(sha256);
-                    CREATE INDEX IF NOT EXISTS idx_assets_last_used ON assets(last_used_at DESC);
-                    CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
-                ";
-                await command.ExecuteNonQueryAsync();
-
-                // Safe column additions for existing folder_assignments table
-                string[] migrationColumns = ["volume_serial TEXT", "file_id TEXT", "current_asset_hash TEXT", "conflict_state TEXT"];
-                foreach (var col in migrationColumns)
-                {
-                    try
-                    {
-                        using var alterCmd = connection.CreateCommand();
-                        alterCmd.Transaction = tx;
-                        alterCmd.CommandText = $"ALTER TABLE folder_assignments ADD COLUMN {col};";
-                        await alterCmd.ExecuteNonQueryAsync();
-                    }
-                    catch (SqliteException)
-                    {
-                        // Column already exists, safe to ignore
-                    }
-                }
-
-                using var setV1Cmd = connection.CreateCommand();
-                setV1Cmd.Transaction = tx;
-                setV1Cmd.CommandText = "PRAGMA user_version = 1;";
-                await setV1Cmd.ExecuteNonQueryAsync();
-
-                tx.Commit();
-                currentVersion = 1;
-            }
-
-            if (currentVersion < 2)
-            {
-                await ApplyMigrationV2InternalAsync(connection, injectFailure: false);
-            }
-
-            if (currentVersion < 3)
-            {
-                await ApplyMigrationV3InternalAsync(connection, injectFailure: false);
-            }
-
-            if (currentVersion < 4)
-            {
-                await ApplyMigrationV4InternalAsync(connection, injectFailure: false);
-            }
-
-            if (currentVersion < 5)
-            {
-                await ApplyMigrationV5InternalAsync(connection, injectFailure: false);
-            }
-
-            if (currentVersion < 6)
-            {
-                await ApplyMigrationV6InternalAsync(connection, injectFailure: false);
-            }
-
-            _isInitialized = true;
-        }
-        finally
-        {
-            _dbLock.Release();
-        }
-    }
 
     public async Task RecordJournalEntryAsync(JournalEntry entry)
     {
@@ -586,12 +345,94 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
                     reconciledCount++;
                     break;
 
+                case JournalState.NeedsRepair:
+                    // A NeedsRepair entry means the icon may be on disk but the metadata rows
+                    // are missing. Never guess it away: if the live folder no longer shows an
+                    // Ornare icon the operation is genuinely gone and can be rolled back;
+                    // otherwise the entry stays pending so the user can run Repair.
+                    if (!LiveFolderStillOwnedByOrnare(entry.TargetFolderPath))
+                    {
+                        await UpdateJournalStateAsync(
+                            entry.OperationId,
+                            JournalState.RolledBack,
+                            "Reconciled at startup: the applied icon is no longer present");
+                        reconciledCount++;
+                    }
+
+                    break;
+
                 default:
                     break;
             }
         }
 
         return reconciledCount;
+    }
+
+    /// <summary>
+    /// True when the folder still shows an Ornare-owned icon: the owned ICO exists and the live
+    /// <c>desktop.ini</c> references the <c>.ornare</c> container. Reads raw bytes so the check
+    /// works for UTF-16, UTF-8 and legacy ANSI files without depending on an encoding guess.
+    /// </summary>
+    private static bool LiveFolderStillOwnedByOrnare(string folderPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            {
+                return false;
+            }
+
+            string iniPath = Path.Combine(folderPath, OrnareConstants.DesktopIniFileName);
+            string icoPath = Path.Combine(
+                folderPath, OrnareConstants.CanonicalFolderName, OrnareConstants.CustomIconFileName);
+
+            if (!File.Exists(iniPath) || !File.Exists(icoPath))
+            {
+                return false;
+            }
+
+            byte[] bytes = File.ReadAllBytes(iniPath);
+            return ContainsToken(bytes, OrnareConstants.CanonicalFolderName)
+                || ContainsToken(bytes, OrnareConstants.CanonicalFolderName.ToUpperInvariant());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool ContainsToken(byte[] haystack, string token)
+        => IndexOfBytes(haystack, Encoding.ASCII.GetBytes(token)) >= 0
+        || IndexOfBytes(haystack, Encoding.Unicode.GetBytes(token)) >= 0
+        || IndexOfBytes(haystack, Encoding.BigEndianUnicode.GetBytes(token)) >= 0;
+
+    private static int IndexOfBytes(byte[] haystack, byte[] needle)
+    {
+        if (needle.Length == 0 || haystack.Length < needle.Length)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (haystack[i + j] != needle[j])
+                {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     public async Task<IReadOnlyList<FolderAssignment>> GetAllFolderAssignmentsAsync()
@@ -1315,17 +1156,24 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public async Task<UserSettings> GetUserSettingsAsync()
     {
-        string theme = await GetSettingAsync("Theme") ?? UserSettings.SystemValue;
-        string language = await GetSettingAsync("Language") ?? UserSettings.SystemValue;
-        string? recentColorsRaw = await GetSettingAsync("RecentCustomColors");
-        string appIconId = await GetSettingAsync("AppIconId") ?? AppIconCatalog.DefaultId;
-        string accentRaw = await GetSettingAsync("AccentColor") ?? UserSettings.SystemValue;
-        string? uiScaleRaw = await GetSettingAsync("UiScalePercent");
-        string? onboardingRaw = await GetSettingAsync("OnboardingCompleted");
-        string? cloudEnabledRaw = await GetSettingAsync("CloudSyncEnabled");
-        string cloudProvider = await GetSettingAsync("CloudSyncProvider") ?? nameof(CloudSyncProviderKind.None);
-        string? cloudRoot = await GetSettingAsync("CloudSyncRoot");
-        string? cloudLastSync = await GetSettingAsync("CloudSyncLastSyncUtc");
+        // One connection, one lock acquisition, one query: the whole settings row set is read
+        // in a single round-trip and parsed in memory.
+        IReadOnlyDictionary<string, string> values = await GetAllSettingsAsync();
+
+        string Get(string key, string fallback) => values.TryGetValue(key, out string? v) ? v : fallback;
+        string? GetOptional(string key) => values.TryGetValue(key, out string? v) && !string.IsNullOrWhiteSpace(v) ? v : null;
+
+        string theme = Get("Theme", UserSettings.SystemValue);
+        string language = Get("Language", UserSettings.SystemValue);
+        string? recentColorsRaw = GetOptional("RecentCustomColors");
+        string appIconId = Get("AppIconId", AppIconCatalog.DefaultId);
+        string accentRaw = Get("AccentColor", UserSettings.SystemValue);
+        string? uiScaleRaw = GetOptional("UiScalePercent");
+        string? onboardingRaw = GetOptional("OnboardingCompleted");
+        string? cloudEnabledRaw = GetOptional("CloudSyncEnabled");
+        string cloudProvider = Get("CloudSyncProvider", nameof(CloudSyncProviderKind.None));
+        string? cloudRoot = GetOptional("CloudSyncRoot");
+        string? cloudLastSync = GetOptional("CloudSyncLastSyncUtc");
 
         IReadOnlyList<string> recentColors = Array.Empty<string>();
         if (!string.IsNullOrWhiteSpace(recentColorsRaw))
@@ -1370,35 +1218,86 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
     {
         EnsureInitialized();
         EnsureWritable();
-        await SetSettingAsync("Theme", settings.Theme);
-        await SetSettingAsync("Language", settings.Language);
+        ArgumentNullException.ThrowIfNull(settings);
+
         string recentColorsRaw = string.Join(";", settings.RecentCustomColors.Take(UserSettings.MaxRecentCustomColors));
-        await SetSettingAsync("RecentCustomColors", recentColorsRaw);
-        await SetSettingAsync("AccentColor", settings.AccentColor);
-        await SetSettingAsync("AppIconId", settings.AppIconId);
-        await SetSettingAsync(
-            "UiScalePercent",
-            UserSettings.ClampScalePercent(settings.UiScalePercent).ToString(CultureInfo.InvariantCulture));
-        await SetSettingAsync("OnboardingCompleted", settings.OnboardingCompleted ? "true" : "false");
-        await SetSettingAsync("CloudSyncEnabled", settings.CloudSyncEnabled ? "true" : "false");
-        await SetSettingAsync("CloudSyncProvider", settings.CloudSyncProvider);
-        await SetSettingAsync("CloudSyncRoot", settings.CloudSyncRoot ?? string.Empty);
-        await SetSettingAsync("CloudSyncLastSyncUtc", settings.CloudSyncLastSyncUtc ?? string.Empty);
-    }
 
-    private static string GetDefaultDbPath()
-    {
-        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localAppData, OrnareConstants.ApplicationName, "data", "ornare.db");
-    }
+        // Every setting is committed in one transaction: a crash can no longer leave a
+        // half-applied settings set (for example a new language with the old theme).
+        (string Key, string Value)[] values =
+        [
+            ("Theme", settings.Theme),
+            ("Language", settings.Language),
+            ("RecentCustomColors", recentColorsRaw),
+            ("AccentColor", settings.AccentColor),
+            ("AppIconId", settings.AppIconId),
+            ("UiScalePercent", UserSettings.ClampScalePercent(settings.UiScalePercent).ToString(CultureInfo.InvariantCulture)),
+            ("OnboardingCompleted", settings.OnboardingCompleted ? "true" : "false"),
+            ("CloudSyncEnabled", settings.CloudSyncEnabled ? "true" : "false"),
+            ("CloudSyncProvider", settings.CloudSyncProvider),
+            ("CloudSyncRoot", settings.CloudSyncRoot ?? string.Empty),
+            ("CloudSyncLastSyncUtc", settings.CloudSyncLastSyncUtc ?? string.Empty)
+        ];
 
-    private void EnsureInitialized()
-    {
-        if (!_isInitialized)
+        await _dbLock.WaitAsync();
+        try
         {
-            throw new InvalidOperationException("SqliteStorageService must be initialized before use.");
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction();
+
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+                INSERT INTO settings (key, value) VALUES (@key, @value)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            ";
+
+            SqliteParameter keyParameter = command.Parameters.Add("@key", SqliteType.Text);
+            SqliteParameter valueParameter = command.Parameters.Add("@value", SqliteType.Text);
+
+            foreach ((string key, string value) in values)
+            {
+                keyParameter.Value = key;
+                valueParameter.Value = value;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            transaction.Commit();
+        }
+        finally
+        {
+            _dbLock.Release();
         }
     }
+
+    private async Task<IReadOnlyDictionary<string, string>> GetAllSettingsAsync()
+    {
+        EnsureInitialized();
+        await _dbLock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT key, value FROM settings;";
+
+            Dictionary<string, string> values = new(StringComparer.Ordinal);
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                values[reader.GetString(0)] = reader.GetString(1);
+            }
+
+            return values;
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
 
     public async Task<RenderCacheEntry?> GetRenderCacheEntryAsync(string renderKey)
     {
@@ -1750,468 +1649,6 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
-    public async Task<int> GetCurrentSchemaVersionAsync()
-    {
-        EnsureInitialized();
-        await _dbLock.WaitAsync();
-        try
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA user_version;";
-            object? result = await cmd.ExecuteScalarAsync();
-            return result is long l ? (int)l : Convert.ToInt32(result, CultureInfo.InvariantCulture);
-        }
-        finally
-        {
-            _dbLock.Release();
-        }
-    }
-
-    public async Task ApplyForwardMigrationWithFailureInjectionAsync(int targetVersion, bool injectFailure)
-    {
-        EnsureInitialized();
-        await _dbLock.WaitAsync();
-        try
-        {
-            await ApplyMigrationForTestingAsync(_connectionString, targetVersion, injectFailure);
-        }
-        finally
-        {
-            _dbLock.Release();
-        }
-    }
-
-    public static async Task ApplyMigrationForTestingAsync(string connectionString, int targetVersion, bool injectFailure)
-    {
-        using var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync();
-
-        if (targetVersion == 2)
-        {
-            await ApplyMigrationV2InternalAsync(connection, injectFailure);
-        }
-        else if (targetVersion == 3)
-        {
-            await ApplyMigrationV3InternalAsync(connection, injectFailure);
-        }
-        else if (targetVersion == 4)
-        {
-            await ApplyMigrationV4InternalAsync(connection, injectFailure);
-        }
-        else if (targetVersion == 5)
-        {
-            await ApplyMigrationV5InternalAsync(connection, injectFailure);
-        }
-        else if (targetVersion == 6)
-        {
-            await ApplyMigrationV6InternalAsync(connection, injectFailure);
-        }
-    }
-
-    private static async Task ApplyMigrationV2InternalAsync(SqliteConnection connection, bool injectFailure)
-    {
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS render_cache (
-                    render_key TEXT PRIMARY KEY,
-                    recipe_version INTEGER NOT NULL,
-                    recipe_json TEXT NOT NULL,
-                    source_asset_hash TEXT NOT NULL,
-                    canonical_ico_path TEXT NOT NULL,
-                    frame_sizes TEXT NOT NULL,
-                    file_size_bytes INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    last_used_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_render_cache_source ON render_cache(source_asset_hash);
-                CREATE INDEX IF NOT EXISTS idx_render_cache_last_used ON render_cache(last_used_at DESC);
-            ";
-            await cmd.ExecuteNonQueryAsync();
-
-            try
-            {
-                using var alterCmd = connection.CreateCommand();
-                alterCmd.Transaction = tx;
-                alterCmd.CommandText = "ALTER TABLE folder_assignments ADD COLUMN render_key TEXT;";
-                await alterCmd.ExecuteNonQueryAsync();
-            }
-            catch (SqliteException ex)
-            {
-                // The column exists on an already-migrated database. Any other failure
-                // still surfaces on the next schema-dependent query.
-                System.Diagnostics.Trace.TraceWarning($"folder_assignments.render_key migration skipped: {ex.Message}");
-            }
-
-            try
-            {
-                using var alterCmd = connection.CreateCommand();
-                alterCmd.Transaction = tx;
-                alterCmd.CommandText = "ALTER TABLE history ADD COLUMN render_key TEXT;";
-                await alterCmd.ExecuteNonQueryAsync();
-            }
-            catch (SqliteException ex)
-            {
-                // Same idempotency contract as folder_assignments above.
-                System.Diagnostics.Trace.TraceWarning($"history.render_key migration skipped: {ex.Message}");
-            }
-
-            if (injectFailure)
-            {
-                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
-            }
-
-            using var setVersionCmd = connection.CreateCommand();
-            setVersionCmd.Transaction = tx;
-            setVersionCmd.CommandText = "PRAGMA user_version = 2;";
-            await setVersionCmd.ExecuteNonQueryAsync();
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    private static async Task ApplyMigrationV3InternalAsync(SqliteConnection connection, bool injectFailure)
-    {
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS tags (
-                    id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    normalized_name TEXT NOT NULL UNIQUE,
-                    created_utc INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS asset_tags (
-                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
-                    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-                    created_utc INTEGER NOT NULL,
-                    PRIMARY KEY (asset_hash, tag_id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_tags_normalized_name ON tags(normalized_name);
-                CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id ON asset_tags(tag_id);
-                CREATE INDEX IF NOT EXISTS idx_asset_tags_asset_hash ON asset_tags(asset_hash);
-            ";
-            await cmd.ExecuteNonQueryAsync();
-
-            if (injectFailure)
-            {
-                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
-            }
-
-            using var setVersionCmd = connection.CreateCommand();
-            setVersionCmd.Transaction = tx;
-            setVersionCmd.CommandText = "PRAGMA user_version = 3;";
-            await setVersionCmd.ExecuteNonQueryAsync();
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    private static async Task ApplyMigrationV4InternalAsync(SqliteConnection connection, bool injectFailure)
-    {
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS collections (
-                    id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
-                    normalized_name TEXT NOT NULL UNIQUE,
-                    sort_key INTEGER NOT NULL,
-                    created_utc INTEGER NOT NULL,
-                    updated_utc INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS collection_assets (
-                    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
-                    created_utc INTEGER NOT NULL,
-                    PRIMARY KEY (collection_id, asset_hash)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_collections_sort_key ON collections(sort_key ASC);
-                CREATE INDEX IF NOT EXISTS idx_collections_normalized_name ON collections(normalized_name);
-                CREATE INDEX IF NOT EXISTS idx_collection_assets_asset_hash ON collection_assets(asset_hash);
-                CREATE INDEX IF NOT EXISTS idx_collection_assets_collection_id ON collection_assets(collection_id);
-                CREATE INDEX IF NOT EXISTS idx_collection_assets_col_created ON collection_assets(collection_id, created_utc DESC);
-            ";
-            await cmd.ExecuteNonQueryAsync();
-
-            if (injectFailure)
-            {
-                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
-            }
-
-            using var setVersionCmd = connection.CreateCommand();
-            setVersionCmd.Transaction = tx;
-            setVersionCmd.CommandText = "PRAGMA user_version = 4;";
-            await setVersionCmd.ExecuteNonQueryAsync();
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    private static async Task ApplyMigrationV5InternalAsync(SqliteConnection connection, bool injectFailure)
-    {
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS asset_search_tokens (
-                    asset_hash TEXT NOT NULL REFERENCES assets(sha256) ON DELETE CASCADE,
-                    token TEXT NOT NULL,
-                    PRIMARY KEY (asset_hash, token)
-                );
-
-                CREATE TABLE IF NOT EXISTS tag_search_tokens (
-                    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-                    token TEXT NOT NULL,
-                    PRIMARY KEY (tag_id, token)
-                );
-
-                CREATE TABLE IF NOT EXISTS collection_search_tokens (
-                    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-                    token TEXT NOT NULL,
-                    PRIMARY KEY (collection_id, token)
-                );
-
-                CREATE TABLE IF NOT EXISTS search_index_state (
-                    index_version INTEGER PRIMARY KEY,
-                    phase TEXT NOT NULL,
-                    last_cursor TEXT,
-                    is_ready INTEGER NOT NULL,
-                    updated_utc INTEGER NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_asset_search_tokens_token ON asset_search_tokens(token ASC, asset_hash);
-                CREATE INDEX IF NOT EXISTS idx_tag_search_tokens_token ON tag_search_tokens(token ASC, tag_id);
-                CREATE INDEX IF NOT EXISTS idx_collection_search_tokens_token ON collection_search_tokens(token ASC, collection_id);
-            ";
-            await cmd.ExecuteNonQueryAsync();
-
-            try
-            {
-                using var alterCmd = connection.CreateCommand();
-                alterCmd.Transaction = tx;
-                alterCmd.CommandText = "ALTER TABLE assets ADD COLUMN display_name TEXT;";
-                await alterCmd.ExecuteNonQueryAsync();
-            }
-            catch (SqliteException)
-            {
-                // Column may already exist
-            }
-
-            if (injectFailure)
-            {
-                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
-            }
-
-            using var setVersionCmd = connection.CreateCommand();
-            setVersionCmd.Transaction = tx;
-            setVersionCmd.CommandText = "PRAGMA user_version = 5;";
-            await setVersionCmd.ExecuteNonQueryAsync();
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    private static async Task ApplyMigrationV6InternalAsync(SqliteConnection connection, bool injectFailure)
-    {
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            // 1. Add volume_serial_number (INTEGER) and file_id_blob (BLOB) to folder_assignments
-            try
-            {
-                using var alterCmd1 = connection.CreateCommand();
-                alterCmd1.Transaction = tx;
-                alterCmd1.CommandText = "ALTER TABLE folder_assignments ADD COLUMN volume_serial_number INTEGER;";
-                await alterCmd1.ExecuteNonQueryAsync();
-            }
-            catch (SqliteException)
-            {
-                // Column may already exist
-            }
-
-            try
-            {
-                using var alterCmd2 = connection.CreateCommand();
-                alterCmd2.Transaction = tx;
-                alterCmd2.CommandText = "ALTER TABLE folder_assignments ADD COLUMN file_id_blob BLOB;";
-                await alterCmd2.ExecuteNonQueryAsync();
-            }
-            catch (SqliteException)
-            {
-                // Column may already exist
-            }
-
-            // 2. Convert any existing legacy hex strings (volume_serial and file_id) to typed columns
-            bool hasLegacyVolSerial = false;
-            bool hasLegacyFileId = false;
-
-            using (var infoCmd = connection.CreateCommand())
-            {
-                infoCmd.Transaction = tx;
-                infoCmd.CommandText = "PRAGMA table_info(folder_assignments);";
-                using var infoReader = await infoCmd.ExecuteReaderAsync();
-                while (await infoReader.ReadAsync())
-                {
-                    string colName = infoReader.GetString(1);
-                    if (string.Equals(colName, "volume_serial", StringComparison.OrdinalIgnoreCase))
-                    {
-                        hasLegacyVolSerial = true;
-                    }
-                    else if (string.Equals(colName, "file_id", StringComparison.OrdinalIgnoreCase))
-                    {
-                        hasLegacyFileId = true;
-                    }
-                }
-            }
-
-            var existingRows = new List<(string id, string? volHex, string? fidHex)>();
-            if (hasLegacyVolSerial || hasLegacyFileId)
-            {
-                string volCol = hasLegacyVolSerial ? "volume_serial" : "NULL";
-                string fidCol = hasLegacyFileId ? "file_id" : "NULL";
-                using var selectCmd = connection.CreateCommand();
-                selectCmd.Transaction = tx;
-                selectCmd.CommandText = $"SELECT id, {volCol}, {fidCol} FROM folder_assignments WHERE {volCol} IS NOT NULL OR {fidCol} IS NOT NULL;";
-                using var reader = await selectCmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    existingRows.Add((
-                        reader.GetString(0),
-                        reader.IsDBNull(1) ? null : reader.GetString(1),
-                        reader.IsDBNull(2) ? null : reader.GetString(2)
-                    ));
-                }
-            }
-
-            foreach (var row in existingRows)
-            {
-                uint? volNum = null;
-                byte[]? fidBlob = null;
-
-                if (!string.IsNullOrWhiteSpace(row.volHex) &&
-                    uint.TryParse(row.volHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsedVol))
-                {
-                    volNum = parsedVol;
-                }
-
-                if (!string.IsNullOrWhiteSpace(row.fidHex) &&
-                    ulong.TryParse(row.fidHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong parsedFid))
-                {
-                    fidBlob = BitConverter.GetBytes(parsedFid);
-                }
-
-                if (volNum.HasValue || fidBlob != null)
-                {
-                    using var updateCmd = connection.CreateCommand();
-                    updateCmd.Transaction = tx;
-                    updateCmd.CommandText = @"
-                        UPDATE folder_assignments
-                        SET volume_serial_number = COALESCE(@volNum, volume_serial_number),
-                            file_id_blob = COALESCE(@blob, file_id_blob)
-                        WHERE id = @id;
-                    ";
-                    updateCmd.Parameters.AddWithValue("@volNum", (object?)volNum ?? DBNull.Value);
-                    updateCmd.Parameters.AddWithValue("@blob", (object?)fidBlob ?? DBNull.Value);
-                    updateCmd.Parameters.AddWithValue("@id", row.id);
-                    await updateCmd.ExecuteNonQueryAsync();
-                }
-            }
-
-            // 3. Create compound index on (volume_serial_number, file_id_blob)
-            using (var indexCmd = connection.CreateCommand())
-            {
-                indexCmd.Transaction = tx;
-                indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS idx_folder_assignments_identity ON folder_assignments(volume_serial_number, file_id_blob);";
-                await indexCmd.ExecuteNonQueryAsync();
-            }
-
-            if (injectFailure)
-            {
-                throw new InvalidOperationException("Injected forward migration failure for rollback verification.");
-            }
-
-            using var setVersionCmd = connection.CreateCommand();
-            setVersionCmd.Transaction = tx;
-            setVersionCmd.CommandText = "PRAGMA user_version = 6;";
-            await setVersionCmd.ExecuteNonQueryAsync();
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    #region F15: Library Tags Implementation
-
-    private async Task<SqliteConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken = default)
-    {
-        var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        using var pragmaCmd = connection.CreateCommand();
-        pragmaCmd.CommandText = "PRAGMA foreign_keys = ON;";
-        await pragmaCmd.ExecuteNonQueryAsync(cancellationToken);
-        return connection;
-    }
-
-    public async Task<bool> VerifyForeignKeysEnabledAsync()
-    {
-        EnsureInitialized();
-        await _dbLock.WaitAsync();
-        try
-        {
-            using var connection = await CreateOpenConnectionAsync();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA foreign_keys;";
-            object? result = await cmd.ExecuteScalarAsync();
-            return Convert.ToInt32(result, CultureInfo.InvariantCulture) == 1;
-        }
-        finally
-        {
-            _dbLock.Release();
-        }
-    }
 
     public async Task<LibraryTag> CreateOrGetTagAsync(string tagName)
     {
@@ -2582,8 +2019,6 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
             _dbLock.Release();
         }
     }
-
-    #endregion
 
     #region F16: Custom Collections Implementation
 
@@ -3846,7 +3281,12 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<string>> ExplainSearchQueryPlanAsync(string query)
+    /// <summary>
+    /// Returns the SQLite query plan for a library search. Diagnostic only: it exists so the
+    /// storage tests can prove the token index is actually used, and is not part of the
+    /// product's public storage contract.
+    /// </summary>
+    internal async Task<IReadOnlyList<string>> ExplainSearchQueryPlanAsync(string query)
     {
         EnsureInitialized();
         var queryTokens = LibrarySearchTokenizer.Tokenize(query);
@@ -3984,6 +3424,13 @@ public sealed class SqliteStorageService : IStorageService, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        _isInitialized = false;
         _dbLock.Dispose();
     }
 }

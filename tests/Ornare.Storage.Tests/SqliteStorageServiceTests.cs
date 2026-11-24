@@ -124,4 +124,156 @@ public class SqliteStorageServiceTests
             }
         }
     }
+
+    /// <summary>
+    /// A NeedsRepair entry whose folder no longer shows an Ornare icon is genuinely gone, so
+    /// startup reconciliation may roll it back (INV-TX-002).
+    /// </summary>
+    [Fact]
+    public async Task NeedsRepairEntryRollsBackWhenFolderNoLongerOwnedByOrnare()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_test_db_{Guid.NewGuid():N}.db");
+        string folder = Path.Combine(Path.GetTempPath(), $"ornare_needsrepair_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        using var storage = new SqliteStorageService();
+
+        try
+        {
+            await storage.InitializeAsync(tempDb);
+
+            await storage.RecordJournalEntryAsync(new JournalEntry
+            {
+                OperationId = Guid.NewGuid(),
+                Kind = OperationKind.Apply,
+                TargetFolderPath = folder,
+                State = JournalState.NeedsRepair,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+
+            int reconciled = await storage.ReconcileStartupAsync();
+
+            Assert.Equal(1, reconciled);
+            Assert.Empty(await storage.GetPendingJournalEntriesAsync());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(tempDb))
+            {
+                File.Delete(tempDb);
+            }
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A NeedsRepair entry whose folder still shows an Ornare icon must stay pending so the
+    /// user can run Repair; reconciliation must never guess it away (INV-FS-006).
+    /// </summary>
+    [Fact]
+    public async Task NeedsRepairEntryStaysPendingWhileFolderStillOwnedByOrnare()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_test_db_{Guid.NewGuid():N}.db");
+        string folder = Path.Combine(Path.GetTempPath(), $"ornare_needsrepair_{Guid.NewGuid():N}");
+        string ornareDir = Path.Combine(folder, OrnareConstants.CanonicalFolderName);
+        Directory.CreateDirectory(ornareDir);
+        File.WriteAllBytes(Path.Combine(ornareDir, OrnareConstants.CustomIconFileName), [0x00, 0x00, 0x01, 0x00]);
+        File.WriteAllText(
+            Path.Combine(folder, OrnareConstants.DesktopIniFileName),
+            "[.ShellClassInfo]\r\nIconResource=.ornare\\folder.ico,0\r\n");
+
+        using var storage = new SqliteStorageService();
+
+        try
+        {
+            await storage.InitializeAsync(tempDb);
+
+            await storage.RecordJournalEntryAsync(new JournalEntry
+            {
+                OperationId = Guid.NewGuid(),
+                Kind = OperationKind.Apply,
+                TargetFolderPath = folder,
+                State = JournalState.NeedsRepair,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+
+            int reconciled = await storage.ReconcileStartupAsync();
+
+            Assert.Equal(0, reconciled);
+            IReadOnlyList<JournalEntry> pending = await storage.GetPendingJournalEntriesAsync();
+            Assert.Single(pending);
+            Assert.Equal(JournalState.NeedsRepair, pending[0].State);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(tempDb))
+            {
+                File.Delete(tempDb);
+            }
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Settings are written in one transaction, so every value read back must match what was
+    /// saved (INV-DATA-001).
+    /// </summary>
+    [Fact]
+    public async Task SaveUserSettingsPersistsEveryField()
+    {
+        string tempDb = Path.Combine(Path.GetTempPath(), $"ornare_test_db_{Guid.NewGuid():N}.db");
+        using var storage = new SqliteStorageService();
+
+        try
+        {
+            await storage.InitializeAsync(tempDb);
+
+            var settings = new UserSettings
+            {
+                Theme = "Dark",
+                Language = "tr-TR",
+                AccentColor = "#123456",
+                AppIconId = "ornare-ocean",
+                UiScalePercent = 125,
+                OnboardingCompleted = true,
+                CloudSyncEnabled = true,
+                CloudSyncProvider = "Custom",
+                CloudSyncRoot = @"D:\Backup",
+                CloudSyncLastSyncUtc = "2026-01-02T03:04:05Z",
+                RecentCustomColors = ["#010203", "#0A0B0C"]
+            };
+
+            await storage.SaveUserSettingsAsync(settings);
+            UserSettings read = await storage.GetUserSettingsAsync();
+
+            Assert.Equal(settings.Theme, read.Theme);
+            Assert.Equal(settings.Language, read.Language);
+            Assert.Equal(settings.AccentColor, read.AccentColor);
+            Assert.Equal(settings.AppIconId, read.AppIconId);
+            Assert.Equal(settings.UiScalePercent, read.UiScalePercent);
+            Assert.Equal(settings.OnboardingCompleted, read.OnboardingCompleted);
+            Assert.Equal(settings.CloudSyncEnabled, read.CloudSyncEnabled);
+            Assert.Equal(settings.CloudSyncProvider, read.CloudSyncProvider);
+            Assert.Equal(settings.CloudSyncRoot, read.CloudSyncRoot);
+            Assert.Equal(settings.CloudSyncLastSyncUtc, read.CloudSyncLastSyncUtc);
+            Assert.Equal(settings.RecentCustomColors, read.RecentCustomColors);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(tempDb))
+            {
+                File.Delete(tempDb);
+            }
+        }
+    }
 }

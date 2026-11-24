@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Ornare.Core;
@@ -28,6 +29,9 @@ public sealed record CloudSyncWriteResult(bool Success, string? ErrorCode, int P
 public sealed class CloudSyncService
 {
     private static readonly char[] PathSeparators = { '\\', '/' };
+
+    /// <summary>Serialises snapshot writers inside this process.</summary>
+    private static readonly SemaphoreSlim WriteGate = new(1, 1);
 
     private readonly TimeProvider _time;
     private readonly string _fallbackRoot;
@@ -333,13 +337,37 @@ public sealed class CloudSyncService
             Settings = settings,
             Folders = assignments
                 .Select(a => new CloudFolderSnapshot(
-                    a.FolderPath,
+                    RedactFolderPath(a.FolderPath),
                     a.IconRelativePath,
                     a.Status.ToString(),
                     a.UpdatedAt))
                 .ToArray(),
             Collections = collections.Select(c => c.DisplayName).ToArray()
         };
+    }
+
+    /// <summary>
+    /// Records only the tail of a folder path in the snapshot. The cloud folder is read by
+    /// other machines and by the provider, so the user name and the full directory structure
+    /// never leave the device; the stable hash still lets two snapshots be compared.
+    /// </summary>
+    public static string RedactFolderPath(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = folderPath.TrimEnd(PathSeparators);
+        string leaf = Path.GetFileName(trimmed);
+        if (string.IsNullOrEmpty(leaf))
+        {
+            leaf = trimmed; // volume root, e.g. "D:\"
+        }
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(trimmed.ToUpperInvariant()));
+        string fingerprint = Convert.ToHexString(hash, 0, 8);
+        return $"{leaf}·{fingerprint}";
     }
 
     /// <summary>
@@ -355,6 +383,27 @@ public sealed class CloudSyncService
         ArgumentNullException.ThrowIfNull(location);
         ArgumentNullException.ThrowIfNull(snapshot);
 
+        // Serialise writers inside this process: the debounced background sync and the
+        // close-time flush could otherwise race on the same current/previous files and
+        // destroy the retained previous snapshot.
+        await WriteGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await WriteSnapshotCoreAsync(location, snapshot, allowEmptyOverwrite, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            WriteGate.Release();
+        }
+    }
+
+    private async Task<CloudSyncWriteResult> WriteSnapshotCoreAsync(
+        CloudSyncLocation location,
+        CloudSyncSnapshot snapshot,
+        bool allowEmptyOverwrite,
+        CancellationToken cancellationToken)
+    {
         if (!IsSafeDirectoryPath(location.RootPath) && !TryCreateDirectory(location.RootPath))
         {
             return CloudSyncWriteResult.Fail("FolderUnavailable");
@@ -373,7 +422,9 @@ public sealed class CloudSyncService
         }
 
         string json = JsonSerializer.Serialize(snapshot, FolderJsonContext.Default.CloudSyncSnapshot);
-        string tempPath = currentPath + ".tmp-" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // Unique temp name: a second process must never reuse (and truncate) this writer's temp.
+        string tempPath = currentPath + ".tmp-" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "-" + Guid.NewGuid().ToString("N");
 
         try
         {

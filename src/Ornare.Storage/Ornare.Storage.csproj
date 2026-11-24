@@ -13,4 +13,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite.Core" />
     <PackageReference Include="SQLitePCLRaw.bundle_winsqlite3" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- ExplainSearchQueryPlanAsync is a diagnostic used by the storage tests only. -->
+    <InternalsVisibleTo Include="Ornare.Storage.Tests" />
+  </ItemGroup>
 </Project>

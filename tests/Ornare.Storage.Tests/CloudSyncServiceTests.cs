@@ -195,6 +195,37 @@ public sealed class CloudSyncServiceTests : IDisposable
         Assert.Equal(Path.GetFullPath(_root), location.RootPath);
     }
 
+    [Fact]
+    public void RedactFolderPathKeepsLeafButNotTheFullPath()
+    {
+        string redacted = CloudSyncService.RedactFolderPath(@"C:\Users\alice\Documents\Projects\Website");
+
+        Assert.DoesNotContain("Users", redacted);
+        Assert.DoesNotContain("alice", redacted);
+        Assert.DoesNotContain(@"C:\", redacted);
+        Assert.StartsWith("Website", redacted);
+    }
+
+    [Fact]
+    public void RedactFolderPathIsStableForTheSamePathIgnoringCase()
+    {
+        string a = CloudSyncService.RedactFolderPath(@"C:\Work\Assets");
+        string b = CloudSyncService.RedactFolderPath(@"c:\work\assets");
+
+        // The fingerprint is the final 16 hex characters and is derived from the upper-cased
+        // path, so it matches even when the leaf's casing differs.
+        Assert.Equal(a[^16..], b[^16..]);
+    }
+
+    [Fact]
+    public void RedactFolderPathHandlesVolumeRoot()
+    {
+        string redacted = CloudSyncService.RedactFolderPath(@"D:\");
+
+        Assert.DoesNotContain(@"D:\", redacted);
+        Assert.NotEmpty(redacted);
+    }
+
     private sealed class FixedTimeProvider : TimeProvider
     {
         private readonly DateTimeOffset _now;
