@@ -25,6 +25,8 @@
 <div align="center">
 
 [![CI](https://img.shields.io/github/actions/workflow/status/emirtdede/ornare/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI&color=000000)](https://github.com/emirtdede/ornare/actions/workflows/ci.yml)
+[![Repository](https://img.shields.io/badge/Repository-emirtdede%2Fornare-000000?style=flat-square&logo=github&logoColor=white)](https://github.com/emirtdede/ornare)
+[![Sponsor](https://img.shields.io/badge/Sponsor-emirtdede-000000?style=flat-square&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/emirtdede)
 ![Release](https://img.shields.io/badge/Release-v1.0.0-000000?style=flat-square)
 ![WinUI 3](https://img.shields.io/badge/WinUI_3-Windows_App_SDK-000000?style=flat-square&logo=windows&logoColor=white)
 ![.NET](https://img.shields.io/badge/.NET-10_LTS-000000?style=flat-square&logo=dotnet&logoColor=white)
@@ -180,6 +182,8 @@ Ornare/
 │   ├── PERFORMANCE.md               # Budgets, gates and measurement method
 │   ├── QA_REPORT.md                 # Verification evidence, gates and known limits
 │   ├── QUALITY_GATES.md             # The automatable gates and their thresholds
+│   ├── RELEASE_CHECKLIST_GITHUB.md  # Channel checklist for a GitHub release
+│   ├── RELEASE_CHECKLIST_STORE.md   # Channel checklist for a Microsoft Store release
 │   ├── REQUIREMENTS_TRACEABILITY.md # Requirement -> code -> test mapping
 │   ├── SECURE_SDLC.md               # Security practices applied to the build
 │   └── THREAT_MODEL.md              # Assets, attackers and mitigations
@@ -265,7 +269,7 @@ flowchart TD
 
 | Path | Protection | Contents |
 | :--- | :--- | :--- |
-| `%LOCALAPPDATA%\Ornare\ornare.db` | SQLite WAL, transactional writes | Folder assignments, collections, settings, recent items |
+| `%LOCALAPPDATA%\Packages\Ornare_vs3ntcdctdza8\LocalCache\Local\Ornare\data\ornare.db` | SQLite WAL, transactional writes | Folder assignments, collections, settings, recent items |
 | `<folder>\.ornare\icon.ico` | Hidden, relative path | Durable folder icon |
 | `<folder>\desktop.ini` | Owned-semantics merge | Only Ornare-owned icon keys are touched |
 | `<cloud root>\Ornare\ornare-cloud-sync.json` | Atomic write + validation | Portable settings, folder and collection metadata |

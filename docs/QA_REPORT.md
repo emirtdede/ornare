@@ -227,10 +227,10 @@ Every scan below is implemented in `scripts/quality-gate.ps1`, which CI runs on 
 
 | Scan | Gate | Result |
 | :--- | :--- | :--- |
-| Em dash (U+2014), en dash (U+2013), horizontal bar (U+2015) | gate step 2 over `src`, `tests`, `docs`, `scripts` and the root documents | 0 in 355 files |
-| Invalid UTF-8 or U+FFFD replacement character | gate step 3, strict decoding of the same file set | 0 in 355 files |
-| UTF-8 byte order mark | gate step 3, first three bytes of every text file outside `bin`, `obj` and `production_artifacts` | 0 BOMs in 355 files (`.editorconfig` says `utf-8`, not `utf-8-bom`) |
-| Emoji in user-facing copy | gate step 4 over `src` XAML, `resw`, `AppResources*.cs`, `InstallerStrings.cpp` and `docs` | 0 in 47 files |
+| Em dash (U+2014), en dash (U+2013), horizontal bar (U+2015) | gate step 2 over `src`, `tests`, `docs`, `scripts` and the root documents | 0 in 357 files |
+| Invalid UTF-8 or U+FFFD replacement character | gate step 3, strict decoding of the same file set | 0 in 357 files |
+| UTF-8 byte order mark | gate step 3, first three bytes of every text file outside `bin`, `obj` and `production_artifacts` | 0 BOMs in 357 files (`.editorconfig` says `utf-8`, not `utf-8-bom`) |
+| Emoji in user-facing copy | gate step 4 over `src` XAML, `resw`, `AppResources*.cs`, `InstallerStrings.cpp` and `docs` | 0 in 49 files |
 | Resource parity | gate step 5, every locale compared key for key with `en-US` | 436 keys per locale, exact match in all six |
 | Version drift | gate step 1, `Directory.Build.props` vs `Package.appxmanifest` vs `installer.rc` | all `1.0.0` |
 | Dead documentation links to screenshots | gate step 6 over `docs/*.md` and `README.md` | 13 references, all resolve |
@@ -257,6 +257,11 @@ These are stated rather than hidden, and none of them blocks the evaluation buil
 ---
 
 ## 8. Release checklist
+
+The two distribution channels have separate procedures, because they differ in identity,
+signing, update control and legal surface: `docs/RELEASE_CHECKLIST_GITHUB.md` and
+`docs/RELEASE_CHECKLIST_STORE.md`. Both end with a sign-off table and a list of open items
+verified against the tree.
 
 | Item | State |
 | :--- | :--- |
