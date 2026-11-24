@@ -33,9 +33,9 @@ public static class InspectService
         {
             canonicalPath = Path.GetFullPath(folderPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return OperationResult.Failure<FolderInspectionResult>(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
+            return OperationResult.Failure<FolderInspectionResult>(ErrorCode.InvalidTarget, "The folder path is not valid.", ex.ToString());
         }
 
         if (!Directory.Exists(canonicalPath))

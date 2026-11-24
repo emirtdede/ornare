@@ -148,14 +148,14 @@ public static class FolderStagingService
         {
             canonicalPath = Path.GetFullPath(rawPath.Trim());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return new StagedFolderItem
             {
                 RawInputPath = rawPath,
                 CanonicalPath = rawPath,
                 IsValid = false,
-                RejectionReason = $"Invalid path format: {ex.Message}",
+                RejectionReason = "The folder path is not valid.",
                 ErrorCode = ErrorCode.InvalidTarget
             };
         }

@@ -39,9 +39,9 @@ public static class ResetService
         {
             canonicalPath = Path.GetFullPath(folderPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return OperationResult.Failure(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.InvalidTarget, "The folder path is not valid.", ex.ToString());
         }
 
         // 2. Synchronize concurrent operations on the same target folder. This must be the
@@ -220,9 +220,19 @@ public static class ResetService
 
             return OperationResult.Success();
         }
-        catch (Exception ex)
+        catch (UnauthorizedAccessException ex)
         {
-            return OperationResult.Failure(ErrorCode.FilesystemError, $"Reset failed due to an unexpected error: {ex.Message}");
+            return OperationResult.Failure(
+                ErrorCode.AccessDenied,
+                "Ornare does not have permission to reset this folder's icon.",
+                ex.ToString());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return OperationResult.Failure(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be reset.",
+                ex.ToString());
         }
     }
 }

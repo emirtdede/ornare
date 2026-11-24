@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using Ornare.Core;
 
 namespace Ornare.Windows;
@@ -8,32 +7,13 @@ namespace Ornare.Windows;
 /// <summary>
 /// Authoritative atomic exporter for Windows filesystem destinations (F13, F14).
 /// Guarantees that export writes to a uniquely named sibling temporary file (.ornare-export-{GUID}.tmp),
-/// flushes to disk, validates frames or dimensions, and commits using ReplaceFileW or MoveFileExW(MOVEFILE_WRITE_THROUGH).
-/// Never overwrites or truncates an existing destination in place.
+/// flushes to disk, validates frames or dimensions, and commits through
+/// <see cref="AtomicFileWriter"/> (ReplaceFileW when the destination exists, write-through rename
+/// otherwise). Never overwrites or truncates an existing destination in place.
 /// </summary>
 public static class AtomicExportWriter
 {
-    private const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
-    private const uint MOVEFILE_WRITE_THROUGH = 0x00000008;
-
     private static readonly byte[] PngHeaderMagic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "ReplaceFileW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReplaceFileW(
-        string lpReplacedFileName,
-        string lpReplacementFileName,
-        string? lpBackupFileName,
-        uint dwReplaceFlags,
-        IntPtr lpExclude,
-        IntPtr lpReserved);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "MoveFileExW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool MoveFileExW(
-        string lpExistingFileName,
-        string lpNewFileName,
-        uint dwFlags);
 
     /// <summary>
     /// Scans the destination directory strictly for '.ornare-export-*.tmp' files older than 24 hours
@@ -141,8 +121,8 @@ public static class AtomicExportWriter
             if (header[8] != 0 || header[9] != 0 || header[10] != 0 || header[11] != 13) return false;
             if (header[12] != 0x49 || header[13] != 0x48 || header[14] != 0x44 || header[15] != 0x52) return false;
 
-            width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
-            height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+            width = unchecked((header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19]);
+            height = unchecked((header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23]);
 
             if (width <= 0 || height <= 0) return false;
 
@@ -189,10 +169,12 @@ public static class AtomicExportWriter
         {
             Directory.CreateDirectory(destDir);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return OperationResult.Failure<string>(
-                ErrorCode.AccessDenied, $"Cannot create destination directory: {ex.Message}");
+                ErrorCode.AccessDenied,
+                "The export destination folder could not be created.",
+                ex.ToString());
         }
 
         // 1. Same-directory stale-temp cleanup rule
@@ -210,7 +192,9 @@ public static class AtomicExportWriter
         {
             TryDeleteFile(tempPath);
             return OperationResult.Failure<string>(
-                ErrorCode.FilesystemError, $"Failed to write temporary export file: {ex.Message}");
+                ErrorCode.FilesystemError,
+                "The export file could not be written.",
+                ex.ToString());
         }
 
         // 3. Validate temp file size/header before committing
@@ -221,31 +205,15 @@ public static class AtomicExportWriter
                 ErrorCode.ImageCorrupted, corruptErrorMessage);
         }
 
-        // 4. Commit: ReplaceFileW if destination exists; MoveFileExW if destination does not exist
-        bool destExisted = File.Exists(fullDestPath);
-        if (destExisted)
+        // 4. Commit atomically: ReplaceFileW when the destination exists, write-through rename
+        //    otherwise. Both live in AtomicFileWriter so the extended-path handling has one home.
+        if (!AtomicFileWriter.ReplaceOrCommit(tempPath, fullDestPath, out int commitError))
         {
-            bool replaced = ReplaceFileW(fullDestPath, tempPath, null, 0, IntPtr.Zero, IntPtr.Zero);
-            if (!replaced)
-            {
-                int err = Marshal.GetLastWin32Error();
-                TryDeleteFile(tempPath);
-                return OperationResult.Failure<string>(
-                    ErrorCode.UnsupportedExportDestination,
-                    $"Atomic destination replacement failed (Win32 error: {err}). Existing file preserved.");
-            }
-        }
-        else
-        {
-            bool moved = MoveFileExW(tempPath, fullDestPath, MOVEFILE_WRITE_THROUGH);
-            if (!moved)
-            {
-                int err = Marshal.GetLastWin32Error();
-                TryDeleteFile(tempPath);
-                return OperationResult.Failure<string>(
-                    ErrorCode.FilesystemError,
-                    $"Failed to publish export to destination (Win32 error: {err}).");
-            }
+            TryDeleteFile(tempPath);
+            return OperationResult.Failure<string>(
+                ErrorCode.FilesystemError,
+                "The export could not be saved to the chosen location.",
+                $"Atomic commit failed with Win32 error {commitError}.");
         }
 
         // 5. Final validation: reopen destination and verify integrity

@@ -86,9 +86,19 @@ public static class RepairEngine
 
             return OperationResult.Success();
         }
-        catch (Exception ex)
+        catch (UnauthorizedAccessException ex)
         {
-            return OperationResult.Failure(ErrorCode.FilesystemError, $"Failed to repair folder: {ex.Message}");
+            return OperationResult.Failure(
+                ErrorCode.AccessDenied,
+                "Ornare does not have permission to repair this folder's icon.",
+                ex.ToString());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return OperationResult.Failure(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be repaired.",
+                ex.ToString());
         }
     }
 }

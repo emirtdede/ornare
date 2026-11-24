@@ -31,6 +31,15 @@ public sealed class FolderCustomizer : IFolderCustomizer
 
         FolderIconSemantics liveSemantics = DesktopIniParser.ReadSemantics(folderPath);
 
+        // Explorer silently ignores a desktop.ini whose origin it cannot trust (Mark of the
+        // Web), so a present file is not the same as a rendered icon. Reporting Healthy here
+        // would be a false success; ConfigMismatch routes the user to Repair, which rewrites
+        // the file and clears the marker.
+        if (ShellTrustGuard.Diagnose(folderPath, iniPath) == FolderPresentationRisk.MarkOfTheWeb)
+        {
+            return FolderCustomizationState.ConfigMismatch;
+        }
+
         // Check for external icon conflict
         if (baseline != null)
         {
@@ -105,16 +114,23 @@ public sealed class FolderCustomizer : IFolderCustomizer
             File.Copy(stagedIcoPath, targetIcoPath, overwrite: true);
             File.SetAttributes(targetIcoPath, FileAttributes.Hidden | FileAttributes.System);
 
-            // 3. Merge desktop.ini
-            string currentIniContent = File.Exists(iniPath) ? DesktopIniParser.ReadFileWithEncodingFallback(iniPath) : string.Empty;
-            string updatedIniContent = DesktopIniParser.MergeSemanticsForApply(currentIniContent, RelativeIconSubPath);
+            // An Ornare-written icon can never legitimately be "downloaded from the internet".
+            // Clearing the marker (the Unblock-File equivalent) prevents Explorer from refusing
+            // to extract it after the June 2026 desktop.ini hardening.
+            ShellTrustGuard.NormalizeOwnedFiles(folderPath, targetIcoPath);
 
-            if (File.Exists(iniPath))
+            // 3. Merge desktop.ini atomically, preserving the file's original encoding, and
+            //    clear any inherited Mark of the Web so Explorer will not ignore the result.
+            OperationResult iniWrite = DesktopIniFileWriter.WriteMerged(
+                iniPath,
+                existing => DesktopIniParser.MergeSemanticsForApply(existing, RelativeIconSubPath));
+            if (!iniWrite.IsSuccess)
             {
-                File.SetAttributes(iniPath, FileAttributes.Normal);
+                return OperationResult.Failure<FolderIconSemantics>(
+                    iniWrite.ErrorCode,
+                    iniWrite.ErrorMessage ?? "desktop.ini could not be updated.",
+                    iniWrite.DiagnosticDetail);
             }
-            File.WriteAllText(iniPath, updatedIniContent, System.Text.Encoding.Unicode);
-            File.SetAttributes(iniPath, FileAttributes.Hidden | FileAttributes.System);
 
             // 4. Ensure folder has ReadOnly attribute (Windows requirement for custom folder icons)
             if (!folderAlreadyReadOnly)
@@ -156,7 +172,10 @@ public sealed class FolderCustomizer : IFolderCustomizer
                 int hr = ShellRefreshService.SHGetSetFolderCustomSettings(ref fcs, folderPath, ShellRefreshService.FcsForceWrite);
                 if (hr != 0)
                 {
-                    // Non-zero HRESULT is acceptable as desktop.ini was already committed
+                    // Non-zero HRESULT is acceptable: desktop.ini is already committed, so the
+                    // shell will still pick the icon up. Kept as a diagnostic hint only.
+                    System.Diagnostics.Trace.TraceWarning(
+                        $"SHGetSetFolderCustomSettings returned 0x{hr:X8} for '{folderPath}'.");
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -188,10 +207,26 @@ public sealed class FolderCustomizer : IFolderCustomizer
             // startup while the icon is already committed on disk (INV-FS-006).
             return OperationResult.Success(newSemantics);
         }
-        catch (Exception ex)
+        catch (UnauthorizedAccessException ex)
         {
             return OperationResult.Failure<FolderIconSemantics>(
-                ErrorCode.FilesystemError, $"Failed to customize folder: {ex.Message}");
+                ErrorCode.AccessDenied,
+                "Ornare does not have permission to change this folder's icon.",
+                ex.ToString());
+        }
+        catch (IOException ex)
+        {
+            return OperationResult.Failure<FolderIconSemantics>(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be written. The folder may be read-only or in use.",
+                ex.ToString());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return OperationResult.Failure<FolderIconSemantics>(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be applied.",
+                ex.ToString());
         }
     }
 
@@ -269,25 +304,17 @@ public sealed class FolderCustomizer : IFolderCustomizer
 
             onJournalStageChanged?.Invoke(JournalState.FilesystemStaged);
 
-            // Re-read live desktop.ini and merge baseline prior semantics
-            string currentIniContent = File.Exists(iniPath) ? DesktopIniParser.ReadFileWithEncodingFallback(iniPath) : string.Empty;
-            string restoredIniContent = DesktopIniParser.MergeSemanticsForReset(currentIniContent, baseline.PriorSemantics);
-
-            bool hasRemainingContent = !string.IsNullOrWhiteSpace(restoredIniContent.Trim());
-
-            if (hasRemainingContent)
+            // Re-read live desktop.ini, merge baseline prior semantics, and commit atomically
+            // while preserving the file's original encoding.
+            OperationResult iniReset = DesktopIniFileWriter.WriteMergedOrDelete(
+                iniPath,
+                existing => DesktopIniParser.MergeSemanticsForReset(existing, baseline.PriorSemantics));
+            if (!iniReset.IsSuccess)
             {
-                if (File.Exists(iniPath))
-                {
-                    File.SetAttributes(iniPath, FileAttributes.Normal);
-                }
-                File.WriteAllText(iniPath, restoredIniContent, System.Text.Encoding.Unicode);
-                File.SetAttributes(iniPath, FileAttributes.Hidden | FileAttributes.System);
-            }
-            else if (File.Exists(iniPath))
-            {
-                File.SetAttributes(iniPath, FileAttributes.Normal);
-                File.Delete(iniPath);
+                return OperationResult.Failure(
+                    iniReset.ErrorCode,
+                    iniReset.ErrorMessage ?? "desktop.ini could not be restored.",
+                    iniReset.DiagnosticDetail);
             }
 
             // Remove Ornare-owned icon files
@@ -336,10 +363,26 @@ public sealed class FolderCustomizer : IFolderCustomizer
             // Completed is emitted by the calling service after its own metadata writes.
             return OperationResult.Success();
         }
-        catch (Exception ex)
+        catch (UnauthorizedAccessException ex)
         {
             return OperationResult.Failure(
-                ErrorCode.FilesystemError, $"Failed to revert folder icon: {ex.Message}");
+                ErrorCode.AccessDenied,
+                "Ornare does not have permission to restore this folder's icon.",
+                ex.ToString());
+        }
+        catch (IOException ex)
+        {
+            return OperationResult.Failure(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be restored. The folder may be read-only or in use.",
+                ex.ToString());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return OperationResult.Failure(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be restored.",
+                ex.ToString());
         }
     }
 }

@@ -39,9 +39,9 @@ public static class UndoService
         {
             canonicalPath = Path.GetFullPath(folderPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return OperationResult.Failure(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.InvalidTarget, "The folder path is not valid.", ex.ToString());
         }
 
         // 2. Synchronize concurrent operations on the same target folder. Shared with
@@ -194,9 +194,19 @@ public static class UndoService
 
             return OperationResult.Success();
         }
-        catch (Exception ex)
+        catch (UnauthorizedAccessException ex)
         {
-            return OperationResult.Failure(ErrorCode.FilesystemError, $"Undo failed due to an unexpected error: {ex.Message}");
+            return OperationResult.Failure(
+                ErrorCode.AccessDenied,
+                "Ornare does not have permission to undo this folder's icon.",
+                ex.ToString());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return OperationResult.Failure(
+                ErrorCode.FilesystemError,
+                "The folder icon could not be undone.",
+                ex.ToString());
         }
     }
 }

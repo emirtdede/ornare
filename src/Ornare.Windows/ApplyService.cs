@@ -41,9 +41,9 @@ public static class ApplyService
         {
             canonicalPath = Path.GetFullPath(folderPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return OperationResult.Failure<ApplyOperationResult>(ErrorCode.InvalidTarget, $"Failed to resolve canonical path: {ex.Message}");
+            return OperationResult.Failure<ApplyOperationResult>(ErrorCode.InvalidTarget, "The folder path is not valid.", ex.ToString());
         }
 
         if (!File.Exists(stagedIcoPath))
@@ -208,10 +208,9 @@ public static class ApplyService
             }
         }
 
-        // No shell refresh here: FolderCustomizer.ApplyIcon already issued the
-        // targeted SHChangeNotify after committing desktop.ini and the ICO. Repeating
-        // it measured +195 ms per apply (the global invalidation re-walks every
-        // top-level window) with no additional visual result.
+        // No shell refresh here: FolderCustomizer.ApplyIcon already issues the targeted
+        // SHChangeNotify after committing desktop.ini and the ICO. A second, global
+        // invalidation would re-walk every top-level Explorer window for no visual gain.
 
         return OperationResult.Success(new ApplyOperationResult
         {

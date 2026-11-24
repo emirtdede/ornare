@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using Ornare.Core;
 using Windows.Win32;
 using Windows.Win32.UI.Shell;
 
@@ -10,7 +11,6 @@ public static class ShellRefreshService
     private const int ShcneUpdateItem = 0x00002000;
     private const int ShcneAttributes = 0x00000800;
     private const int ShcneUpdateDir = 0x00001000;
-    private const int ShcneAssocChanged = 0x08000000;
 
     private const uint ShcnfIdList = 0x0000;
     private const uint ShcnfPathW = 0x0005;
@@ -119,8 +119,18 @@ public static class ShellRefreshService
                     }
                 }
 
-                // 5. Invalidate Shell icon and thumbnail cache so Explorer views (including Desktop) redraw immediately
-                PInvoke.SHChangeNotify((SHCNE_ID)ShcneAssocChanged, (SHCNF_FLAGS)idFlags, null, null);
+                // 5. Drop only this folder's cached icon: notifying the owned ICO file is enough
+                // for Explorer to re-read it. A global SHCNE_ASSOCCHANGED would rebuild the
+                // entire Shell icon/thumbnail cache (hundreds of milliseconds, every open
+                // Explorer window) for a single folder change.
+                string icoPath = Path.Combine(folderPath, OrnareConstants.CanonicalFolderName, "folder.ico");
+                if (File.Exists(icoPath))
+                {
+                    fixed (char* pIco = icoPath)
+                    {
+                        PInvoke.SHChangeNotify((SHCNE_ID)ShcneUpdateItem, (SHCNF_FLAGS)pathFlags, pIco, null);
+                    }
+                }
             }
         }
         catch
