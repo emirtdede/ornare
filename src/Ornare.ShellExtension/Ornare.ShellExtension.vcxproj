@@ -61,6 +61,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ControlFlowGuard>Guard</ControlFlowGuard>
       <BufferSecurityCheck>true</BufferSecurityCheck>
+      <ExceptionHandling>Async</ExceptionHandling>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ORNARESHELLEXTENSION_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>

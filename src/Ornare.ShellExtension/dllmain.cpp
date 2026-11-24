@@ -1,4 +1,4 @@
-#include <windows.h>
+﻿#include <windows.h>
 #include <unknwn.h>
 #include <shobjidl_core.h>
 #include <shellapi.h>
@@ -315,17 +315,106 @@ namespace
 }
 
 // -----------------------------------------------------------------------------------------
-// Golden Path Command: "Set Folder Icon"
+// Launch plumbing
 // -----------------------------------------------------------------------------------------
-class OrnareExplorerCommand final : public IExplorerCommand
+// Four commands differ only in three values: the localized title, the protocol verb and the CLI
+// switch. Everything that used to be copied four times (ref counting, QueryInterface, the
+// CoTaskMemAlloc title buffer, the two-step protocol-then-CLI launch) lives here exactly once.
+// A duplicated IExplorerCommand implementation is the exact shape of bug that crashes Explorer,
+// because Explorer loads this DLL in-process: fixing a defect in one copy and not the others is
+// how the fourth command ends up dereferencing a null buffer.
+namespace
+{
+    // ShellExecuteExW reports success through hInstApp for legacy reasons: a value of 32 or
+    // less is an error code even when the call itself returned TRUE.
+    bool TryProtocolActivation(const std::wstring& uri) noexcept
+    {
+        SHELLEXECUTEINFOW sei = {};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = uri.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+
+        BOOL launched = ShellExecuteExW(&sei);
+        return launched && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32;
+    }
+
+    // Packaged activation is preferred; the unpackaged CLI exists for developer builds and for
+    // machines where the package registration is broken.
+    void LaunchCliFallback(const std::wstring& arguments) noexcept
+    {
+        wchar_t appExePath[MAX_PATH] = {};
+        if (!FindAppExe(appExePath, MAX_PATH))
+        {
+            return;
+        }
+
+        SHELLEXECUTEINFOW sei = {};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+        sei.lpVerb = L"open";
+        sei.lpFile = appExePath;
+        sei.lpParameters = arguments.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        ShellExecuteExW(&sei);
+    }
+
+    // cursorX/Y are only meaningful for the quick panel; negative means "no cursor hint".
+    void LaunchCommand(
+        const wchar_t* verb,
+        const wchar_t* cliSwitch,
+        const wchar_t* folderPath,
+        int cursorX,
+        int cursorY) noexcept
+    {
+        if (folderPath == nullptr || *folderPath == L'\0')
+        {
+            return;
+        }
+
+        std::wstring uri = L"ornare://";
+        uri += verb;
+        uri += L"?v=1&path=";
+        uri += UrlEncode(folderPath);
+        if (cursorX >= 0)
+        {
+            uri += L"&x=" + std::to_wstring(cursorX);
+            uri += L"&y=" + std::to_wstring(cursorY);
+        }
+
+        if (TryProtocolActivation(uri))
+        {
+            return;
+        }
+
+        std::wstring arguments = cliSwitch;
+        arguments += L" \"";
+        arguments += folderPath;
+        arguments += L"\"";
+        if (cursorX >= 0)
+        {
+            arguments += L" --x " + std::to_wstring(cursorX);
+            arguments += L" --y " + std::to_wstring(cursorY);
+        }
+
+        LaunchCliFallback(arguments);
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Shared IExplorerCommand implementation
+// -----------------------------------------------------------------------------------------
+class OrnareCommandBase : public IExplorerCommand
 {
 public:
-    OrnareExplorerCommand() : m_refCount(1)
+    OrnareCommandBase() : m_refCount(1)
     {
         g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
     }
 
-    ~OrnareExplorerCommand()
+    // Virtual because Release() deletes through an OrnareCommandBase pointer.
+    virtual ~OrnareCommandBase()
     {
         g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
     }
@@ -369,37 +458,53 @@ public:
     // IExplorerCommand
     IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
     {
-        if (ppszName == nullptr)
+        // Explorer runs this on its own threads and treats an escaped exception as a shell
+        // fault. Every method below is noexcept, so without a catch-all a std::bad_alloc from
+        // the CoTaskMem copy path would call std::terminate inside explorer.exe.
+        try
         {
-            return E_POINTER;
+            return CopyToCoTaskMem(TitleText(), ppszName);
         }
-
-        const wchar_t* title = GetLocalizedShellString(ShellStringId::SetFolderIcon);
-        size_t len = wcslen(title) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
+        catch (...)
         {
-            return E_OUTOFMEMORY;
+            return E_FAIL;
         }
-
-        wcscpy_s(buffer, len, title);
-        *ppszName = buffer;
-        return S_OK;
     }
 
     IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
     {
-        return GetAppIconPath(ppszIcon);
+        try
+        {
+            return GetAppIconPath(ppszIcon);
+        }
+        catch (...)
+        {
+            return E_FAIL;
+        }
     }
 
     IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
     {
-        if (ppszInfoTip == nullptr)
+        try
         {
-            return E_POINTER;
+            const wchar_t* tooltip = ToolTipText();
+            if (tooltip == nullptr || *tooltip == L'\0')
+            {
+                if (ppszInfoTip == nullptr)
+                {
+                    return E_POINTER;
+                }
+
+                *ppszInfoTip = nullptr;
+                return E_NOTIMPL;
+            }
+
+            return CopyToCoTaskMem(tooltip, ppszInfoTip);
         }
-        *ppszInfoTip = nullptr;
-        return E_NOTIMPL;
+        catch (...)
+        {
+            return E_FAIL;
+        }
     }
 
     IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
@@ -408,26 +513,43 @@ public:
         {
             return E_POINTER;
         }
-        *pguidCommandName = CLSID_OrnareCommand;
+        *pguidCommandName = CanonicalClsid();
         return S_OK;
     }
 
     IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
     {
-        return CheckTargetFolderState(psiItemArray, pcmdState);
+        try
+        {
+            return CheckTargetFolderState(psiItemArray, pcmdState);
+        }
+        catch (...)
+        {
+            return E_FAIL;
+        }
     }
 
     IFACEMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) noexcept override
     {
-        std::wstring folderPath;
-        if (!GetSingleFolderPath(psiItemArray, folderPath))
+        try
         {
-            return S_OK;
-        }
+            std::wstring folderPath;
+            if (!GetSingleFolderPath(psiItemArray, folderPath))
+            {
+                return S_OK;
+            }
 
-        POINT cursorPos = {};
-        GetCursorPos(&cursorPos);
-        LaunchOrnareApp(folderPath.c_str(), cursorPos.x, cursorPos.y);
+            // Explorer calls this on its UI thread. The command must never throw and never
+            // block, so the launch is fire-and-forget and every failure path returns S_OK.
+            // A failed launch is indistinguishable from a cancelled one from Explorer's
+            // point of view, so swallowing here is the correct behaviour.
+            InvokeCore(folderPath.c_str());
+        }
+        catch (...)
+        {
+            // Deliberately silent: an exception escaping into explorer.exe is worse than a
+            // command that appears to do nothing. The CLI fallback logs the real failure.
+        }
         return S_OK;
     }
 
@@ -451,613 +573,120 @@ public:
         return E_NOTIMPL;
     }
 
-private:
-    static void LaunchOrnareApp(const wchar_t* folderPath, int cursorX, int cursorY) noexcept
+protected:
+    virtual const wchar_t* TitleText() const noexcept = 0;
+    virtual const wchar_t* ToolTipText() const noexcept { return L""; }
+    virtual GUID CanonicalClsid() const noexcept { return GUID_NULL; }
+    virtual void InvokeCore(const wchar_t* folderPath) noexcept = 0;
+
+    static HRESULT CopyToCoTaskMem(const wchar_t* text, LPWSTR* destination) noexcept
     {
-        if (folderPath == nullptr || *folderPath == L'\0')
+        if (destination == nullptr)
         {
-            return;
+            return E_POINTER;
         }
 
-        // 1. Packaged protocol activation
-        std::wstring uri = L"ornare://set-folder?v=1&path=";
-        uri += UrlEncode(folderPath);
-        uri += L"&x=" + std::to_wstring(cursorX);
-        uri += L"&y=" + std::to_wstring(cursorY);
-
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.lpVerb = L"open";
-        sei.lpFile = uri.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-
-        BOOL protocolSuccess = ShellExecuteExW(&sei);
-        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
+        if (text == nullptr)
         {
-            return;
+            return E_INVALIDARG;
         }
 
-        // 2. Unpackaged CLI fallback
-        wchar_t appExePath[MAX_PATH] = {};
-        if (FindAppExe(appExePath, MAX_PATH))
+        size_t length = wcslen(text) + 1;
+        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(length * sizeof(wchar_t)));
+        if (buffer == nullptr)
         {
-            std::wstring args = L"--set-folder \"";
-            args += folderPath;
-            args += L"\" --x ";
-            args += std::to_wstring(cursorX);
-            args += L" --y ";
-            args += std::to_wstring(cursorY);
-
-            SHELLEXECUTEINFOW exeSei = {};
-            exeSei.cbSize = sizeof(exeSei);
-            exeSei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-            exeSei.lpVerb = L"open";
-            exeSei.lpFile = appExePath;
-            exeSei.lpParameters = args.c_str();
-            exeSei.nShow = SW_SHOWNORMAL;
-            ShellExecuteExW(&exeSei);
+            return E_OUTOFMEMORY;
         }
+
+        wcscpy_s(buffer, length, text);
+        *destination = buffer;
+        return S_OK;
     }
 
+private:
     LONG m_refCount;
+};
+
+// -----------------------------------------------------------------------------------------
+// Golden Path Command: "Set Folder Icon"
+// -----------------------------------------------------------------------------------------
+class OrnareExplorerCommand final : public OrnareCommandBase
+{
+protected:
+    const wchar_t* TitleText() const noexcept override
+    {
+        return GetLocalizedShellString(ShellStringId::SetFolderIcon);
+    }
+
+    GUID CanonicalClsid() const noexcept override
+    {
+        return CLSID_OrnareCommand;
+    }
+
+    void InvokeCore(const wchar_t* folderPath) noexcept override
+    {
+        POINT cursorPos = {};
+        GetCursorPos(&cursorPos);
+        LaunchCommand(L"set-folder", L"--set-folder", folderPath, cursorPos.x, cursorPos.y);
+    }
 };
 
 // -----------------------------------------------------------------------------------------
 // Child Command: "Apply last icon" (F21)
 // -----------------------------------------------------------------------------------------
-class OrnareApplyLastCommand final : public IExplorerCommand
+class OrnareApplyLastCommand final : public OrnareCommandBase
 {
-public:
-    OrnareApplyLastCommand() : m_refCount(1)
+protected:
+    const wchar_t* TitleText() const noexcept override
     {
-        g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
+        return GetLocalizedShellString(ShellStringId::ApplyLastIcon);
     }
 
-    ~OrnareApplyLastCommand()
+    void InvokeCore(const wchar_t* folderPath) noexcept override
     {
-        g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
+        LaunchCommand(L"apply-last", L"--apply-last", folderPath, -1, -1);
     }
-
-    // IUnknown
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) noexcept override
-    {
-        if (ppv == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        if (InlineIsEqualGUID(riid, IID_IUnknown) ||
-            InlineIsEqualGUID(riid, __uuidof(IExplorerCommand)) ||
-            InlineIsEqualGUID(riid, IID_IExplorerCommand_Explicit))
-        {
-            *ppv = static_cast<IExplorerCommand*>(this);
-            AddRef();
-            return S_OK;
-        }
-
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() noexcept override
-    {
-        return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
-    }
-
-    IFACEMETHODIMP_(ULONG) Release() noexcept override
-    {
-        ULONG count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
-        if (count == 0)
-        {
-            delete this;
-        }
-        return count;
-    }
-
-    // IExplorerCommand
-    IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
-    {
-        if (ppszName == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        const wchar_t* title = GetLocalizedShellString(ShellStringId::ApplyLastIcon);
-        size_t len = wcslen(title) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        wcscpy_s(buffer, len, title);
-        *ppszName = buffer;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
-    {
-        return GetAppIconPath(ppszIcon);
-    }
-
-    IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
-    {
-        if (ppszInfoTip == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppszInfoTip = nullptr;
-        return E_NOTIMPL;
-    }
-
-    IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
-    {
-        if (pguidCommandName == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pguidCommandName = GUID_NULL;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
-    {
-        return CheckTargetFolderState(psiItemArray, pcmdState);
-    }
-
-    IFACEMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) noexcept override
-    {
-        std::wstring folderPath;
-        if (!GetSingleFolderPath(psiItemArray, folderPath))
-        {
-            return S_OK;
-        }
-
-        LaunchApplyLast(folderPath.c_str());
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) noexcept override
-    {
-        if (pFlags == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pFlags = ECF_DEFAULT;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) noexcept override
-    {
-        if (ppEnum == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppEnum = nullptr;
-        return E_NOTIMPL;
-    }
-
-private:
-    static void LaunchApplyLast(const wchar_t* folderPath) noexcept
-    {
-        if (folderPath == nullptr || *folderPath == L'\0')
-        {
-            return;
-        }
-
-        // 1. Packaged protocol activation: ornare://apply-last?v=1&path=<url_encoded_path>
-        std::wstring uri = L"ornare://apply-last?v=1&path=";
-        uri += UrlEncode(folderPath);
-
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.lpVerb = L"open";
-        sei.lpFile = uri.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-
-        BOOL protocolSuccess = ShellExecuteExW(&sei);
-        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
-        {
-            return;
-        }
-
-        // 2. Unpackaged CLI fallback: Ornare.App.exe --apply-last "<folderPath>"
-        wchar_t appExePath[MAX_PATH] = {};
-        if (FindAppExe(appExePath, MAX_PATH))
-        {
-            std::wstring args = L"--apply-last \"";
-            args += folderPath;
-            args += L"\"";
-
-            SHELLEXECUTEINFOW exeSei = {};
-            exeSei.cbSize = sizeof(exeSei);
-            exeSei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-            exeSei.lpVerb = L"open";
-            exeSei.lpFile = appExePath;
-            exeSei.lpParameters = args.c_str();
-            exeSei.nShow = SW_SHOWNORMAL;
-            ShellExecuteExW(&exeSei);
-        }
-    }
-
-    LONG m_refCount;
 };
 
 // -----------------------------------------------------------------------------------------
 // Subcommand 2: "Undo" / "Geri Al"
 // -----------------------------------------------------------------------------------------
-class OrnareUndoCommand final : public IExplorerCommand
+class OrnareUndoCommand final : public OrnareCommandBase
 {
-public:
-    OrnareUndoCommand() : m_refCount(1)
+protected:
+    const wchar_t* TitleText() const noexcept override
     {
-        g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
+        return GetLocalizedShellString(ShellStringId::Undo);
     }
 
-    ~OrnareUndoCommand()
+    void InvokeCore(const wchar_t* folderPath) noexcept override
     {
-        g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
+        LaunchCommand(L"undo", L"--undo", folderPath, -1, -1);
     }
-
-    // IUnknown
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) noexcept override
-    {
-        if (ppv == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        if (InlineIsEqualGUID(riid, IID_IUnknown) ||
-            InlineIsEqualGUID(riid, __uuidof(IExplorerCommand)) ||
-            InlineIsEqualGUID(riid, IID_IExplorerCommand_Explicit))
-        {
-            *ppv = static_cast<IExplorerCommand*>(this);
-            AddRef();
-            return S_OK;
-        }
-
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() noexcept override
-    {
-        return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
-    }
-
-    IFACEMETHODIMP_(ULONG) Release() noexcept override
-    {
-        ULONG count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
-        if (count == 0)
-        {
-            delete this;
-        }
-        return count;
-    }
-
-    // IExplorerCommand
-    IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
-    {
-        if (ppszName == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        const wchar_t* title = GetLocalizedShellString(ShellStringId::Undo);
-        size_t len = wcslen(title) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        wcscpy_s(buffer, len, title);
-        *ppszName = buffer;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
-    {
-        return GetAppIconPath(ppszIcon);
-    }
-
-    IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
-    {
-        if (ppszInfoTip == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppszInfoTip = nullptr;
-        return E_NOTIMPL;
-    }
-
-    IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
-    {
-        if (pguidCommandName == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pguidCommandName = GUID_NULL;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
-    {
-        return CheckTargetFolderState(psiItemArray, pcmdState);
-    }
-
-    IFACEMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) noexcept override
-    {
-        std::wstring folderPath;
-        if (!GetSingleFolderPath(psiItemArray, folderPath))
-        {
-            return S_OK;
-        }
-
-        LaunchUndo(folderPath.c_str());
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) noexcept override
-    {
-        if (pFlags == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pFlags = ECF_DEFAULT;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) noexcept override
-    {
-        if (ppEnum == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppEnum = nullptr;
-        return E_NOTIMPL;
-    }
-
-private:
-    static void LaunchUndo(const wchar_t* folderPath) noexcept
-    {
-        if (folderPath == nullptr || *folderPath == L'\0')
-        {
-            return;
-        }
-
-        // 1. Packaged protocol activation: ornare://undo?v=1&path=<url_encoded_path>
-        std::wstring uri = L"ornare://undo?v=1&path=";
-        uri += UrlEncode(folderPath);
-
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.lpVerb = L"open";
-        sei.lpFile = uri.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-
-        BOOL protocolSuccess = ShellExecuteExW(&sei);
-        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
-        {
-            return;
-        }
-
-        // 2. Unpackaged CLI fallback: Ornare.App.exe --undo "<folderPath>"
-        wchar_t appExePath[MAX_PATH] = {};
-        if (FindAppExe(appExePath, MAX_PATH))
-        {
-            std::wstring args = L"--undo \"";
-            args += folderPath;
-            args += L"\"";
-
-            SHELLEXECUTEINFOW exeSei = {};
-            exeSei.cbSize = sizeof(exeSei);
-            exeSei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-            exeSei.lpVerb = L"open";
-            exeSei.lpFile = appExePath;
-            exeSei.lpParameters = args.c_str();
-            exeSei.nShow = SW_SHOWNORMAL;
-            ShellExecuteExW(&exeSei);
-        }
-    }
-
-    LONG m_refCount;
 };
 
 // -----------------------------------------------------------------------------------------
-// Subcommand 3: "Reset" / "Sıfırla"
+// Subcommand 3: "Reset" / "SÄ±fÄ±rla"
 // -----------------------------------------------------------------------------------------
-class OrnareResetCommand final : public IExplorerCommand
+class OrnareResetCommand final : public OrnareCommandBase
 {
-public:
-    OrnareResetCommand() : m_refCount(1)
+protected:
+    const wchar_t* TitleText() const noexcept override
     {
-        g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
+        return GetLocalizedShellString(ShellStringId::Reset);
     }
 
-    ~OrnareResetCommand()
+    const wchar_t* ToolTipText() const noexcept override
     {
-        g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
+        return GetLocalizedShellString(ShellStringId::ResetTooltip);
     }
 
-    // IUnknown
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) noexcept override
+    void InvokeCore(const wchar_t* folderPath) noexcept override
     {
-        if (ppv == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        if (InlineIsEqualGUID(riid, IID_IUnknown) ||
-            InlineIsEqualGUID(riid, __uuidof(IExplorerCommand)) ||
-            InlineIsEqualGUID(riid, IID_IExplorerCommand_Explicit))
-        {
-            *ppv = static_cast<IExplorerCommand*>(this);
-            AddRef();
-            return S_OK;
-        }
-
-        *ppv = nullptr;
-        return E_NOINTERFACE;
+        LaunchCommand(L"reset", L"--reset", folderPath, -1, -1);
     }
-
-    IFACEMETHODIMP_(ULONG) AddRef() noexcept override
-    {
-        return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
-    }
-
-    IFACEMETHODIMP_(ULONG) Release() noexcept override
-    {
-        ULONG count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
-        if (count == 0)
-        {
-            delete this;
-        }
-        return count;
-    }
-
-    // IExplorerCommand
-    IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
-    {
-        if (ppszName == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        const wchar_t* title = GetLocalizedShellString(ShellStringId::Reset);
-        size_t len = wcslen(title) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        wcscpy_s(buffer, len, title);
-        *ppszName = buffer;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
-    {
-        return GetAppIconPath(ppszIcon);
-    }
-
-    IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
-    {
-        if (ppszInfoTip == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        const wchar_t* tooltip = GetLocalizedShellString(ShellStringId::ResetTooltip);
-        size_t len = wcslen(tooltip) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        wcscpy_s(buffer, len, tooltip);
-        *ppszInfoTip = buffer;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
-    {
-        if (pguidCommandName == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pguidCommandName = GUID_NULL;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
-    {
-        return CheckTargetFolderState(psiItemArray, pcmdState);
-    }
-
-    IFACEMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) noexcept override
-    {
-        std::wstring folderPath;
-        if (!GetSingleFolderPath(psiItemArray, folderPath))
-        {
-            return S_OK;
-        }
-
-        LaunchReset(folderPath.c_str());
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) noexcept override
-    {
-        if (pFlags == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pFlags = ECF_DEFAULT;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) noexcept override
-    {
-        if (ppEnum == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppEnum = nullptr;
-        return E_NOTIMPL;
-    }
-
-private:
-    static void LaunchReset(const wchar_t* folderPath) noexcept
-    {
-        if (folderPath == nullptr || *folderPath == L'\0')
-        {
-            return;
-        }
-
-        // 1. Packaged protocol activation: ornare://reset?v=1&path=<url_encoded_path>
-        std::wstring uri = L"ornare://reset?v=1&path=";
-        uri += UrlEncode(folderPath);
-
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.lpVerb = L"open";
-        sei.lpFile = uri.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-
-        BOOL protocolSuccess = ShellExecuteExW(&sei);
-        if (protocolSuccess && reinterpret_cast<INT_PTR>(sei.hInstApp) > 32)
-        {
-            return;
-        }
-
-        // 2. Unpackaged CLI fallback: Ornare.App.exe --reset "<folderPath>"
-        wchar_t appExePath[MAX_PATH] = {};
-        if (FindAppExe(appExePath, MAX_PATH))
-        {
-            std::wstring args = L"--reset \"";
-            args += folderPath;
-            args += L"\"";
-
-            SHELLEXECUTEINFOW exeSei = {};
-            exeSei.cbSize = sizeof(exeSei);
-            exeSei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-            exeSei.lpVerb = L"open";
-            exeSei.lpFile = appExePath;
-            exeSei.lpParameters = args.c_str();
-            exeSei.nShow = SW_SHOWNORMAL;
-            ShellExecuteExW(&exeSei);
-        }
-    }
-
-    LONG m_refCount;
 };
+
 
 // -----------------------------------------------------------------------------------------
 // Subcommand Enumerator: IEnumExplorerCommand
@@ -1221,112 +850,9 @@ private:
 // -----------------------------------------------------------------------------------------
 // Root Flyout Command: "Ornare" (ECF_HASSUBCOMMANDS)
 // -----------------------------------------------------------------------------------------
-class OrnareFlyoutCommand final : public IExplorerCommand
+class OrnareFlyoutCommand final : public OrnareCommandBase
 {
 public:
-    OrnareFlyoutCommand() : m_refCount(1)
-    {
-        g_moduleRefCount.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    ~OrnareFlyoutCommand()
-    {
-        g_moduleRefCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    // IUnknown
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) noexcept override
-    {
-        if (ppv == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        if (InlineIsEqualGUID(riid, IID_IUnknown) ||
-            InlineIsEqualGUID(riid, __uuidof(IExplorerCommand)) ||
-            InlineIsEqualGUID(riid, IID_IExplorerCommand_Explicit))
-        {
-            *ppv = static_cast<IExplorerCommand*>(this);
-            AddRef();
-            return S_OK;
-        }
-
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() noexcept override
-    {
-        return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
-    }
-
-    IFACEMETHODIMP_(ULONG) Release() noexcept override
-    {
-        ULONG count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
-        if (count == 0)
-        {
-            delete this;
-        }
-        return count;
-    }
-
-    // IExplorerCommand
-    IFACEMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszName) noexcept override
-    {
-        if (ppszName == nullptr)
-        {
-            return E_POINTER;
-        }
-
-        const wchar_t* title = L"Ornare";
-        size_t len = wcslen(title) + 1;
-        LPWSTR buffer = static_cast<LPWSTR>(CoTaskMemAlloc(len * sizeof(wchar_t)));
-        if (buffer == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        wcscpy_s(buffer, len, title);
-        *ppszName = buffer;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) noexcept override
-    {
-        return GetAppIconPath(ppszIcon);
-    }
-
-    IFACEMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) noexcept override
-    {
-        if (ppszInfoTip == nullptr)
-        {
-            return E_POINTER;
-        }
-        *ppszInfoTip = nullptr;
-        return E_NOTIMPL;
-    }
-
-    IFACEMETHODIMP GetCanonicalName(GUID* pguidCommandName) noexcept override
-    {
-        if (pguidCommandName == nullptr)
-        {
-            return E_POINTER;
-        }
-        *pguidCommandName = CLSID_OrnareFlyoutCommand;
-        return S_OK;
-    }
-
-    IFACEMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pcmdState) noexcept override
-    {
-        return CheckTargetFolderState(psiItemArray, pcmdState);
-    }
-
-    IFACEMETHODIMP Invoke(IShellItemArray* /*psiItemArray*/, IBindCtx* /*pbc*/) noexcept override
-    {
-        // Root flyout menu itself is not directly invoked when subcommands are present
-        return S_OK;
-    }
-
     IFACEMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) noexcept override
     {
         if (pFlags == nullptr)
@@ -1345,10 +871,10 @@ public:
         }
         *ppEnum = nullptr;
 
-        // In F23, exactly three implemented child commands in fixed order:
+        // Exactly three implemented child commands in fixed order:
         // 1. "Apply last icon" ("Son simgeyi uygula")
         // 2. "Undo" ("Geri Al")
-        // 3. "Reset" ("Sıfırla")
+        // 3. "Reset" ("SÄ±fÄ±rla")
         OrnareApplyLastCommand* applyLastCmd = new (std::nothrow) OrnareApplyLastCommand();
         if (applyLastCmd == nullptr)
         {
@@ -1385,8 +911,22 @@ public:
         return S_OK;
     }
 
-private:
-    LONG m_refCount;
+protected:
+    // The brand name is never translated, so the flyout root does not read the string table.
+    const wchar_t* TitleText() const noexcept override
+    {
+        return L"Ornare";
+    }
+
+    GUID CanonicalClsid() const noexcept override
+    {
+        return CLSID_OrnareFlyoutCommand;
+    }
+
+    void InvokeCore(const wchar_t* /*folderPath*/) noexcept override
+    {
+        // Root flyout menu itself is not directly invoked when subcommands are present.
+    }
 };
 
 // -----------------------------------------------------------------------------------------
@@ -1602,30 +1142,40 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
     }
     *ppv = nullptr;
 
-    if (InlineIsEqualGUID(rclsid, CLSID_OrnareCommand))
+    // COM entry points are called on Explorer's threads; a failure must be an HRESULT, never
+    // an exception. The factory allocation is the only throwing step in this function.
+    try
     {
-        OrnareClassFactory* factory = new (std::nothrow) OrnareClassFactory();
-        if (factory == nullptr)
+        if (InlineIsEqualGUID(rclsid, CLSID_OrnareCommand))
         {
-            return E_OUTOFMEMORY;
+            OrnareClassFactory* factory = new (std::nothrow) OrnareClassFactory();
+            if (factory == nullptr)
+            {
+                return E_OUTOFMEMORY;
+            }
+
+            HRESULT hr = factory->QueryInterface(riid, ppv);
+            factory->Release();
+            return hr;
         }
 
-        HRESULT hr = factory->QueryInterface(riid, ppv);
-        factory->Release();
-        return hr;
+        if (InlineIsEqualGUID(rclsid, CLSID_OrnareFlyoutCommand))
+        {
+            OrnareFlyoutClassFactory* factory = new (std::nothrow) OrnareFlyoutClassFactory();
+            if (factory == nullptr)
+            {
+                return E_OUTOFMEMORY;
+            }
+
+            HRESULT hr = factory->QueryInterface(riid, ppv);
+            factory->Release();
+            return hr;
+        }
     }
-
-    if (InlineIsEqualGUID(rclsid, CLSID_OrnareFlyoutCommand))
+    catch (...)
     {
-        OrnareFlyoutClassFactory* factory = new (std::nothrow) OrnareFlyoutClassFactory();
-        if (factory == nullptr)
-        {
-            return E_OUTOFMEMORY;
-        }
-
-        HRESULT hr = factory->QueryInterface(riid, ppv);
-        factory->Release();
-        return hr;
+        *ppv = nullptr;
+        return E_FAIL;
     }
 
     return CLASS_E_CLASSNOTAVAILABLE;

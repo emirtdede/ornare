@@ -356,7 +356,7 @@ public static class PngExportService
         catch (Exception ex)
         {
             return OperationResult.Failure<byte[]>(
-                ErrorCode.ImageCorrupted, $"Template vector rasterization failed: {ex.Message}");
+                ErrorCode.ImageCorrupted, "The template preview could not be drawn.", ex.ToString());
         }
     }
 
@@ -440,7 +440,7 @@ public static class PngExportService
         catch (Exception ex)
         {
             return OperationResult.Failure<byte[]>(
-                ErrorCode.ImageCorrupted, $"SVG vector rasterization failed: {ex.Message}");
+                ErrorCode.ImageCorrupted, "The SVG image could not be drawn.", ex.ToString());
         }
     }
 
@@ -458,7 +458,7 @@ public static class PngExportService
         catch (Exception ex)
         {
             return OperationResult.Failure<byte[]>(
-                ErrorCode.ImageCorrupted, $"Malformed image header: {ex.Message}");
+                ErrorCode.ImageCorrupted, "The image data could not be read. The file may be damaged.", ex.ToString());
         }
 
         if (!isIco && !ImageSecurityPolicy.IsFormatAllowed(info.Format))
@@ -516,12 +516,12 @@ public static class PngExportService
         catch (MagickException mex)
         {
             return OperationResult.Failure<byte[]>(
-                ErrorCode.ImageDecodeFailed, $"Image processing failed: {mex.Message}");
+                ErrorCode.ImageDecodeFailed, "The image could not be processed.", mex.ToString());
         }
         catch (Exception ex)
         {
             return OperationResult.Failure<byte[]>(
-                ErrorCode.ImageCorrupted, $"Failed to render PNG: {ex.Message}");
+                ErrorCode.ImageCorrupted, "The PNG image could not be rendered.", ex.ToString());
         }
     }
 

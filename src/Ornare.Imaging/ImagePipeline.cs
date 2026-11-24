@@ -144,10 +144,12 @@ public sealed class ImagePipeline : IImagePipeline
         {
             bytes = File.ReadAllBytes(inputPath);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return OperationResult.Failure<NormalizedImageResult>(
-                ErrorCode.FilesystemError, $"Failed to read input image: {ex.Message}");
+                ErrorCode.FilesystemError,
+                "The image file could not be read.",
+                ex.ToString());
         }
 
         return ProcessImageBytes(bytes, outputIcoPath, placementMode, paddingPercent, backgroundMode, backgroundColorHex);
@@ -521,7 +523,9 @@ public sealed class ImagePipeline : IImagePipeline
         catch (Exception ex)
         {
             return OperationResult.Failure<NormalizedImageResult>(
-                ErrorCode.ImageCorrupted, $"Malformed image header: {ex.Message}");
+                ErrorCode.ImageCorrupted,
+                "The image data could not be read. The file may be damaged.",
+                ex.ToString());
         }
 
         if (!isSvg && !ImageSecurityPolicy.IsFormatAllowed(info.Format))
@@ -695,15 +699,19 @@ public sealed class ImagePipeline : IImagePipeline
 
             return OperationResult.Success(result);
         }
-        catch (MagickException mex)
+        catch (MagickException ex)
         {
             return OperationResult.Failure<NormalizedImageResult>(
-                ErrorCode.ImageDecodeFailed, $"Image processing failed: {mex.Message}");
+                ErrorCode.ImageDecodeFailed,
+                "The image could not be processed.",
+                ex.ToString());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return OperationResult.Failure<NormalizedImageResult>(
-                ErrorCode.IcoGenerationFailed, $"Failed to generate ICO: {ex.Message}");
+                ErrorCode.IcoGenerationFailed,
+                "The icon could not be generated.",
+                ex.ToString());
         }
     }
 
@@ -773,9 +781,12 @@ public sealed class ImagePipeline : IImagePipeline
 
             return OperationResult.Success(previewCanvas.ToByteArray());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"Preview generation failed: {ex.Message}");
+            return OperationResult.Failure<byte[]>(
+                ErrorCode.ImageDecodeFailed,
+                "The preview could not be generated.",
+                ex.ToString());
         }
     }
 

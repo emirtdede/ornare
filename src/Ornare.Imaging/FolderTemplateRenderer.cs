@@ -72,7 +72,7 @@ public static class FolderTemplateRenderer
     /// Renders a full multi-resolution ICO for the specified color and template, utilizing the F18 render cache.
     /// </summary>
     public static OperationResult<NormalizedImageResult> RenderColoredTemplateIco(
-        ImagePipeline pipeline,
+        IImagePipeline pipeline,
         string baseHex,
         string outputIcoPath,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
@@ -97,7 +97,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, ex.Message);
+            return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, "The template could not be rendered.", ex.ToString());
         }
 
         var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
@@ -191,7 +191,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preview rasterization failed: {ex.Message}");
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, "The preview could not be generated.", ex.ToString());
         }
     }
 
@@ -222,7 +222,7 @@ public static class FolderTemplateRenderer
     /// Badges are omitted on 16, 20, and 24 px frames and composited on >= 32 px frames.
     /// </summary>
     public static OperationResult<NormalizedImageResult> RenderPresetIco(
-        ImagePipeline pipeline,
+        IImagePipeline pipeline,
         StatusPreset preset,
         string outputIcoPath,
         string templateId = FolderTemplateCatalog.DefaultTemplateId,
@@ -243,7 +243,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, ex.Message);
+            return OperationResult.Failure<NormalizedImageResult>(ErrorCode.InvalidTarget, "The template could not be rendered.", ex.ToString());
         }
 
         var descriptor = FolderTemplateCatalog.GetTemplate(recipe.TemplateId, recipe.TemplateVersion);
@@ -298,7 +298,7 @@ public static class FolderTemplateRenderer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, $"Preset PNG rasterization failed: {ex.Message}");
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageCorrupted, "The preset image could not be generated.", ex.ToString());
         }
     }
 }

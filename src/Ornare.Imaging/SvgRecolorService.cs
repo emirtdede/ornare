@@ -25,7 +25,7 @@ public static class SvgRecolorService
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, $"Malformed XML: {ex.Message}");
+            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, "The SVG could not be parsed.", ex.ToString());
         }
 
         bool anyRoleFound = false;
@@ -123,7 +123,7 @@ public static class SvgRecolorService
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, $"Malformed XML: {ex.Message}");
+            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, "The SVG could not be parsed.", ex.ToString());
         }
 
         foreach (var el in doc.Descendants())

@@ -117,19 +117,37 @@ static void DetectSystemSettings()
     g_colors.hbrCard = CreateSolidBrush(g_colors.cardBg);
 }
 
+// Must match OrnareConstants.ProductRegistryKeyPath in Ornare.Core. The installer and the app
+// are separate binaries, so the value is repeated here as a named constant rather than inline.
+static constexpr wchar_t kProductRegistryKeyPath[] = L"Software\\Vellium\\Ornare";
+static constexpr wchar_t kInstallerLanguageValueName[] = L"InstallerLanguage";
+// Written next to the language tag so the app can tell a deliberate setup choice (seconds or
+// minutes old) from a leftover value from a previous installation (months old). Both values are
+// deleted by the app after the first read.
+static constexpr wchar_t kInstallerLanguageWrittenValueName[] = L"InstallerLanguageWrittenUtc";
+
 // Remembers the setup language in the same per-user location the app reads on first launch,
 // so onboarding opens in the language that was chosen here instead of re-detecting Windows.
 static void SaveLanguagePreference()
 {
     HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Vellium\\Ornare", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kProductRegistryKeyPath, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
     {
         return;
     }
 
     const wchar_t* tag = InstallerLocaleAt(g_localeIndex).tag;
     const DWORD bytes = static_cast<DWORD>((wcslen(tag) + 1) * sizeof(wchar_t));
-    RegSetValueExW(hKey, L"InstallerLanguage", 0, REG_SZ, reinterpret_cast<const BYTE*>(tag), bytes);
+    RegSetValueExW(hKey, kInstallerLanguageValueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(tag), bytes);
+
+    SYSTEMTIME utc = {};
+    GetSystemTime(&utc);
+    wchar_t stamp[32] = {};
+    _snwprintf_s(stamp, _TRUNCATE, L"%04u-%02u-%02uT%02u:%02u:%02uZ",
+        utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond);
+    RegSetValueExW(hKey, kInstallerLanguageWrittenValueName, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(stamp), static_cast<DWORD>((wcslen(stamp) + 1) * sizeof(wchar_t)));
+
     RegCloseKey(hKey);
 }
 

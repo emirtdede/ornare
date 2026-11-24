@@ -53,7 +53,7 @@ public static class SvgSecurityValidator
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure(ErrorCode.ImageCorrupted, $"SVG encoding invalid: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.ImageCorrupted, "The SVG text encoding is not supported.", ex.ToString());
         }
 
         return Validate(content);
@@ -142,11 +142,11 @@ public static class SvgSecurityValidator
         }
         catch (XmlException ex)
         {
-            return OperationResult.Failure(ErrorCode.ImageCorrupted, $"Malformed XML in SVG: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.ImageCorrupted, "The SVG is not well-formed XML.", ex.ToString());
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure(ErrorCode.ImageCorrupted, $"SVG parsing error: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.ImageCorrupted, "The SVG could not be parsed.", ex.ToString());
         }
 
         return OperationResult.Success();

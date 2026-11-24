@@ -54,7 +54,7 @@ public static class SvgThemeabilityAnalyzer
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, $"Failed to parse SVG XML: {ex.Message}");
+            return OperationResult.Failure<string>(ErrorCode.ImageCorrupted, "The SVG could not be parsed.", ex.ToString());
         }
 
         // Rule 1: No <style> tags (stylesheets require full CSS engine and are not themeable)

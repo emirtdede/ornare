@@ -123,11 +123,11 @@ public static class IcoImportService
         }
         catch (MagickException mex)
         {
-            return OperationResult.Failure<IcoImportResult>(ErrorCode.ImageDecodeFailed, $"Failed to decode ICO image frames: {mex.Message}");
+            return OperationResult.Failure<IcoImportResult>(ErrorCode.ImageDecodeFailed, "The ICO image could not be decoded.", mex.ToString());
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<IcoImportResult>(ErrorCode.ImageCorrupted, $"Corrupted ICO data: {ex.Message}");
+            return OperationResult.Failure<IcoImportResult>(ErrorCode.ImageCorrupted, "The ICO data is damaged.", ex.ToString());
         }
 
         using (collection)
@@ -443,7 +443,7 @@ public static class IcoImportService
         }
         catch (Exception ex)
         {
-            return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, $"Failed to extract preview: {ex.Message}");
+            return OperationResult.Failure<byte[]>(ErrorCode.ImageDecodeFailed, "The icon preview could not be extracted.", ex.ToString());
         }
     }
 
