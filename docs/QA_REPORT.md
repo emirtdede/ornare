@@ -16,7 +16,7 @@ Three independent passes, in this order, and repeated until the third pass was c
 | Pass | Question | Evidence |
 | :--- | :--- | :--- |
 | Behaviour | Does the product do what the requirements say, on a real installed package? | Packaged MSIX, driven through UI Automation, captured in `docs/screenshots` |
-| Contracts | Do the layers agree with each other and with the specification? | 637 behaviour tests plus 21 performance gates |
+| Contracts | Do the layers agree with each other and with the specification? | 652 behaviour tests plus 21 performance gates |
 | Hygiene | Are there leaks in language, characters, assets, versions or repository layout? | Repository scans documented in section 6 |
 
 The passes were run against the **installed** application, not the build output, because package identity, resource loading, `MRT` lookup and the shell integration only exist once the package is deployed.
@@ -115,12 +115,12 @@ Three runs, because the performance gates must not compete with the behaviour su
 
 | Suite | Passed | Failed |
 | :--- | ---: | ---: |
-| `Ornare.Core.Tests` | 140 | 0 |
-| `Ornare.UiTests` | 53 | 0 |
+| `Ornare.Core.Tests` | 148 | 0 |
+| `Ornare.UiTests` | 54 | 0 |
 | `Ornare.Storage.Tests` | 68 | 0 |
 | `Ornare.Imaging.Tests` | 207 | 0 |
-| `Ornare.IntegrationTests` | 169 | 0 |
-| **Total** | **637** | **0** |
+| `Ornare.IntegrationTests` | 175 | 0 |
+| **Total** | **652** | **0** |
 
 ### Performance gates
 
@@ -143,9 +143,9 @@ On 23 November 2026 the gate was re-run on a host at 97 percent CPU load (three 
 
 `VerifyInvokeLaunchesPackagedApplication` drives `IExplorerCommand.Invoke` and requires the packaged application to appear. It can only run where Ornare is installed and signed, so it is excluded from the CI run explicitly, with the reason in the workflow, and is run through `scripts/quality-gate.ps1 -InstalledPackageOnly` on the release machine.
 
-The numbers above are the current working tree: the build, 637 behaviour tests and 21 performance gates all passed locally on the Windows 11 25H2 x64 reference machine. `dotnet build Ornare.slnx -c Debug` completes with **0 errors and 0 warnings**; warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+The numbers above are the current working tree: the build, 652 behaviour tests and 21 performance gates all passed locally on the Windows 11 25H2 x64 reference machine. `dotnet build Ornare.slnx -c Debug` completes with **0 errors and 0 warnings**; warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
 
-The count grew from 606 by thirty-one regression tests: fourteen added while closing the pre-deployment audit (`desktop.ini` encoding round-trip for UTF-16 LE/BE, UTF-8 with and without BOM and legacy ANSI; two `NeedsRepair` reconciliation cases; settings persistence; three cloud path-redaction cases; the no-`SHCNE_ASSOCCHANGED` contract; and runtime key/placeholder parity across all six locales), seven `LongPath` cases for extended, UNC, device-namespace and relative inputs, three architecture guards that fail if a second atomic writer, a direct `desktop.ini` write in `FolderCustomizer`, or a missing trust check is reintroduced, and seven `QuickPanelRuntimeGuardsTests` that fail if the shell catch-all, the staging gate, the pre-read image bound, the preview sequence check, the error-copy factory split or the language subscription is removed. Finding 18 records the earlier reclassification of the performance tests.
+The count grew from 606 by forty-six regression tests: fourteen added while closing the pre-deployment audit (`desktop.ini` encoding round-trip for UTF-16 LE/BE, UTF-8 with and without BOM and legacy ANSI; two `NeedsRepair` reconciliation cases; settings persistence; three cloud path-redaction cases; the no-`SHCNE_ASSOCCHANGED` contract; and runtime key/placeholder parity across all six locales), seven `LongPath` cases for extended, UNC, device-namespace and relative inputs, three architecture guards that fail if a second atomic writer, a direct `desktop.ini` write in `FolderCustomizer`, or a missing trust check is reintroduced, and eight `QuickPanelRuntimeGuardsTests` that fail if the shell catch-all, the staging gate, the pre-read image bound, the preview sequence check, the error-copy factory split or the language subscription is removed. Those thirty-two tests closed the November audit. The first-run walkthrough of 23 November added the remaining fourteen: eight `InstallerLanguagePolicyTests` for the freshness rule, four `LegacyDataRootReconciliationTests` for the additive legacy merge, and two `CliStartupContractTests` for `--version` and the lazy rasterizer. Finding 18 records the earlier reclassification of the performance tests.
 
 The counts differ from the earlier draft of this report because three classification defects were fixed rather than papered over; finding 18 records them.
 
