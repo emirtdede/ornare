@@ -191,7 +191,23 @@
                     <StackPanel Grid.Row="1" x:Name="LibraryEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
                         <FontIcon Glyph="&#xE8B7;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
                         <TextBlock x:Name="LibraryEmptyTitle" Text="No icons in library" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                        <TextBlock x:Name="LibraryEmptySubtitle" Text="Icons you customize will appear here" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="LibraryEmptySubtitle" Text="Icons you customize will appear here" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" MaxWidth="380" TextAlignment="Center" TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="LibraryEmptyGuidance"
+                            Text="To customize a folder: right-click it in File Explorer and choose Set Folder Icon."
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            HorizontalAlignment="Center"
+                            MaxWidth="380"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+                        <Button
+                            x:Name="EmptyLibraryChooseFolderButton"
+                            Content="Choose a folder..."
+                            AutomationProperties.Name="Choose a folder to customize"
+                            Margin="0,4,0,0"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="OnEmptyStateChooseFolderClicked" />
                     </StackPanel>
 
                     <!-- Icon Grid: Clean modern gallery tiles -->
@@ -208,6 +224,11 @@
                                             <MenuFlyoutItem Text="{x:Bind ContextToggleFavoriteText}" Tag="{x:Bind Sha256}" Click="OnToggleFavoriteClicked">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="{x:Bind FavoriteGlyph}" Foreground="{x:Bind FavoriteBrush}" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{x:Bind ContextApplyToFolderText}" Tag="{x:Bind Sha256}" Click="OnApplyToFolderClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8B7;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="{x:Bind ContextOpenExplorerText}" Tag="{x:Bind CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
@@ -282,6 +303,7 @@
                     <StackPanel x:Name="RecentEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
                         <FontIcon Glyph="&#xE81C;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
                         <TextBlock x:Name="RecentEmptyTitle" Text="No recent icons" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="RecentEmptySubtitle" Text="Icons you use will show up here." FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" MaxWidth="360" TextAlignment="Center" TextWrapping="Wrap" />
                     </StackPanel>
 
                     <GridView
@@ -329,6 +351,11 @@
                                             <MenuFlyoutItem Text="{x:Bind ContextToggleFavoriteText}" Tag="{x:Bind Sha256}" Click="OnToggleFavoriteClicked">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="{x:Bind FavoriteGlyph}" Foreground="{x:Bind FavoriteBrush}" />
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="{x:Bind ContextApplyToFolderText}" Tag="{x:Bind Sha256}" Click="OnApplyToFolderClicked">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8B7;" />
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="{x:Bind ContextOpenExplorerText}" Tag="{x:Bind CanonicalIcoPath}" Click="OnOpenIcoInExplorerClicked">
@@ -538,6 +565,7 @@
                         <StackPanel x:Name="FoldersEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Visibility="Collapsed">
                             <FontIcon Glyph="&#xE838;" FontSize="44" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
                             <TextBlock x:Name="FoldersEmptyTitle" Text="No customized folders" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="FoldersEmptySubtitle" Text="Folders you customize will be listed here." FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" MaxWidth="360" TextAlignment="Center" TextWrapping="Wrap" />
                         </StackPanel>
 
                         <!-- Flat list of folders with separators per Visual Reference Spec -->
@@ -912,6 +940,7 @@
                                                         PlaceholderText="#0F6CBD"
                                                         MaxLength="7"
                                                         FontFamily="Consolas"
+                                                        TextChanged="OnAccentHexBoxTextChanged"
                                                         AutomationProperties.Name="Accent color hex" />
                                                     <Button x:Name="AccentApplyButton" Grid.Column="1" Click="OnAccentApplyClicked" Content="Apply" />
                                                 </Grid>

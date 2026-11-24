@@ -85,10 +85,12 @@ public class EmojiEmblemUiTests
     public void QuickPanelCodeBehindImplementsEmojiCatalogLazyLoadingAndFilter()
     {
         string appDir = FindAppDirectory();
-        string csPath = Path.Combine(appDir, "QuickPanelWindow.xaml.cs");
-        Assert.True(File.Exists(csPath), $"QuickPanelWindow.xaml.cs not found at {csPath}");
+        // The window is a partial class across several files, so the guard reads the whole class
+        // instead of one file. A method moving to a partial is a refactor, not a regression.
+        var files = Directory.EnumerateFiles(appDir, "QuickPanelWindow*.cs").OrderBy(p => p).ToList();
+        Assert.True(files.Count > 0, $"QuickPanelWindow partials not found in {appDir}");
 
-        string code = File.ReadAllText(csPath);
+        string code = string.Join("\n", files.Select(File.ReadAllText));
 
         Assert.Contains("ObservableCollection<EmojiItemViewModel> EmojiCards", code);
         Assert.Contains("OnEmojiFlyoutOpening", code);

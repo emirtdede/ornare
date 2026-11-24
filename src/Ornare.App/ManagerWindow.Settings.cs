@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -426,7 +427,7 @@ public sealed partial class ManagerWindow
             : AppResources.Format(
                 "Settings_CloudLastSync",
                 locale,
-                status.LastSyncUtc.Value.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture));
+                status.LastSyncUtc.Value.ToLocalTime().ToString("g", AppResources.CultureFor(locale)));
 
         CloudSummaryText.Text = AppResources.Format(
             "Settings_CloudSummary",
@@ -671,7 +672,7 @@ public sealed partial class ManagerWindow
 
     // ---- Event handlers -------------------------------------------------
 
-    private async void OnAccentColorPickerChanged(ColorPicker sender, ColorChangedEventArgs args)
+    private void OnAccentColorPickerChanged(ColorPicker sender, ColorChangedEventArgs args)
     {
         if (!_settingsSurfaceReady)
         {
@@ -681,7 +682,25 @@ public sealed partial class ManagerWindow
         AccentSwatch.Background = new SolidColorBrush(args.NewColor);
         AccentValueText.Text = UserSettings.FormatHex(args.NewColor.R, args.NewColor.G, args.NewColor.B);
         AccentHexBox.Text = AccentValueText.Text;
-        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Validates the hex field as the user types instead of only on Apply. An invalid value
+    /// disables the Apply button and is announced through the field's help text, so the problem
+    /// is attached to the control that has it rather than surfacing as a page-level error.
+    /// </summary>
+    private void OnAccentHexBoxTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (AccentApplyButton is null || AccentHexBox is null)
+        {
+            return;
+        }
+
+        bool valid = UserSettings.TryNormalizeHexColor(AccentHexBox.Text, out _);
+        AccentApplyButton.IsEnabled = valid;
+        AutomationProperties.SetHelpText(
+            AccentHexBox,
+            valid ? string.Empty : AppResources.GetString("Settings_AccentInvalid", _currentLanguage));
     }
 
     private async void OnAccentApplyClicked(object sender, RoutedEventArgs e)
@@ -692,12 +711,14 @@ public sealed partial class ManagerWindow
             return;
         }
 
-        await ApplyAccentAsync(normalized).ConfigureAwait(true);
+        await GuardAsync(nameof(OnAccentApplyClicked),
+            () => ApplyAccentAsync(normalized));
     }
 
     private async void OnAccentSystemClicked(object sender, RoutedEventArgs e)
     {
-        await ApplyAccentAsync(UserSettings.SystemValue).ConfigureAwait(true);
+        await GuardAsync(nameof(OnAccentSystemClicked),
+            () => ApplyAccentAsync(UserSettings.SystemValue));
     }
 
     private async Task ApplyAccentAsync(string accent)
@@ -719,8 +740,7 @@ public sealed partial class ManagerWindow
         }
 
         // A selection identical to the stored one carries no intent. Rejecting it here keeps a
-        // repopulated picker or an automation re-select from rewriting settings at all, which
-        // is what used to revert a language that had just been applied.
+        // repopulated picker or an automation re-select from rewriting unrelated settings.
         if (string.Equals(id, _settings.AppIconId, StringComparison.Ordinal))
         {
             return;
@@ -728,7 +748,8 @@ public sealed partial class ManagerWindow
 
         _settings = _settings with { AppIconId = id };
         ApplyAppIcon();
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
+        await GuardAsync(nameof(OnAppIconSelectionChanged),
+            () => PersistSettingsAsync(_settings));
     }
 
     private async void OnUiScaleSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -753,14 +774,16 @@ public sealed partial class ManagerWindow
 
         _settings = _settings with { UiScalePercent = percent };
         ApplyUiScale();
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
+        await GuardAsync(nameof(OnUiScaleSelectionChanged),
+            () => PersistSettingsAsync(_settings));
     }
 
     private async void OnUiScaleResetClicked(object sender, RoutedEventArgs e)
     {
         _settings = _settings with { UiScalePercent = 100 };
         ApplyUiScale();
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
+        await GuardAsync(nameof(OnUiScaleResetClicked),
+            () => PersistSettingsAsync(_settings));
     }
 
     private async void OnCloudProviderChanged(object sender, SelectionChangedEventArgs e)
@@ -793,11 +816,14 @@ public sealed partial class ManagerWindow
 
         if (kind == CloudSyncProviderKind.Custom)
         {
-            await PickCloudFolderAsync().ConfigureAwait(true);
+            await GuardAsync(nameof(OnCloudProviderChanged), PickCloudFolderAsync);
         }
 
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
-        await RefreshCloudSurfaceAsync().ConfigureAwait(true);
+        await GuardAsync(nameof(OnCloudProviderChanged), async () =>
+        {
+            await PersistSettingsAsync(_settings).ConfigureAwait(true);
+            await RefreshCloudSurfaceAsync().ConfigureAwait(true);
+        });
     }
 
     private async Task PickCloudFolderAsync()
@@ -921,9 +947,13 @@ public sealed partial class ManagerWindow
     {
         _cloudSyncCts?.Cancel();
         _settings = _settings with { CloudSyncEnabled = false, CloudSyncProvider = "None" };
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
-        await RefreshCloudSurfaceAsync().ConfigureAwait(true);
-        ShowCloudResult(AppResources.GetString("Settings_CloudStatusDisconnected", AppResources.CurrentLocale), false);
+        await GuardAsync(nameof(OnCloudDisconnectClicked), async () =>
+        {
+            await PersistSettingsAsync(_settings).ConfigureAwait(true);
+            await RefreshCloudSurfaceAsync().ConfigureAwait(true);
+            ShowCloudResult(
+                AppResources.GetString("Settings_CloudStatusDisconnected", AppResources.CurrentLocale), false);
+        });
     }
 
     private async void OnCloudAutoSyncToggled(object sender, RoutedEventArgs e)
@@ -934,25 +964,34 @@ public sealed partial class ManagerWindow
         }
 
         _settings = _settings with { CloudSyncEnabled = CloudAutoSyncToggle.IsOn };
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
+        await GuardAsync(nameof(OnCloudAutoSyncToggled),
+            () => PersistSettingsAsync(_settings));
     }
 
     private async void OnShowWelcomeClicked(object sender, RoutedEventArgs e)
     {
         _settings = _settings with { OnboardingCompleted = false };
-        await PersistSettingsAsync(_settings).ConfigureAwait(true);
-
-        var window = new OnboardingWindow(_storageService, _cloudSync, _settings);
-        window.Completed += async (_, updated) =>
+        await GuardAsync(nameof(OnShowWelcomeClicked), async () =>
         {
-            _settings = updated;
-            AppResources.CurrentLocale = updated.Language;
-            ApplyTheme(updated.Theme);
-            ApplyLanguage(updated.Language);
-            ApplyAppearance();
-            await RefreshCloudSurfaceAsync().ConfigureAwait(true);
-        };
-        window.Activate();
+            await PersistSettingsAsync(_settings).ConfigureAwait(true);
+
+            var window = new OnboardingWindow(_storageService, _cloudSync, _settings);
+            // The Completed callback is delivered from the onboarding window's own thread
+            // context, so it needs the same guard as any other async void handler.
+            window.Completed += async (_, updated) =>
+            {
+                await GuardAsync(nameof(OnboardingWindow.Completed), async () =>
+                {
+                    _settings = updated;
+                    AppResources.CurrentLocale = updated.Language;
+                    ApplyTheme(updated.Theme);
+                    ApplyLanguage(updated.Language);
+                    ApplyAppearance();
+                    await RefreshCloudSurfaceAsync().ConfigureAwait(true);
+                });
+            };
+            window.Activate();
+        });
     }
 
     /// <summary>Localizes the settings controls added by this part.</summary>
@@ -1005,7 +1044,7 @@ public sealed partial class ManagerWindow
 
         // The badge, summary and auto-sync labels are composed from live state, so they need
         // a refresh to pick up the new language instead of keeping the previous one.
-        _ = RefreshCloudSurfaceAsync();
+        _ = GuardBackgroundAsync(nameof(RefreshCloudSurfaceAsync), RefreshCloudSurfaceAsync);
     }
 
     /// <summary>
@@ -1026,8 +1065,46 @@ public sealed partial class ManagerWindow
         CloudStatusText.Text = AppResources.GetString(_cloudBadgeKey, locale);
     }
 
-    /// <summary>Runs any pending debounced write before the window closes.</summary>
-    private void FlushCloudSync()
+    /// <summary>
+    /// Defers the window close until any pending debounced snapshot has been written.
+    /// <para>
+    /// This is the only place a close can wait for I/O. It cancels the first close, lets
+    /// the write run without blocking the UI thread, and then closes exactly once through
+    /// <see cref="_closeFlushed"/>.
+    /// </para>
+    /// </summary>
+    private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_closeFlushed)
+        {
+            return;
+        }
+
+        if (_cloudSyncCts is null || !_settings.CloudSyncEnabled)
+        {
+            _closeFlushed = true;
+            return;
+        }
+
+        // AppWindowClosingEventArgs has no deferral, so the close is cancelled and re-issued
+        // once the flush completes. Re-entry is prevented by _closeFlushed.
+        args.Cancel = true;
+        try
+        {
+            await FlushCloudSyncAsync();
+        }
+        finally
+        {
+            _closeFlushed = true;
+            Close();
+        }
+    }
+
+    /// <summary>
+    /// Writes any pending debounced snapshot before the window closes. Bounded to three
+    /// seconds so a slow or unresponsive provider folder can never trap the close.
+    /// </summary>
+    private async Task FlushCloudSyncAsync()
     {
         if (_cloudSyncCts is null || !_settings.CloudSyncEnabled)
         {
@@ -1037,12 +1114,21 @@ public sealed partial class ManagerWindow
         try
         {
             _cloudSyncCts.Cancel();
-            Task.Run(() => WriteCloudSnapshotAsync(allowEmptyOverwrite: false))
-                .Wait(TimeSpan.FromSeconds(3));
+            await Task.Run(() => WriteCloudSnapshotAsync(allowEmptyOverwrite: false))
+                .WaitAsync(TimeSpan.FromSeconds(3))
+                .ConfigureAwait(true);
         }
-        catch (AggregateException ex)
+        catch (TimeoutException)
         {
-            App.Log($"Cloud flush failed: {ex.GetBaseException().Message}");
+            App.Log("Cloud flush timed out during close; the pending snapshot will be retried at next launch.");
+        }
+        catch (OperationCanceledException)
+        {
+            // The debounce timer fired as we closed; the write is simply skipped.
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            App.Log($"Cloud flush failed during close: {ex.Message}");
         }
     }
 }

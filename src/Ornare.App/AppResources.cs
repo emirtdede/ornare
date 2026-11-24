@@ -16,10 +16,27 @@ public static partial class AppResources
 
     private static string _currentLocale = "en-US";
 
+    /// <summary>
+    /// Raised after <see cref="CurrentLocale"/> actually changes. Live windows subscribe so an
+    /// open quick panel follows a language change made in the manager instead of keeping its
+    /// own stale copy of the locale and rendering a mixture of two languages.
+    /// </summary>
+    public static event EventHandler<string>? CurrentLocaleChanged;
+
     public static string CurrentLocale
     {
         get => _currentLocale;
-        set => _currentLocale = NormalizeLocale(value);
+        set
+        {
+            string normalized = NormalizeLocale(value);
+            if (string.Equals(_currentLocale, normalized, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _currentLocale = normalized;
+            CurrentLocaleChanged?.Invoke(null, normalized);
+        }
     }
 
     public static string NormalizeLocale(string? lang)
@@ -54,11 +71,32 @@ public static partial class AppResources
         string pattern = GetString(key, lang);
         try
         {
-            return string.Format(CultureInfo.InvariantCulture, pattern, args);
+            // Format with the same culture the rest of the window uses for string.Format, so a
+            // count rendered here and a count rendered by a caller cannot disagree about the
+            // thousands separator inside one screen.
+            return string.Format(CultureFor(lang), pattern, args);
         }
         catch
         {
             return pattern;
+        }
+    }
+
+    /// <summary>
+    /// Culture used for numeric and date formatting inside a window. Derived from the app
+    /// language rather than <see cref="CultureInfo.CurrentCulture"/>, so the UI does not format
+    /// numbers in the OS culture while presenting text in the chosen language.
+    /// </summary>
+    public static CultureInfo CultureFor(string? lang = null)
+    {
+        string locale = lang != null ? NormalizeLocale(lang) : _currentLocale;
+        try
+        {
+            return CultureInfo.GetCultureInfo(locale);
+        }
+        catch (CultureNotFoundException)
+        {
+            return CultureInfo.InvariantCulture;
         }
     }
 
@@ -125,6 +163,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "No favorite icons",
             ["EmptyFoldersTitle"] = "No customized folders",
             ["Delete"] = "Delete",
+            ["TimeJustNow"] = "Just now",
+            ["TimeMinutesAgo"] = "{0}m ago",
+            ["TimeHoursAgo"] = "{0}h ago",
+            ["TimeDaysAgo"] = "{0}d ago",
             ["Favorite"] = "Favorite",
             ["Unfavorite"] = "Unfavorite",
             ["ApplyToFolder"] = "Apply to Folder",
@@ -195,7 +237,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Search icons...",
             ["Placeholder_SearchEmoji"] = "Search emoji...",
             ["Category_All"] = "All",
-            ["Status_ReadyToApply"] = "Ready to apply",
+            ["Status_ReadyToApply"] = "Pick a style below or drop an image to start",
+            ["QuickPanel_FirstUseHint"] = "Pick a style, icon or colour below, or drop an image here. Apply saves it to this folder.",
+            ["QuickPanel_FirstUseDismiss"] = "Got it",
+            ["QuickPanel_FirstUseDismissAccessible"] = "Dismiss the first-use hint",
             ["Status_UnappliedChanges"] = "Unapplied changes",
             ["Status_Applied"] = "Applied",
             ["Status_CurrentIcon"] = "Current folder icon",
@@ -303,6 +348,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Icons you customize will appear here",
             ["Recent_EmptyTitle"] = "No recent icons",
             ["Folders_EmptyTitle"] = "No customized folders",
+            ["Library_EmptyGuidance"] = "To customize a folder, right-click it in File Explorer and choose Set Folder Icon.",
+            ["EmptyLibrary_ChooseFolder"] = "Choose a folder...",
+            ["Recent_EmptySubtitle"] = "Icons you use will show up here.",
+            ["Folders_EmptySubtitle"] = "Folders you customize will be listed here.",
             ["Settings_Appearance"] = "Appearance",
             ["Settings_SystemDefault"] = "System default",
             ["Settings_Light"] = "Light",
@@ -409,6 +458,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "Could not reset the folder icon.",
             ["ErrorNoFolderSelected"] = "No folder selected.",
             ["ErrorEmptyImage"] = "The image data was empty.",
+            ["ErrorImageTooLarge"] = "This image is too large. Choose an image smaller than {0} MB.",
             ["About_Title"] = "About Ornare",
             ["App_ShortcutDescription"] = "Ornare - Folder Icon Customizer",
             ["About_Description"] = "Developer: Vellium (vellium.dev)\nLocal-only, privacy-first Windows folder personalization.",
@@ -476,6 +526,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "Favori simge yok",
             ["EmptyFoldersTitle"] = "Özelleştirilmiş klasör yok",
             ["Delete"] = "Sil",
+            ["TimeJustNow"] = "Az önce",
+            ["TimeMinutesAgo"] = "{0} dk önce",
+            ["TimeHoursAgo"] = "{0} sa önce",
+            ["TimeDaysAgo"] = "{0} gün önce",
             ["Favorite"] = "Favori",
             ["Unfavorite"] = "Favorilerden Kaldır",
             ["ApplyToFolder"] = "Klasöre Uygula",
@@ -546,7 +600,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Simgelerde ara...",
             ["Placeholder_SearchEmoji"] = "Emoji ara...",
             ["Category_All"] = "Tümü",
-            ["Status_ReadyToApply"] = "Uygulamaya hazır",
+            ["Status_ReadyToApply"] = "Başlamak için aşağıdan bir stil seçin veya bir görsel bırakın",
+            ["QuickPanel_FirstUseHint"] = "Aşağıdan bir stil, simge veya renk seçin ya da buraya bir görsel bırakın. Uygula bunu bu klasöre kaydeder.",
+            ["QuickPanel_FirstUseDismiss"] = "Anladım",
+            ["QuickPanel_FirstUseDismissAccessible"] = "İlk kullanım ipucunu kapat",
             ["Status_UnappliedChanges"] = "Uygulanmamış değişiklikler",
             ["Status_Applied"] = "Uygulandı",
             ["Status_CurrentIcon"] = "Mevcut klasör simgesi",
@@ -654,6 +711,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Özelleştirdiğiniz simgeler burada görünecektir",
             ["Recent_EmptyTitle"] = "Son kullanılan simge yok",
             ["Folders_EmptyTitle"] = "Özelleştirilmiş klasör yok",
+            ["Library_EmptyGuidance"] = "Bir klasörü özelleştirmek için Dosya Gezgini'nde sağ tıklayın ve Klasör Simgesini Ayarla'yı seçin.",
+            ["EmptyLibrary_ChooseFolder"] = "Klasör seç...",
+            ["Recent_EmptySubtitle"] = "Kullandığınız simgeler burada görünür.",
+            ["Folders_EmptySubtitle"] = "Özelleştirdiğiniz klasörler burada listelenir.",
             ["Settings_Appearance"] = "Görünüm",
             ["Settings_SystemDefault"] = "Sistem varsayılanı",
             ["Settings_Light"] = "Açık",
@@ -760,6 +821,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "Klasör simgesi sıfırlanamadı.",
             ["ErrorNoFolderSelected"] = "Klasör seçilmedi.",
             ["ErrorEmptyImage"] = "Görüntü verisi boştu.",
+            ["ErrorImageTooLarge"] = "Bu görüntü çok büyük. {0} MB'tan küçük bir görüntü seçin.",
             ["About_Title"] = "Ornare Hakkında",
             ["App_ShortcutDescription"] = "Ornare - Klasör Simgesi Özelleştirici",
             ["About_Description"] = "Geliştirici: Vellium (vellium.dev)\nTamamen yerel, çevrimdışı ve gizlilik odaklı klasör özelleştirme.",
@@ -827,6 +889,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "Keine bevorzugten Symbole",
             ["EmptyFoldersTitle"] = "Keine angepassten Ordner",
             ["Delete"] = "Löschen",
+            ["TimeJustNow"] = "Gerade eben",
+            ["TimeMinutesAgo"] = "vor {0} Min.",
+            ["TimeHoursAgo"] = "vor {0} Std.",
+            ["TimeDaysAgo"] = "vor {0} Tagen",
             ["Favorite"] = "Favorit",
             ["Unfavorite"] = "Aus Favoriten entfernen",
             ["ApplyToFolder"] = "Auf Ordner anwenden",
@@ -897,7 +963,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Icons suchen...",
             ["Placeholder_SearchEmoji"] = "Emoji suchen...",
             ["Category_All"] = "Alle",
-            ["Status_ReadyToApply"] = "Bereit zum Anwenden",
+            ["Status_ReadyToApply"] = "Wählen Sie unten einen Stil oder legen Sie ein Bild ab",
+            ["QuickPanel_FirstUseHint"] = "Wählen Sie unten einen Stil, ein Symbol oder eine Farbe oder legen Sie hier ein Bild ab. Anwenden speichert es in diesem Ordner.",
+            ["QuickPanel_FirstUseDismiss"] = "Verstanden",
+            ["QuickPanel_FirstUseDismissAccessible"] = "Erste-Schritte-Hinweis ausblenden",
             ["Status_UnappliedChanges"] = "Nicht angewendete Änderungen",
             ["Status_Applied"] = "Angewendet",
             ["Status_CurrentIcon"] = "Aktuelles Ordnersymbol",
@@ -1005,6 +1074,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Angepasste Symbole werden hier angezeigt",
             ["Recent_EmptyTitle"] = "Keine zuletzt verwendeten Symbole",
             ["Folders_EmptyTitle"] = "Keine angepassten Ordner",
+            ["Library_EmptyGuidance"] = "Um einen Ordner anzupassen, klicken Sie ihn im Datei-Explorer mit der rechten Maustaste an und wählen Sie Ordnersymbol festlegen.",
+            ["EmptyLibrary_ChooseFolder"] = "Ordner auswählen...",
+            ["Recent_EmptySubtitle"] = "Symbole, die Sie verwenden, werden hier angezeigt.",
+            ["Folders_EmptySubtitle"] = "Ordner, die Sie anpassen, werden hier aufgelistet.",
             ["Settings_Appearance"] = "Darstellung",
             ["Settings_SystemDefault"] = "Systemstandard",
             ["Settings_Light"] = "Hell",
@@ -1111,6 +1184,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "Das Ordnersymbol konnte nicht zurückgesetzt werden.",
             ["ErrorNoFolderSelected"] = "Kein Ordner ausgewählt.",
             ["ErrorEmptyImage"] = "Die Bilddaten waren leer.",
+            ["ErrorImageTooLarge"] = "Dieses Bild ist zu groß. Wählen Sie ein Bild unter {0} MB.",
             ["About_Title"] = "Info zu Ornare",
             ["App_ShortcutDescription"] = "Ornare - Ordnersymbol anpassen",
             ["About_Description"] = "Entwickler: Vellium (vellium.dev)\nRein lokale, datenschutzorientierte Windows-Ordnerpersonalisierung.",
@@ -1178,6 +1252,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "Aucune icône favorite",
             ["EmptyFoldersTitle"] = "Aucun dossier personnalisé",
             ["Delete"] = "Supprimer",
+            ["TimeJustNow"] = "À l'instant",
+            ["TimeMinutesAgo"] = "il y a {0} min",
+            ["TimeHoursAgo"] = "il y a {0} h",
+            ["TimeDaysAgo"] = "il y a {0} j",
             ["Favorite"] = "Favori",
             ["Unfavorite"] = "Retirer des favoris",
             ["ApplyToFolder"] = "Appliquer au dossier",
@@ -1248,7 +1326,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Rechercher des icônes...",
             ["Placeholder_SearchEmoji"] = "Rechercher un emoji...",
             ["Category_All"] = "Tous",
-            ["Status_ReadyToApply"] = "Prêt à appliquer",
+            ["Status_ReadyToApply"] = "Choisissez un style ci-dessous ou déposez une image pour commencer",
+            ["QuickPanel_FirstUseHint"] = "Choisissez un style, une icône ou une couleur ci-dessous, ou déposez une image ici. Appliquer l'enregistre dans ce dossier.",
+            ["QuickPanel_FirstUseDismiss"] = "Compris",
+            ["QuickPanel_FirstUseDismissAccessible"] = "Masquer l'astuce de première utilisation",
             ["Status_UnappliedChanges"] = "Modifications non appliquées",
             ["Status_Applied"] = "Appliqué",
             ["Status_CurrentIcon"] = "Icône de dossier actuelle",
@@ -1356,6 +1437,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Les icônes que vous personnalisez apparaîtront ici",
             ["Recent_EmptyTitle"] = "Aucune icône récente",
             ["Folders_EmptyTitle"] = "Aucun dossier personnalisé",
+            ["Library_EmptyGuidance"] = "Pour personnaliser un dossier, cliquez dessus avec le bouton droit dans l'Explorateur de fichiers et choisissez Définir l'icône du dossier.",
+            ["EmptyLibrary_ChooseFolder"] = "Choisir un dossier...",
+            ["Recent_EmptySubtitle"] = "Les icônes que vous utilisez apparaîtront ici.",
+            ["Folders_EmptySubtitle"] = "Les dossiers que vous personnalisez seront listés ici.",
             ["Settings_Appearance"] = "Apparence",
             ["Settings_SystemDefault"] = "Valeur système",
             ["Settings_Light"] = "Clair",
@@ -1462,6 +1547,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "Impossible de réinitialiser l'icône du dossier.",
             ["ErrorNoFolderSelected"] = "Aucun dossier sélectionné.",
             ["ErrorEmptyImage"] = "Les données d'image étaient vides.",
+            ["ErrorImageTooLarge"] = "Cette image est trop volumineuse. Choisissez une image de moins de {0} Mo.",
             ["About_Title"] = "À propos d'Ornare",
             ["App_ShortcutDescription"] = "Ornare - Personnalisation d'icônes de dossier",
             ["About_Description"] = "Développeur : Vellium (vellium.dev)\nPersonnalisation de dossiers Windows locale et respectueuse de la vie privée.",
@@ -1529,6 +1615,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "No hay iconos favoritos",
             ["EmptyFoldersTitle"] = "No hay carpetas personalizadas",
             ["Delete"] = "Eliminar",
+            ["TimeJustNow"] = "Ahora mismo",
+            ["TimeMinutesAgo"] = "hace {0} min",
+            ["TimeHoursAgo"] = "hace {0} h",
+            ["TimeDaysAgo"] = "hace {0} d",
             ["Favorite"] = "Favorito",
             ["Unfavorite"] = "Quitar de favoritos",
             ["ApplyToFolder"] = "Aplicar a la carpeta",
@@ -1599,7 +1689,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Buscar iconos...",
             ["Placeholder_SearchEmoji"] = "Buscar emoji...",
             ["Category_All"] = "Todos",
-            ["Status_ReadyToApply"] = "Listo para aplicar",
+            ["Status_ReadyToApply"] = "Elija un estilo abajo o suelte una imagen para empezar",
+            ["QuickPanel_FirstUseHint"] = "Elija un estilo, icono o color abajo, o suelte una imagen aquí. Aplicar lo guarda en esta carpeta.",
+            ["QuickPanel_FirstUseDismiss"] = "Entendido",
+            ["QuickPanel_FirstUseDismissAccessible"] = "Ocultar la sugerencia de primeros pasos",
             ["Status_UnappliedChanges"] = "Cambios sin aplicar",
             ["Status_Applied"] = "Aplicado",
             ["Status_CurrentIcon"] = "Icono de carpeta actual",
@@ -1707,6 +1800,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Los iconos que personalice aparecerán aquí",
             ["Recent_EmptyTitle"] = "No hay iconos recientes",
             ["Folders_EmptyTitle"] = "No hay carpetas personalizadas",
+            ["Library_EmptyGuidance"] = "Para personalizar una carpeta, haga clic con el botón derecho en el Explorador de archivos y elija Establecer icono de carpeta.",
+            ["EmptyLibrary_ChooseFolder"] = "Elegir una carpeta...",
+            ["Recent_EmptySubtitle"] = "Los iconos que use aparecerán aquí.",
+            ["Folders_EmptySubtitle"] = "Las carpetas que personalice se mostrarán aquí.",
             ["Settings_Appearance"] = "Apariencia",
             ["Settings_SystemDefault"] = "Predeterminado del sistema",
             ["Settings_Light"] = "Claro",
@@ -1813,6 +1910,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "No se pudo restablecer el icono de la carpeta.",
             ["ErrorNoFolderSelected"] = "No se ha seleccionado ninguna carpeta.",
             ["ErrorEmptyImage"] = "Los datos de la imagen estaban vacíos.",
+            ["ErrorImageTooLarge"] = "Esta imagen es demasiado grande. Elija una imagen de menos de {0} MB.",
             ["About_Title"] = "Acerca de Ornare",
             ["App_ShortcutDescription"] = "Ornare - Personalizador de iconos de carpeta",
             ["About_Description"] = "Desarrollador: Vellium (vellium.dev)\nPersonalización de carpetas de Windows totalmente local y centrada en la privacidad.",
@@ -1880,6 +1978,10 @@ public static partial class AppResources
             ["EmptyFavoritesTitle"] = "Nenhum ícone favorito",
             ["EmptyFoldersTitle"] = "Nenhuma pasta personalizada",
             ["Delete"] = "Excluir",
+            ["TimeJustNow"] = "Agora mesmo",
+            ["TimeMinutesAgo"] = "há {0} min",
+            ["TimeHoursAgo"] = "há {0} h",
+            ["TimeDaysAgo"] = "há {0} d",
             ["Favorite"] = "Favorito",
             ["Unfavorite"] = "Remover dos favoritos",
             ["ApplyToFolder"] = "Aplicar à pasta",
@@ -1950,7 +2052,10 @@ public static partial class AppResources
             ["Placeholder_SearchIcons"] = "Pesquisar ícones...",
             ["Placeholder_SearchEmoji"] = "Pesquisar emoji...",
             ["Category_All"] = "Todos",
-            ["Status_ReadyToApply"] = "Pronto para aplicar",
+            ["Status_ReadyToApply"] = "Escolha um estilo abaixo ou solte uma imagem para começar",
+            ["QuickPanel_FirstUseHint"] = "Escolha um estilo, ícone ou cor abaixo, ou solte uma imagem aqui. Aplicar salva na pasta.",
+            ["QuickPanel_FirstUseDismiss"] = "Entendi",
+            ["QuickPanel_FirstUseDismissAccessible"] = "Dispensar a dica de primeiro uso",
             ["Status_UnappliedChanges"] = "Alterações não aplicadas",
             ["Status_Applied"] = "Aplicado",
             ["Status_CurrentIcon"] = "Ícone atual da pasta",
@@ -2058,6 +2163,10 @@ public static partial class AppResources
             ["Library_EmptySubtitle"] = "Os ícones que você personalizar aparecerão aqui",
             ["Recent_EmptyTitle"] = "Nenhum ícone recente",
             ["Folders_EmptyTitle"] = "Nenhuma pasta personalizada",
+            ["Library_EmptyGuidance"] = "Para personalizar uma pasta, clique com o botão direito no Explorador de Arquivos e escolha Definir ícone da pasta.",
+            ["EmptyLibrary_ChooseFolder"] = "Escolher uma pasta...",
+            ["Recent_EmptySubtitle"] = "Os ícones que você usar aparecerão aqui.",
+            ["Folders_EmptySubtitle"] = "As pastas que você personalizar serão listadas aqui.",
             ["Settings_Appearance"] = "Aparência",
             ["Settings_SystemDefault"] = "Padrão do sistema",
             ["Settings_Light"] = "Claro",
@@ -2164,6 +2273,7 @@ public static partial class AppResources
             ["ErrorResetFailed"] = "Não foi possível redefinir o ícone da pasta.",
             ["ErrorNoFolderSelected"] = "Nenhuma pasta selecionada.",
             ["ErrorEmptyImage"] = "Os dados da imagem estavam vazios.",
+            ["ErrorImageTooLarge"] = "Esta imagem é muito grande. Escolha uma imagem com menos de {0} MB.",
             ["About_Title"] = "Sobre o Ornare",
             ["App_ShortcutDescription"] = "Ornare - Personalizador de ícones de pasta",
             ["About_Description"] = "Desenvolvedor: Vellium (vellium.dev)\nPersonalização de pastas do Windows totalmente local e focada em privacidade.",

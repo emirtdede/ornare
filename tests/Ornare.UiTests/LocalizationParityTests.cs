@@ -74,43 +74,29 @@ public class LocalizationParityTests
     [Fact]
     public void EnglishAndTurkishResourcesHaveMatchingKeys()
     {
-        string appDir = FindAppDirectory();
+        Dictionary<string, string> en = RuntimeResourceSource.LoadLocale("en-US");
+        Dictionary<string, string> tr = RuntimeResourceSource.LoadLocale("tr-TR");
 
+        Assert.NotEmpty(en);
+        Assert.Equal(en.Count, tr.Count);
 
-        string enResw = Path.Combine(appDir, "Strings", "en-US", "Resources.resw");
-        string trResw = Path.Combine(appDir, "Strings", "tr-TR", "Resources.resw");
-
-        Assert.True(File.Exists(enResw), $"English resw missing at {enResw}");
-        Assert.True(File.Exists(trResw), $"Turkish resw missing at {trResw}");
-
-        var enDoc = XDocument.Load(enResw);
-        var trDoc = XDocument.Load(trResw);
-
-        var enKeys = enDoc.Root!.Elements("data").Select(e => e.Attribute("name")!.Value).ToHashSet();
-        var trKeys = trDoc.Root!.Elements("data").Select(e => e.Attribute("name")!.Value).ToHashSet();
-
-        Assert.NotEmpty(enKeys);
-        Assert.Equal(enKeys.Count, trKeys.Count);
-
-        foreach (var key in enKeys)
+        foreach (string key in en.Keys)
         {
-            Assert.Contains(key, trKeys);
+            Assert.True(tr.ContainsKey(key), $"Turkish dictionary is missing key '{key}'.");
         }
 
         // Verify all values are non-empty
-        foreach (var el in enDoc.Root!.Elements("data"))
+        foreach ((string key, string value) in en)
         {
-            string val = el.Element("value")?.Value ?? "";
-            Assert.False(string.IsNullOrWhiteSpace(val), $"Empty English value for key '{el.Attribute("name")?.Value}'");
+            Assert.False(string.IsNullOrWhiteSpace(value), $"Empty English value for key '{key}'");
         }
 
-        foreach (var el in trDoc.Root!.Elements("data"))
+        foreach ((string key, string value) in tr)
         {
-            string val = el.Element("value")?.Value ?? "";
-            Assert.False(string.IsNullOrWhiteSpace(val), $"Empty Turkish value for key '{el.Attribute("name")?.Value}'");
+            Assert.False(string.IsNullOrWhiteSpace(value), $"Empty Turkish value for key '{key}'");
             // Verify no UTF-8 replacement / mojibake characters
-            Assert.DoesNotContain("\uFFFD", val);
-            Assert.DoesNotContain("Ã", val);
+            Assert.DoesNotContain("\uFFFD", value);
+            Assert.DoesNotContain("Ã", value);
         }
 
         // Verify F26/F27 essential keys exist
@@ -132,20 +118,96 @@ public class LocalizationParityTests
             "StagedFolders_AlreadyCustomized"
         ];
 
-        foreach (var reqKey in requiredF26F27Keys)
+        foreach (string reqKey in requiredF26F27Keys)
         {
-            Assert.True(enKeys.Contains(reqKey), $"English missing required key: {reqKey}");
-            Assert.True(trKeys.Contains(reqKey), $"Turkish missing required key: {reqKey}");
+            Assert.True(en.ContainsKey(reqKey), $"English missing required key: {reqKey}");
+            Assert.True(tr.ContainsKey(reqKey), $"Turkish missing required key: {reqKey}");
         }
+    }
+
+    /// <summary>
+    /// The runtime dictionaries - not the .resw files - are what the app renders. This gate
+    /// proves every locale carries exactly the same key set and the same placeholder set, so a
+    /// newly added string can never ship translated into only one language or with a format
+    /// placeholder the translation dropped.
+    /// </summary>
+    [Fact]
+    public void RuntimeLocaleDictionariesHaveMatchingKeysAndPlaceholders()
+    {
+        string appDir = FindAppDirectory();
+        var locales = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+
+        foreach (string fileName in new[] { "AppResources.cs", "AppResources.Extended.cs" })
+        {
+            string content = File.ReadAllText(Path.Combine(appDir, fileName));
+            MergeLocaleDictionaries(content, locales);
+        }
+
+        Assert.Equal(6, locales.Count);
+        Assert.True(locales.TryGetValue("en-US", out var baseline), "en-US runtime dictionary missing.");
+
+        foreach (var (tag, entries) in locales)
+        {
+            Assert.Equal(baseline.Count, entries.Count);
+
+            foreach (var (key, englishValue) in baseline)
+            {
+                Assert.True(entries.ContainsKey(key), $"{tag} is missing runtime key '{key}'.");
+                Assert.Equal(
+                    ExtractPlaceholders(englishValue),
+                    ExtractPlaceholders(entries[key]));
+            }
+
+            foreach (var key in entries.Keys)
+            {
+                Assert.True(baseline.ContainsKey(key), $"en-US is missing runtime key '{key}' present in {tag}.");
+            }
+        }
+    }
+
+    private static void MergeLocaleDictionaries(string content, Dictionary<string, Dictionary<string, string>> target)
+    {
+        var marker = new System.Text.RegularExpressions.Regex(
+            "\\[\"(?<loc1>[a-z]{2}-[A-Z]{2})\"\\]\\s*=\\s*new\\(StringComparer\\.Ordinal\\)" +
+            "|Add\\(\"(?<loc2>[a-z]{2}-[A-Z]{2})\"\\s*,\\s*new Dictionary<string,\\s*string>\\(StringComparer\\.Ordinal\\)");
+        var entry = new System.Text.RegularExpressions.Regex(
+            "\\[\"(?<key>[^\"]+)\"\\]\\s*=\\s*\"(?<value>(?:[^\"\\\\]|\\\\.)*)\"");
+
+        var matches = marker.Matches(content);
+        for (int i = 0; i < matches.Count; i++)
+        {
+            var m = matches[i];
+            string locale = m.Groups["loc1"].Success ? m.Groups["loc1"].Value : m.Groups["loc2"].Value;
+            int start = m.Index + m.Length;
+            int end = i + 1 < matches.Count ? matches[i + 1].Index : content.Length;
+
+            if (!target.TryGetValue(locale, out var dictionary))
+            {
+                dictionary = new Dictionary<string, string>(StringComparer.Ordinal);
+                target[locale] = dictionary;
+            }
+
+            foreach (System.Text.RegularExpressions.Match e in entry.Matches(content[start..end]))
+            {
+                dictionary[e.Groups["key"].Value] = e.Groups["value"].Value;
+            }
+        }
+    }
+
+    private static string ExtractPlaceholders(string value)
+    {
+        var placeholders = System.Text.RegularExpressions.Regex
+            .Matches(value, "\\{\\d+\\}")
+            .Select(m => m.Value)
+            .OrderBy(v => v, StringComparer.Ordinal);
+        return string.Join(",", placeholders);
     }
 
     [Fact]
     public void TurkishTypographyContainsSpecificDiacritics()
     {
-        string appDir = FindAppDirectory();
-        string trResw = Path.Combine(appDir, "Strings", "tr-TR", "Resources.resw");
-        var trDoc = XDocument.Load(trResw);
-        string allValues = string.Join(" ", trDoc.Root!.Elements("data").Select(e => e.Element("value")?.Value ?? ""));
+        Dictionary<string, string> tr = RuntimeResourceSource.LoadLocale("tr-TR");
+        string allValues = string.Join(" ", tr.Values);
 
         // Turkish alphabet distinctive characters: ç, ğ, ı, ö, ş, ü, İ
         Assert.Contains("ç", allValues, StringComparison.OrdinalIgnoreCase);
@@ -159,44 +221,38 @@ public class LocalizationParityTests
     [Fact]
     public void AllSixLocalesHaveMatchingKeysAndNonEmptyValues()
     {
-        string appDir = FindAppDirectory();
-        string[] locales = ["en-US", "tr-TR", "de-DE", "fr-FR", "es-ES", "pt-BR"];
-        string enResw = Path.Combine(appDir, "Strings", "en-US", "Resources.resw");
-        Assert.True(File.Exists(enResw), $"English resw missing at {enResw}");
-        var enDoc = XDocument.Load(enResw);
-        var enKeys = enDoc.Root!.Elements("data").Select(e => e.Attribute("name")!.Value).ToHashSet();
-        var enPlaceholders = enDoc.Root!.Elements("data").ToDictionary(
-            e => e.Attribute("name")!.Value,
-            e => System.Text.RegularExpressions.Regex.Matches(e.Element("value")?.Value ?? "", @"\{(\d+)\}").Select(m => m.Value).OrderBy(x => x).ToList());
+        Dictionary<string, string> en = RuntimeResourceSource.LoadLocale("en-US");
+        var enPlaceholders = en.ToDictionary(
+            pair => pair.Key,
+            pair => System.Text.RegularExpressions.Regex.Matches(pair.Value, @"\{(\d+)\}")
+                .Select(m => m.Value)
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToList());
 
-        foreach (var loc in locales)
+        foreach (string loc in RuntimeResourceSource.CompleteLocales)
         {
-            string locResw = Path.Combine(appDir, "Strings", loc, "Resources.resw");
-            Assert.True(File.Exists(locResw), $"Locale {loc} resw missing at {locResw}");
-
-            var locDoc = XDocument.Load(locResw);
-            var locKeys = locDoc.Root!.Elements("data").Select(e => e.Attribute("name")!.Value).ToHashSet();
+            Dictionary<string, string> dictionary = RuntimeResourceSource.LoadLocale(loc);
 
             // Verify key count and parity
-            Assert.Equal(enKeys.Count, locKeys.Count);
-            foreach (var key in enKeys)
+            Assert.Equal(en.Count, dictionary.Count);
+            foreach (string key in en.Keys)
             {
-                Assert.True(locKeys.Contains(key), $"Locale {loc} missing key '{key}'");
+                Assert.True(dictionary.ContainsKey(key), $"Locale {loc} missing key '{key}'");
             }
 
             // Verify non-empty and no mojibake
-            foreach (var el in locDoc.Root!.Elements("data"))
+            foreach ((string key, string value) in dictionary)
             {
-                string key = el.Attribute("name")!.Value;
-                string val = el.Element("value")?.Value ?? "";
-                Assert.False(string.IsNullOrWhiteSpace(val), $"Empty value in {loc} for key '{key}'");
-                Assert.DoesNotContain("\uFFFD", val);
-                Assert.DoesNotContain("Ã", val);
+                Assert.False(string.IsNullOrWhiteSpace(value), $"Empty value in {loc} for key '{key}'");
+                Assert.DoesNotContain("\uFFFD", value);
+                Assert.DoesNotContain("Ã", value);
 
                 // Check placeholder parity
-                var locMatches = System.Text.RegularExpressions.Regex.Matches(val, @"\{(\d+)\}").Select(m => m.Value).OrderBy(x => x).ToList();
-                var expected = enPlaceholders[key];
-                Assert.Equal(expected, locMatches);
+                var locMatches = System.Text.RegularExpressions.Regex.Matches(value, @"\{(\d+)\}")
+                    .Select(m => m.Value)
+                    .OrderBy(x => x, StringComparer.Ordinal)
+                    .ToList();
+                Assert.Equal(enPlaceholders[key], locMatches);
             }
         }
     }
@@ -288,6 +344,8 @@ public class LocalizationParityTests
             "Ornare",
             // Publisher identity and its URL are not translatable copy.
             "Vellium", "vellium.dev",
+            // A hex colour sample is a format hint, not language. It reads the same in every locale.
+            "#0F6CBD",
             "Türkçe", "English", "Deutsch", "Français", "Español", "Português (Brasil)"
         };
 
@@ -322,10 +380,17 @@ public class LocalizationParityTests
                         continue;
                     }
 
-                    // A literal is acceptable only if the runtime overwrites it.
-                    bool overwritten = name is not null && System.Text.RegularExpressions.Regex.IsMatch(
-                        codeText,
-                        $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\.(Text|Content|Header|PlaceholderText)\s*=");
+                    // A literal is acceptable only if the runtime overwrites that exact property.
+                    // The earlier check accepted any assignment on the element, so a Text
+                    // assignment silently excused an English PlaceholderText or an English
+                    // AutomationProperties.Name that Narrator then read in every locale.
+                    bool isAccessibleName = attr.Name.LocalName == "AutomationProperties.Name" ||
+                        attr.Name.ToString().EndsWith("AutomationProperties.Name", StringComparison.Ordinal);
+                    string overwritePattern = isAccessibleName
+                        ? $@"AutomationProperties\.SetName\(\s*{System.Text.RegularExpressions.Regex.Escape(name!)}\b"
+                        : $@"\b{System.Text.RegularExpressions.Regex.Escape(name!)}\.{attr.Name.LocalName}\s*=";
+                    bool overwritten = name is not null &&
+                        System.Text.RegularExpressions.Regex.IsMatch(codeText, overwritePattern);
                     if (!overwritten)
                     {
                         offenders.Add($"{Path.GetFileName(xaml)}: <{element.Name.LocalName} x:Name=\"{name}\" {attr.Name.LocalName}=\"{value}\">");
@@ -419,36 +484,22 @@ public class LocalizationParityTests
         Assert.True(offenders.Count == 0, $"tr/en-only branching found in: {string.Join(", ", offenders)}");
     }
 
+    /// <summary>
+    /// Guards audit finding 3.4. A parallel <c>Strings/*/Resources.resw</c> tree used to sit
+    /// beside the runtime dictionaries. It was neither compiled into a resources.pri nor
+    /// complete (259 keys against 712), and the tests that "verified" it only compared the
+    /// mirror against itself. A second copy of user-facing copy is a defect: one of the two
+    /// always rots, and translators cannot tell which one ships.
+    /// </summary>
     [Fact]
-    public void AppResourcesHasMatchingKeysForAllSixLocales()
+    public void NoStaleReswCopyOfTheRuntimeCopyExists()
     {
-        string appDir = FindAppDirectory();
-        string appResourcesPath = Path.Combine(appDir, "AppResources.cs");
-        Assert.True(File.Exists(appResourcesPath), "AppResources.cs missing");
+        string appDir = RuntimeResourceSource.FindAppDirectory();
+        string stringsDirectory = Path.Combine(appDir, "Strings");
 
-        string enResw = Path.Combine(appDir, "Strings", "en-US", "Resources.resw");
-        var enDoc = XDocument.Load(enResw);
-        var enKeys = enDoc.Root!.Elements("data").Select(e => e.Attribute("name")!.Value).ToHashSet();
-
-        string content = File.ReadAllText(appResourcesPath);
-        string[] locales = ["en-US", "tr-TR", "de-DE", "fr-FR", "es-ES", "pt-BR"];
-
-        foreach (var loc in locales)
-        {
-            // Find section for locale
-            string marker = $"[\"{loc}\"] = new(StringComparer.Ordinal)";
-            int startIdx = content.IndexOf(marker, StringComparison.Ordinal);
-            Assert.True(startIdx >= 0, $"Locale marker {marker} not found in AppResources.cs");
-
-            int endIdx = content.IndexOf("},", startIdx, StringComparison.Ordinal);
-            Assert.True(endIdx > startIdx, $"Locale closing brace for {loc} not found");
-
-            string section = content.Substring(startIdx, endIdx - startIdx);
-            foreach (var key in enKeys)
-            {
-                string keyEntry = $"[\"{key}\"] = ";
-                Assert.True(section.Contains(keyEntry), $"AppResources locale {loc} is missing key: {key}");
-            }
-        }
+        Assert.False(
+            Directory.Exists(stringsDirectory),
+            "src/Ornare.App/Strings must not exist: AppResources is the only source of user-facing copy. " +
+            "Edit the dictionaries in AppResources.cs and AppResources.Extended.cs.");
     }
 }

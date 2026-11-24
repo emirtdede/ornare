@@ -79,10 +79,13 @@ public class VectorEmblemUiTests
     public void QuickPanelWindowCodeBehindImplementsVectorEmblemLifecycle()
     {
         string appDir = FindAppDirectory();
-        string csPath = Path.Combine(appDir, "QuickPanelWindow.xaml.cs");
-        Assert.True(File.Exists(csPath), $"QuickPanelWindow.xaml.cs not found at {csPath}");
+        // The window is a partial class across several files (placement, temp assets, catalogs,
+        // localization). Reading only the main file would fail for a method that legitimately
+        // lives in a partial, so the guard reads the whole class.
+        var files = Directory.EnumerateFiles(appDir, "QuickPanelWindow*.cs").OrderBy(p => p).ToList();
+        Assert.True(files.Count > 0, $"QuickPanelWindow partials not found in {appDir}");
 
-        string code = File.ReadAllText(csPath);
+        string code = string.Join("\n", files.Select(File.ReadAllText));
 
         Assert.Contains("ObservableCollection<VectorEmblemItemViewModel> VectorEmblemCards", code);
         Assert.Contains("OnIconFlyoutOpening", code);

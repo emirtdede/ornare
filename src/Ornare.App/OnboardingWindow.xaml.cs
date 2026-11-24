@@ -94,10 +94,22 @@ public sealed partial class OnboardingWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleDragArea);
 
+        // Extending content into the title bar puts the caption buttons on top of our own
+        // title row. Reserve their inset (and the system menu inset on the left) so the step
+        // counter never sits underneath Minimize / Maximize / Close, which it did at 780x660.
         if (AppWindowTitleBar.IsCustomizationSupported())
         {
-            appWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
-            appWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+            AppWindowTitleBar titleBar = appWindow.TitleBar;
+
+            // RightInset is measured from the live caption buttons, but it can still read 0
+            // before the first layout pass on some DPI transitions. 140 is the same reserve the
+            // manager title bar uses, so the fallback is consistent with the rest of the app.
+            double rightReserve = Math.Max(titleBar.RightInset, 140);
+            double leftReserve = Math.Max(titleBar.LeftInset, 0);
+            TitleDragArea.Padding = new Thickness(28 + leftReserve, 0, 28 + rightReserve, 0);
+
+            titleBar.ButtonBackgroundColor = Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
         }
 
         string iconPath = AppearanceService.EnsureIconFile(
@@ -263,6 +275,8 @@ public sealed partial class OnboardingWindow : Window
 
     private void ApplyTheme(string theme)
     {
+        App.CurrentTheme = theme;
+
         if (Content is FrameworkElement root)
         {
             root.RequestedTheme = theme switch
@@ -354,6 +368,10 @@ public sealed partial class OnboardingWindow : Window
         AccentHint.Text = L("Settings_AccentHint");
         AccentHint.Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
         ScaleLabel.Text = L("Settings_ScaleLabel");
+        // Markup kept English accessible names here; the runtime must replace them or Narrator
+        // reads English on a Turkish, German, French, Spanish or Portuguese screen.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(AccentHexBox, L("Settings_AccentLabel"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ScaleComboBox, L("Settings_ScaleLabel"));
 
         WelcomeHeading.Text = L("Onboarding_WelcomeHeading");
         WelcomeBody.Text = L("Onboarding_WelcomeBody");
@@ -370,6 +388,7 @@ public sealed partial class OnboardingWindow : Window
         CloudToggle.Header = L("Onboarding_CloudToggle");
         CloudToggle.OnContent = L("Toggle_On");
         CloudToggle.OffContent = L("Toggle_Off");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CloudToggle, L("Onboarding_CloudToggle"));
         CloudDescription.Text = L("Onboarding_CloudDescription");
 
         SkipButton.Content = L("Onboarding_Skip");
@@ -436,12 +455,30 @@ public sealed partial class OnboardingWindow : Window
                 : nameof(CloudSyncProviderKind.None)
         };
 
+        bool connected = true;
         if (enabled)
         {
-            await ConnectCloudAsync().ConfigureAwait(true);
+            try
+            {
+                await ConnectCloudAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Connecting performs real file I/O. An exception escaping this async void
+                // handler would terminate the process during first-run onboarding, so it is
+                // recorded and shown as the cloud status instead.
+                connected = false;
+                App.Log($"Onboarding cloud connect failed: {ex.Message}");
+                CloudPathText.Text = AppResources.GetString("Settings_CloudStatusFailed", AppResources.CurrentLocale);
+            }
         }
 
-        UpdateCloudPathText();
+        if (connected)
+        {
+            // Recomputed from settings; skipped after a failure so the message it just set is
+            // not replaced by the path of a connection that was never written.
+            UpdateCloudPathText();
+        }
     }
 
     private async Task ConnectCloudAsync()
@@ -512,6 +549,13 @@ public sealed partial class OnboardingWindow : Window
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             App.Log($"Onboarding settings save failed: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // An async void handler that lets an unexpected failure escape terminates the
+            // process during first run. The window still closes; onboarding is offered again
+            // next launch because OnboardingCompleted was not persisted.
+            App.Log($"Onboarding finish failed: {ex.Message}");
         }
 
         Close();

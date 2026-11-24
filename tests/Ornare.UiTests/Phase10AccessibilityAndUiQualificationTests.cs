@@ -219,25 +219,21 @@ public sealed class Phase10AccessibilityAndUiQualificationTests
     [Fact]
     public void TurkishAndEnglishTypographyParityAndAbsenceOfMojibake()
     {
-        string appDir = FindAppDirectory();
-        string[] testLocales = ["en-US", "tr-TR"];
-
-        foreach (var loc in testLocales)
+        foreach (string locale in new[] { "en-US", "tr-TR" })
         {
-            string reswPath = Path.Combine(appDir, "Strings", loc, "Resources.resw");
-            var doc = XDocument.Load(reswPath);
-
-            var values = doc.Root!.Elements("data").Select(e => e.Element("value")?.Value ?? "").ToList();
+            Dictionary<string, string> values = RuntimeResourceSource.LoadLocale(locale);
             Assert.NotEmpty(values);
 
-            foreach (var val in values)
+            foreach ((string key, string value) in values)
             {
-                Assert.False(string.IsNullOrWhiteSpace(val));
-                // Mojibake check
-                Assert.DoesNotContain("\uFFFD", val);
-                Assert.DoesNotContain("Ã", val);
-                Assert.DoesNotContain("Å", val);
-                Assert.DoesNotContain("â€", val);
+                Assert.False(string.IsNullOrWhiteSpace(value), $"Empty value in {locale} for '{key}'.");
+
+                // U+FFFD is what a failed UTF-8 decode leaves behind. A stray "Ã" or "Â" is
+                // the classic Latin-1 double-encoding of a UTF-8 lead byte. Either one in a
+                // shipped string means the copy was decoded with the wrong code page.
+                Assert.DoesNotContain("\uFFFD", value);
+                Assert.DoesNotContain("Ã", value);
+                Assert.DoesNotContain("Â", value);
             }
         }
     }

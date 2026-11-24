@@ -139,37 +139,28 @@ public class Phase8ImageColorMoreIntegrationTests
     [Fact]
     public void MoreMenuResourcesExistAcrossAllLocales()
     {
-        string appDir = FindAppDirectory();
         string[] keys = ["More_ResetFolder", "More_OpenManager", "More_Settings", "More_About"];
-        string[] locales = ["en-US", "tr-TR", "de-DE", "fr-FR", "es-ES", "pt-BR"];
 
-        foreach (var loc in locales)
+        foreach (string loc in RuntimeResourceSource.CompleteLocales)
         {
-            string reswPath = Path.Combine(appDir, "Strings", loc, "Resources.resw");
-            Assert.True(File.Exists(reswPath), $"Missing resw: {reswPath}");
-            var doc = XDocument.Load(reswPath);
-            var dict = doc.Root!.Elements("data").ToDictionary(e => e.Attribute("name")!.Value, e => e.Element("value")?.Value ?? "");
+            Dictionary<string, string> dictionary = RuntimeResourceSource.LoadLocale(loc);
 
-            foreach (var key in keys)
+            foreach (string key in keys)
             {
-                Assert.True(dict.ContainsKey(key), $"Missing key '{key}' in {loc}");
-                Assert.False(string.IsNullOrWhiteSpace(dict[key]), $"Empty value for '{key}' in {loc}");
+                Assert.True(dictionary.ContainsKey(key), $"Missing key '{key}' in {loc}");
+                Assert.False(string.IsNullOrWhiteSpace(dictionary[key]), $"Empty value for '{key}' in {loc}");
             }
         }
 
         // English specific check
-        string enResw = Path.Combine(appDir, "Strings", "en-US", "Resources.resw");
-        var enDoc = XDocument.Load(enResw);
-        var enDict = enDoc.Root!.Elements("data").ToDictionary(e => e.Attribute("name")!.Value, e => e.Element("value")?.Value ?? "");
+        Dictionary<string, string> enDict = RuntimeResourceSource.LoadLocale("en-US");
         Assert.Equal("Reset Folder Customization", enDict["More_ResetFolder"]);
         Assert.Equal("Open Manager", enDict["More_OpenManager"]);
         Assert.Equal("Settings", enDict["More_Settings"]);
         Assert.Equal("About / Open-source acknowledgements", enDict["More_About"]);
 
         // Turkish specific check
-        string trResw = Path.Combine(appDir, "Strings", "tr-TR", "Resources.resw");
-        var trDoc = XDocument.Load(trResw);
-        var trDict = trDoc.Root!.Elements("data").ToDictionary(e => e.Attribute("name")!.Value, e => e.Element("value")?.Value ?? "");
+        Dictionary<string, string> trDict = RuntimeResourceSource.LoadLocale("tr-TR");
         Assert.Equal("Klasör Özelleştirmesini Sıfırla", trDict["More_ResetFolder"]);
         Assert.Equal("Yöneticiyi Aç", trDict["More_OpenManager"]);
         Assert.Equal("Ayarlar", trDict["More_Settings"]);

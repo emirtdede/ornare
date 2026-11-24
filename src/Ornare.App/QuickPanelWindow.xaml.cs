@@ -65,9 +65,17 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private bool _isPointerInside;
     private bool _isProcessing;
     private bool _isCommitting;
+    // Authoritative reentrancy gate for image staging. `_isProcessing` is derived UI state:
+    // SetProcessingStage sets it *after* the work begins and ShowCategorizedError clears it
+    // from an unrelated failure, so it cannot be the lock. This counter is the lock; it is
+    // acquired with Interlocked and always released in a finally block.
+    private int _stagingGate;
+    private volatile bool _disposed;
     private string? _pendingTargetPath;
     private ProcessingStage _currentStage = ProcessingStage.Idle;
-    private string _currentLanguage = AppResources.NormalizeLocale(null);
+    // Seeded from the process locale App resolved at startup, so the panel's first frame is in
+    // the user's chosen language instead of the OS language until storage answers.
+    private string _currentLanguage = AppResources.CurrentLocale;
     private Guid _stagedOperationId;
     private string? _stagedTempIcoPath;
     private NormalizedImageResult? _stagedProcessResult;
@@ -78,72 +86,25 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
     private BackgroundMode _stagedBackgroundMode = BackgroundMode.Transparent;
     private string _stagedBackgroundColorHex = "#FFFFFF";
     private CancellationTokenSource? _previewDebounceCts;
+    private CancellationTokenSource? _previewRenderCts;
+    private long _previewRenderSequence;
     private string? _tempPreviewPngPath;
     private readonly List<string> _tempThumbnailPngPaths = new();
 
     private string? _snapshotFolderColorHex;
 
-    #region Win32 P/Invoke & Structures for Native Monitor Positioning
+    // The ColorPicker raises ColorChanged for programmatic assignments too. Without this
+    // guard, seeding the picker with a default (or syncing it from staged state) would be
+    // read as a user choice: the panel would mark the folder dirty on open and later apply a
+    // colour the user never picked. Every write to CustomColorPicker.Color goes through
+    // SetPickerColorSilently.
+    private bool _suppressColorPickerEvents;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-        public int Width => Right - Left;
-        public int Height => Bottom - Top;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct MONITORINFO
-    {
-        public int cbSize;
-        public RECT rcMonitor;
-        public RECT rcWork;
-        public uint dwFlags;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    private const uint MONITOR_DEFAULTTONEAREST = 2;
-    private const uint MONITOR_DEFAULTTOPRIMARY = 1;
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-    private const int GWL_STYLE = -16;
-    private const int WS_MAXIMIZEBOX = 0x00010000;
-    private const int WS_MINIMIZEBOX = 0x00020000;
-    private const uint SWP_NOMOVE = 0x0002;
-    private const uint SWP_NOSIZE = 0x0001;
-    private const uint SWP_NOZORDER = 0x0004;
-    private const uint SWP_FRAMECHANGED = 0x0020;
-    #endregion
+    /// <summary>
+    /// Whether the first-use guidance is currently occupying the preview subtitle slot. Kept on
+    /// the instance so a language switch re-renders the hint instead of dropping it.
+    /// </summary>
+    private bool _firstUseHintVisible;
 
     public QuickPanelWindow(
         IImagePipeline imagePipeline,
@@ -159,6 +120,26 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         ConfigureWindow();
         SetupKeyboardAccelerators();
         InitializeColorPalette();
+
+        // The panel has no settings surface of its own: seed theme and copy from what the app
+        // already resolved so the first frame already matches the chosen theme and language
+        // while the target folder loads.
+        if (Content is FrameworkElement root)
+        {
+            root.RequestedTheme = App.CurrentTheme switch
+            {
+                "Light" => ElementTheme.Light,
+                "Dark" => ElementTheme.Dark,
+                _ => ElementTheme.Default
+            };
+        }
+        UpdateLocalizedChrome();
+
+        // The panel can outlive a language change made in the manager. Without this
+        // subscription the panel keeps the locale it was born with, and its copy silently
+        // mixes two languages until the next activation.
+        AppResources.CurrentLocaleChanged += OnAppLanguageChanged;
+
         Closed += (_, _) => Dispose();
     }
 
@@ -180,9 +161,33 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         catch (Exception ex)
         {
             App.Log($"{operation} failed: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.Generic);
+
+            // A handler that was still running when the panel closed must not touch the
+            // visual tree: elements are disconnected after Closed and an assignment throws
+            // COMException, which would escape this guard through the async void boundary.
+            if (!_disposed)
+            {
+                ShowCategorizedError(QuickPanelErrorType.Generic);
+            }
         }
     }
+
+    /// <summary>
+    /// Acquires the image-staging gate. Returns false when another staging operation owns it,
+    /// which is the expected outcome of a second drag-drop, paste or pick while the first
+    /// image is being decoded.
+    /// </summary>
+    private bool TryBeginStaging()
+    {
+        return Interlocked.CompareExchange(ref _stagingGate, 1, 0) == 0;
+    }
+
+    private void EndStaging()
+    {
+        Interlocked.Exchange(ref _stagingGate, 0);
+    }
+
+    private bool IsStagingInProgress => Volatile.Read(ref _stagingGate) != 0;
 
     /// <summary>
     /// Resolves a theme brush without throwing when a key is missing (for example under
@@ -199,154 +204,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         return new SolidColorBrush(fallback);
     }
 
-    private void StripMinimizeMaximizeButtons()
-    {
-        try
-        {
-            IntPtr hwnd = WindowNative.GetWindowHandle(this);
-            if (hwnd != IntPtr.Zero)
-            {
-                int style = GetWindowLong(hwnd, GWL_STYLE);
-                int previousStyle = SetWindowLong(hwnd, GWL_STYLE, style & ~WS_MAXIMIZEBOX & ~WS_MINIMIZEBOX);
-                bool updated = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-                if (previousStyle == 0 && !updated)
-                {
-                    // Satisfies CA1806 result inspection
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // Cosmetic window-style adjustments must never prevent the panel opening;
-            // the failure is still recorded so a broken HWND is diagnosable.
-            App.Log($"StripMinimizeMaximizeButtons failed: {ex.Message}");
-        }
-    }
-
-    private void ConfigureWindow()
-    {
-        Title = "Ornare";
-        SystemBackdrop = new MicaBackdrop();
-
-        IntPtr hwnd = WindowNative.GetWindowHandle(this);
-        WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
-
-        // Effective target size: 420x330 per Visual Reference Spec
-        appWindow.Resize(new global::Windows.Graphics.SizeInt32(420, 330));
-
-        string icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
-        if (File.Exists(icoPath))
-        {
-            appWindow.SetIcon(icoPath);
-        }
-
-        if (appWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
-            presenter.IsMinimizable = false;
-        }
-
-        StripMinimizeMaximizeButtons();
-        Activated += (_, _) => StripMinimizeMaximizeButtons();
-
-        // Modern title bar customization: integrate content with Mica backdrop
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(TitleBarDragRegion);
-
-        if (AppWindowTitleBar.IsCustomizationSupported())
-        {
-            var titleBar = appWindow.TitleBar;
-            titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
-            titleBar.ButtonBackgroundColor = Colors.Transparent;
-            titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-            titleBar.ButtonHoverBackgroundColor = global::Windows.UI.Color.FromArgb(20, 255, 255, 255);
-            titleBar.ButtonPressedBackgroundColor = global::Windows.UI.Color.FromArgb(40, 255, 255, 255);
-        }
-
-        // Pointer tracking for auto-close behavior
-        if (Content is FrameworkElement root)
-        {
-            root.PointerEntered += (_, _) => _isPointerInside = true;
-            root.PointerExited += (_, _) => _isPointerInside = false;
-        }
-    }
-
-    public void PositionWindow(int? cursorX, int? cursorY)
-    {
-        try
-        {
-            IntPtr hwnd = WindowNative.GetWindowHandle(this);
-            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
-
-            const int windowWidth = 420;
-            const int windowHeight = 330;
-
-            IntPtr hMonitor;
-            if (cursorX.HasValue && cursorY.HasValue)
-            {
-                POINT pt = new POINT { X = cursorX.Value, Y = cursorY.Value };
-                hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-            }
-            else
-            {
-                IntPtr fg = GetForegroundWindow();
-                hMonitor = MonitorFromWindow(fg != IntPtr.Zero ? fg : hwnd, MONITOR_DEFAULTTOPRIMARY);
-            }
-
-            MONITORINFO mi = new MONITORINFO();
-            mi.cbSize = Marshal.SizeOf<MONITORINFO>();
-
-            if (hMonitor != IntPtr.Zero && GetMonitorInfo(hMonitor, ref mi))
-            {
-                RECT work = mi.rcWork;
-                int targetX;
-                int targetY;
-
-                if (cursorX.HasValue && cursorY.HasValue)
-                {
-                    // Center window horizontally and vertically around the mouse cursor
-                    targetX = cursorX.Value - (windowWidth / 2);
-                    targetY = cursorY.Value - (windowHeight / 2);
-
-                    // Clamp to active monitor work area (protecting taskbar and screen edges with 12px margin)
-                    const int margin = 12;
-                    if (targetX + windowWidth > work.Right - margin)
-                    {
-                        targetX = work.Right - windowWidth - margin;
-                    }
-                    if (targetX < work.Left + margin)
-                    {
-                        targetX = work.Left + margin;
-                    }
-
-                    if (targetY + windowHeight > work.Bottom - margin)
-                    {
-                        targetY = work.Bottom - windowHeight - margin;
-                    }
-                    if (targetY < work.Top + margin)
-                    {
-                        targetY = work.Top + margin;
-                    }
-                }
-                else
-                {
-                    // Fallback: center in active monitor work area
-                    targetX = work.Left + (work.Width - windowWidth) / 2;
-                    targetY = work.Top + (work.Height - windowHeight) / 2;
-                }
-
-                App.Log($"PositionWindow: moving window to ({targetX},{targetY}), work=({work.Left},{work.Top},{work.Right},{work.Bottom})");
-                appWindow.Move(new global::Windows.Graphics.PointInt32(targetX, targetY));
-            }
-        }
-        catch (Exception ex)
-        {
-            App.Log($"PositionWindow failed: {ex}");
-        }
-    }
 
     private void SetupKeyboardAccelerators()
     {
@@ -578,7 +435,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (_currentStage == ProcessingStage.PreviewReady || _currentStage == ProcessingStage.PreparingImage)
         {
-            await SetProcessingStageAsync(ProcessingStage.Idle);
+            SetProcessingStage(ProcessingStage.Idle);
             CleanupStagedFiles();
             RestoreFocusAfterTransition(ProcessingStage.Idle);
             return;
@@ -653,7 +510,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (_currentStage == ProcessingStage.PreviewReady || _currentStage == ProcessingStage.PreparingImage)
         {
-            _ = SetProcessingStageAsync(ProcessingStage.Idle);
+            SetProcessingStage(ProcessingStage.Idle);
             CleanupStagedFiles();
             RestoreFocusAfterTransition(ProcessingStage.Idle);
             return;
@@ -769,6 +626,13 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             _stagedImageBytes = null;
             _stagedProcessResult = null;
             _stagedCustomColorHex = null;
+
+            // A debounced colour preview scheduled for the previous folder must not land on
+            // the new one. Without this the target switch races the 80 ms timer and the
+            // staging model silently stages a colour for a folder the user never touched.
+            _previewDebounceCts?.Cancel();
+            _previewDebounceCts?.Dispose();
+            _previewDebounceCts = null;
         }
 
         _currentFolderPath = folderPath;
@@ -778,7 +642,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         OperationResult validation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!validation.IsSuccess)
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorFolderNotCustomizable", _currentLanguage));
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, QuickPanelErrorCopy.Message(AppResources.GetString("ErrorFolderNotCustomizable", _currentLanguage)));
             return;
         }
 
@@ -795,29 +659,34 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         FolderCustomizationState state = _folderCustomizer.GetFolderState(folderPath, _currentBaseline);
 
-        string? savedLang = await _storageService.GetSettingAsync("App.Language");
-        if (!string.IsNullOrWhiteSpace(savedLang))
-        {
-            _currentLanguage = AppResources.NormalizeLocale(savedLang);
-            AppResources.CurrentLocale = _currentLanguage;
-        }
-
+        // The panel language is owned by AppResources.CurrentLocale: the constructor seeds it
+        // from the process locale and OnAppLanguageChanged keeps it live. The old
+        // "App.Language" setting read here was a dead key nothing ever wrote, so it could only
+        // run when the value happened to be null and never reflected a real user choice.
         UpdateLocalizedChrome();
 
         if (state == FolderCustomizationState.ExternalIconConflict)
         {
             StatusInfoText.Text = AppResources.GetString("ExternalConflictMessage", _currentLanguage);
             ResetButton.Visibility = Visibility.Collapsed;
+            FirstUseHintDismissButton.Visibility = Visibility.Collapsed;
         }
         else if (_currentBaseline != null)
         {
             ResetButton.Visibility = Visibility.Visible;
             StatusInfoText.Text = AppResources.GetString("Status_CurrentIcon", _currentLanguage);
+            FirstUseHintDismissButton.Visibility = Visibility.Collapsed;
         }
         else
         {
             ResetButton.Visibility = Visibility.Collapsed;
             StatusInfoText.Text = AppResources.GetString("Status_ReadyToApply", _currentLanguage);
+
+            // A new user gets one concrete sentence in the preview slot plus a way to hide it.
+            // It is not a modal and not a tour, and it stops appearing after the first apply
+            // or the first dismissal (audit finding 3.2: the panel gave no first-use guidance).
+            string? hintDismissed = await _storageService.GetSettingAsync("QuickPanelHintDismissed");
+            ApplyFirstUseHintState(!string.Equals(hintDismissed, "true", StringComparison.OrdinalIgnoreCase));
         }
 
         // Initialize staging model with default Mode B (Classic v2, #E8A317 / Windows Folder Amber)
@@ -830,142 +699,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 FolderColorHex = "#E8A317",
                 Emblem = FolderEmblemRecipe.None
             });
-        // Initialize the 9 template cards        InitializeTemplateCards();
+        // Initialize the 9 template cards
+        InitializeTemplateCards();
 
         // Render initial live preview
         await RefreshLivePreviewAsync();
 
-        await SetProcessingStageAsync(ProcessingStage.Idle);
+        SetProcessingStage(ProcessingStage.Idle);
     }
 
-    private void UpdateLocalizedChrome()
-    {
-        ToolTipService.SetToolTip(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        AutomationProperties.SetName(ResetButton, AppResources.GetString("Reset", _currentLanguage));
-        ToolTipService.SetToolTip(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
-        AutomationProperties.SetName(OpenManagerButton, AppResources.GetString("Settings", _currentLanguage));
-
-        ToolTipService.SetToolTip(FolderActionButton, $"{AppResources.GetString("Template_Title", _currentLanguage)} (Alt+1)");
-        AutomationProperties.SetName(FolderActionButton, AppResources.GetString("Template_Title", _currentLanguage));
-
-        ToolTipService.SetToolTip(IconActionButton, $"{AppResources.GetString("Icon_Title", _currentLanguage)} (Alt+2)");
-        AutomationProperties.SetName(IconActionButton, AppResources.GetString("Icon_Title", _currentLanguage));
-
-        ToolTipService.SetToolTip(EmojiActionButton, $"{AppResources.GetString("Emoji_Title", _currentLanguage)} (Alt+3)");
-        AutomationProperties.SetName(EmojiActionButton, AppResources.GetString("Emoji_Title", _currentLanguage));
-
-        ToolTipService.SetToolTip(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
-        AutomationProperties.SetName(ImageActionButton, AppResources.GetString("Action_Image", _currentLanguage));
-
-        ToolTipService.SetToolTip(ColorActionButton, AppResources.GetString("Action_Color", _currentLanguage));
-        AutomationProperties.SetName(ColorActionButton, AppResources.GetString("Action_Color", _currentLanguage));
-
-        ToolTipService.SetToolTip(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
-        AutomationProperties.SetName(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
-
-        ApplyConfirmButton.Content = AppResources.GetString("Action_Apply", _currentLanguage);
-        ToolTipService.SetToolTip(ApplyConfirmButton, AppResources.GetString("Apply_Icon_ToolTip", _currentLanguage));
-        AutomationProperties.SetName(ApplyConfirmButton, AppResources.GetString("Action_Apply", _currentLanguage));
-
-        // Accessibility names are user-facing copy too: screen readers announce them
-        // verbatim, so they must follow the selected locale like any visible label.
-        AutomationProperties.SetName(DropAreaBorder, AppResources.GetString("A11y_DropArea", _currentLanguage));
-        AutomationProperties.SetName(PaddingSlider, AppResources.GetString("A11y_PaddingSlider", _currentLanguage));
-        AutomationProperties.SetName(IconSearchTextBox, AppResources.GetString("A11y_SearchVectorIcons", _currentLanguage));
-        AutomationProperties.SetName(IconCategoryComboBox, AppResources.GetString("A11y_FilterCategory", _currentLanguage));
-        AutomationProperties.SetName(IconGridView, AppResources.GetString("A11y_VectorGrid", _currentLanguage));
-        AutomationProperties.SetName(EmojiSearchTextBox, AppResources.GetString("A11y_SearchEmoji", _currentLanguage));
-        AutomationProperties.SetName(EmojiCategoryComboBox, AppResources.GetString("A11y_FilterEmojiCategory", _currentLanguage));
-        AutomationProperties.SetName(EmojiGridView, AppResources.GetString("A11y_EmojiGrid", _currentLanguage));
-        AutomationProperties.SetName(ImageActionButton, AppResources.GetString("Action_CustomImage", _currentLanguage));
-        AutomationProperties.SetName(ColorActionButton, AppResources.GetString("Action_FolderColor", _currentLanguage));
-        if (EmblemColorWhiteButton != null) AutomationProperties.SetName(EmblemColorWhiteButton, AppResources.GetString("A11y_EmblemWhite", _currentLanguage));
-        if (EmblemColorBlackButton != null) AutomationProperties.SetName(EmblemColorBlackButton, AppResources.GetString("A11y_EmblemBlack", _currentLanguage));
-        if (EmblemColorAutoButton != null)
-        {
-            EmblemColorAutoButton.Content = AppResources.GetString("Color_Auto", _currentLanguage);
-            AutomationProperties.SetName(EmblemColorAutoButton, AppResources.GetString("EmblemColorAutoAutomation", _currentLanguage));
-            ToolTipService.SetToolTip(EmblemColorAutoButton, AppResources.GetString("Tip_AutoContrast", _currentLanguage));
-        }
-        if (EmblemColorWhiteButton != null) ToolTipService.SetToolTip(EmblemColorWhiteButton, AppResources.GetString("Tip_White", _currentLanguage));
-        if (EmblemColorBlackButton != null) ToolTipService.SetToolTip(EmblemColorBlackButton, AppResources.GetString("Tip_Black", _currentLanguage));
-        ToolTipService.SetToolTip(DropAreaBorder, AppResources.GetString("Tip_DropImage", _currentLanguage));
-        ToolTipService.SetToolTip(CloseSuccessButton, AppResources.GetString("Tip_CloseEsc", _currentLanguage));
-        ToolTipService.SetToolTip(UndoButton, AppResources.GetString("Tip_Undo", _currentLanguage));
-        if (RemoveEmblemButton != null) ToolTipService.SetToolTip(RemoveEmblemButton, AppResources.GetString("Tip_RemoveEmblem", _currentLanguage));
-        if (RemoveEmojiEmblemButton != null)
-        {
-            RemoveEmojiEmblemButton.Content = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
-            ToolTipService.SetToolTip(RemoveEmojiEmblemButton, AppResources.GetString("Tip_RemoveEmblem", _currentLanguage));
-        }
-
-        if (PreviewTitleText != null) PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
-        if (PreviewSubtitleText != null) PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-        if (CancelPreviewButton != null)
-        {
-            CancelPreviewButton.Content = AppResources.GetString("Cancel", _currentLanguage);
-            ToolTipService.SetToolTip(CancelPreviewButton, AppResources.GetString("CancelPreviewToolTip", _currentLanguage));
-            AutomationProperties.SetName(CancelPreviewButton, AppResources.GetString("Cancel", _currentLanguage));
-        }
-        if (MoreActionButton != null)
-        {
-            ToolTipService.SetToolTip(MoreActionButton, AppResources.GetString("More_Options_ToolTip", _currentLanguage));
-            AutomationProperties.SetName(MoreActionButton, AppResources.GetString("Action_More", _currentLanguage));
-        }
-        if (TemplateTitleText != null) TemplateTitleText.Text = AppResources.GetString("Template_Title", _currentLanguage);
-        if (RadioTemplateClassic != null) RadioTemplateClassic.Content = AppResources.GetString("Template_Classic", _currentLanguage);
-        if (RadioTemplateSoft != null) RadioTemplateSoft.Content = AppResources.GetString("Template_Soft", _currentLanguage);
-        if (RadioTemplateFlat != null) RadioTemplateFlat.Content = AppResources.GetString("Template_Flat", _currentLanguage);
-        if (PaletteTitleText != null) PaletteTitleText.Text = AppResources.GetString("ColorPicker_Palette", _currentLanguage);
-        if (ApplyCustomColorButton != null) ApplyCustomColorButton.Content = AppResources.GetString("ColorPicker_Apply", _currentLanguage);
-        if (CancelCustomColorButton != null) CancelCustomColorButton.Content = AppResources.GetString("ColorPicker_Cancel", _currentLanguage);
-
-        if (FolderFlyoutTitle != null)
-        {
-            FolderFlyoutTitle.Text = AppResources.GetString("Template_Title", _currentLanguage);
-        }
-
-        if (MoreRemoveEmblemMenuItem != null)
-        {
-            MoreRemoveEmblemMenuItem.Text = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
-        }
-        if (MoreResetMenuItem != null)
-        {
-            MoreResetMenuItem.Text = $"{AppResources.GetString("More_ResetFolder", _currentLanguage)} (Ctrl+Z)";
-        }
-        if (RemoveEmblemButton != null)
-        {
-            RemoveEmblemButton.Content = AppResources.GetString("Action_RemoveEmblem", _currentLanguage);
-        }
-        if (IconSearchTextBox != null)
-        {
-            IconSearchTextBox.PlaceholderText = AppResources.GetString("Placeholder_SearchIcons", _currentLanguage);
-        }
-        if (IconFlyoutTitleText != null)
-        {
-            IconFlyoutTitleText.Text = AppResources.GetString("Icon_Title", _currentLanguage);
-        }
-        if (EmojiFlyoutTitleText != null)
-        {
-            EmojiFlyoutTitleText.Text = AppResources.GetString("Emoji_Title", _currentLanguage);
-        }
-        if (EmojiSearchTextBox != null)
-        {
-            EmojiSearchTextBox.PlaceholderText = AppResources.GetString("Placeholder_SearchEmoji", _currentLanguage);
-        }
-        if (MoreOpenManagerMenuItem != null)
-        {
-            MoreOpenManagerMenuItem.Text = $"{AppResources.GetString("More_OpenManager", _currentLanguage)} (Ctrl+M)";
-        }
-        if (MoreSettingsMenuItem != null)
-        {
-            MoreSettingsMenuItem.Text = AppResources.GetString("More_Settings", _currentLanguage);
-        }
-        if (MoreAboutMenuItem != null)
-        {
-            MoreAboutMenuItem.Text = AppResources.GetString("More_About", _currentLanguage);
-        }
-    }
 
     private void InitializeTemplateCards()
     {
@@ -1046,6 +788,12 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task RefreshLivePreviewAsync(string? overrideTemplateId = null, int? overrideTemplateVersion = null, string? overrideColorHex = null)
     {
+        // Preview renders complete out of order: the task that finishes last wins, not the one
+        // that was requested last. Hovering across ten template cards would otherwise leave an
+        // arbitrary card's preview on screen after the pointer stops. Each call takes a
+        // sequence number and a render whose number is stale discards its own result.
+        long sequence = Interlocked.Increment(ref _previewRenderSequence);
+
         try
         {
             if (_stagingModel.ActiveMode == PersonalizationMode.FolderTemplate)
@@ -1054,11 +802,31 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 int templateVersion = overrideTemplateVersion ?? _stagingModel.StagedTemplateState.TemplateVersion;
                 string colorHex = overrideColorHex ?? _stagingModel.StagedTemplateState.FolderColorHex;
                 var emblem = _stagingModel.StagedTemplateState.Emblem;
-                var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(colorHex, templateId, templateVersion, emblem: emblem));
-                if (result.IsSuccess && result.Value != null)
+
+                byte[]? png = TryGetCachedPreview(templateId, templateVersion, colorHex, emblem);
+                if (png == null)
                 {
-                    PreviewIconImage.Source = LoadPreviewBitmapFromBytes(result.Value);
+                    var result = await Task.Run(() => FolderTemplateRenderer.RenderPreviewPng(colorHex, templateId, templateVersion, emblem: emblem));
+                    if (IsStalePreview(sequence))
+                    {
+                        return;
+                    }
+
+                    if (!result.IsSuccess || result.Value == null)
+                    {
+                        return;
+                    }
+
+                    png = result.Value;
+                    StoreCachedPreview(templateId, templateVersion, colorHex, emblem, png);
                 }
+
+                if (IsStalePreview(sequence))
+                {
+                    return;
+                }
+
+                PreviewIconImage.Source = LoadPreviewBitmapFromBytes(png);
 
                 if (PlacementOptionsButton != null) PlacementOptionsButton.Visibility = Visibility.Collapsed;
                 if (CancelPreviewButton != null) CancelPreviewButton.Visibility = Visibility.Collapsed;
@@ -1068,6 +836,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 var imgState = _stagingModel.StagedImageState;
                 var result = await Task.Run(() => ImagePipeline.RenderPlacementPreviewPng(
                     imgState.ImageBytes, 256, imgState.PlacementMode, imgState.PaddingPercent, imgState.BackgroundMode, imgState.BackgroundColorHex));
+                if (IsStalePreview(sequence))
+                {
+                    return;
+                }
+
                 if (result.IsSuccess && result.Value != null)
                 {
                     PreviewIconImage.Source = LoadPreviewBitmapFromBytes(result.Value);
@@ -1079,16 +852,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
             // Update Apply button and Status text
             ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
-            if (_stagingModel.CanApply)
-            {
-                StatusInfoText.Text = AppResources.GetString("Status_UnappliedChanges", _currentLanguage);
-            }
-            else
-            {
-                StatusInfoText.Text = _currentBaseline != null
-                    ? AppResources.GetString("Status_CurrentIcon", _currentLanguage)
-                    : AppResources.GetString("Status_ReadyToApply", _currentLanguage);
-            }
+            RefreshStatusInfoText();
         }
         catch (Exception ex)
         {
@@ -1096,17 +860,95 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
     }
 
+    /// <summary>
+    /// True when a newer preview request has superseded <paramref name="sequence"/>, or the
+    /// panel closed while this render was in flight.
+    /// </summary>
+    private bool IsStalePreview(long sequence)
+    {
+        return _disposed || sequence != Volatile.Read(ref _previewRenderSequence);
+    }
+
+    // Bounded, process-local preview cache. A template preview is a pure function of
+    // (template, version, colour, emblem), so hovering the same card twice must not rasterize
+    // twice. The dictionary is cleared wholesale when it exceeds the cap rather than tracking
+    // LRU order: the working set is a handful of cards, and a full clear costs one re-render.
+    private const int PreviewCacheCapacity = 24;
+    private static readonly Dictionary<string, byte[]> PreviewCache = new(StringComparer.Ordinal);
+    private static readonly object PreviewCacheGate = new();
+
+    private static string PreviewCacheKey(
+        string templateId, int templateVersion, string colorHex, FolderEmblemRecipe emblem)
+    {
+        return string.Concat(
+            templateId, "|",
+            templateVersion.ToString(CultureInfo.InvariantCulture), "|",
+            colorHex, "|",
+            ((int)emblem.Kind).ToString(CultureInfo.InvariantCulture), "|",
+            emblem.ContentId);
+    }
+
+    private static byte[]? TryGetCachedPreview(
+        string templateId, int templateVersion, string colorHex, FolderEmblemRecipe emblem)
+    {
+        string key = PreviewCacheKey(templateId, templateVersion, colorHex, emblem);
+        lock (PreviewCacheGate)
+        {
+            return PreviewCache.TryGetValue(key, out byte[]? cached) ? cached : null;
+        }
+    }
+
+    private static void StoreCachedPreview(
+        string templateId, int templateVersion, string colorHex, FolderEmblemRecipe emblem, byte[] png)
+    {
+        string key = PreviewCacheKey(templateId, templateVersion, colorHex, emblem);
+        lock (PreviewCacheGate)
+        {
+            if (PreviewCache.Count >= PreviewCacheCapacity)
+            {
+                PreviewCache.Clear();
+            }
+
+            PreviewCache[key] = png;
+        }
+    }
+
+    /// <summary>
+    /// Debounced hover preview. A pointer sweeping across the template grid would otherwise
+    /// start one raster per card and freeze the UI thread on the task flood.
+    /// </summary>
+    private void ScheduleHoverPreview(string? templateId = null, int? templateVersion = null)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _previewRenderCts?.Cancel();
+        _previewRenderCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _previewRenderCts = cts;
+        CancellationToken token = cts.Token;
+
+        _ = GuardAsync(nameof(ScheduleHoverPreview), async () =>
+        {
+            await Task.Delay(120, token);
+            token.ThrowIfCancellationRequested();
+            await RefreshLivePreviewAsync(templateId, templateVersion);
+        });
+    }
+
     private void OnFolderTemplateCardPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is FolderTemplateCardViewModel card)
         {
-            _ = RefreshLivePreviewAsync(overrideTemplateId: card.Id, overrideTemplateVersion: card.Version);
+            ScheduleHoverPreview(card.Id, card.Version);
         }
     }
 
     private void OnFolderTemplateCardPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        _ = RefreshLivePreviewAsync();
+        ScheduleHoverPreview();
     }
 
     private async void OnFolderTemplateCardClicked(object sender, ItemClickEventArgs e)
@@ -1168,159 +1010,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         });
     }
 
-    private void EnsureEmblemCatalogInitialized()
-    {
-        if (_emblemCatalogInitialized)
-        {
-            return;
-        }
-
-        try
-        {
-            var allEntries = VectorEmblemCatalog.All;
-            _allEmblemCards = new List<VectorEmblemItemViewModel>(allEntries.Count);
-            foreach (var entry in allEntries)
-            {
-                _allEmblemCards.Add(new VectorEmblemItemViewModel(
-                    entry.Id,
-                    entry.ShortId,
-                    entry.DisplayName,
-                    entry.Category,
-                    entry.PathData));
-            }
-
-            if (IconCategoryComboBox != null)
-            {
-                IconCategoryComboBox.Items.Clear();
-                IconCategoryComboBox.Items.Add(AppResources.GetString("Category_All", _currentLanguage));
-                foreach (var cat in VectorEmblemCatalog.Categories)
-                {
-                    IconCategoryComboBox.Items.Add(cat);
-                }
-                IconCategoryComboBox.SelectedIndex = 0;
-            }
-
-            VectorEmblemCards.Clear();
-            foreach (var card in _allEmblemCards)
-            {
-                UpdateEmblemCardVisualState(card);
-                VectorEmblemCards.Add(card);
-            }
-
-            if (IconGridView != null && IconGridView.ItemsSource == null)
-            {
-                IconGridView.ItemsSource = VectorEmblemCards;
-            }
-
-            _emblemCatalogInitialized = true;
-        }
-        catch (Exception ex)
-        {
-            App.Log($"Failed to initialize vector emblem catalog: {ex}");
-        }
-    }
-
-    private void SyncEmblemSelectionState()
-    {
-        var currentEmblem = _stagingModel.StagedTemplateState.Emblem;
-        bool hasVectorEmblem = currentEmblem.Kind == EmblemKind.VectorIcon && !string.IsNullOrWhiteSpace(currentEmblem.ContentId);
-
-        if (RemoveEmblemButton != null)
-        {
-            RemoveEmblemButton.Visibility = hasVectorEmblem ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        if (_allEmblemCards != null)
-        {
-            foreach (var card in _allEmblemCards)
-            {
-                card.IsSelected = hasVectorEmblem && (
-                    string.Equals(card.Id, currentEmblem.ContentId, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(card.ShortId, currentEmblem.ContentId, StringComparison.OrdinalIgnoreCase));
-                UpdateEmblemCardVisualState(card);
-            }
-        }
-    }
-
-    private static void UpdateEmblemCardVisualState(VectorEmblemItemViewModel card)
-    {
-        if (card.IsSelected)
-        {
-            card.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
-            card.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
-        }
-        else
-        {
-            card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        }
-    }
-
-    private void OnIconSearchTextChanged(object sender, TextChangedEventArgs e)
-    {
-        FilterEmblemCards();
-    }
-
-    private void OnIconCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        FilterEmblemCards();
-    }
-
-    private void FilterEmblemCards()
-    {
-        if (_allEmblemCards == null)
-        {
-            return;
-        }
-
-        string query = IconSearchTextBox?.Text?.Trim() ?? string.Empty;
-        string? selectedCat = IconCategoryComboBox?.SelectedItem as string;
-        string allLabel = AppResources.GetString("Category_All", _currentLanguage);
-        if (string.Equals(selectedCat, allLabel, StringComparison.OrdinalIgnoreCase) || string.Equals(selectedCat, "All", StringComparison.OrdinalIgnoreCase))
-        {
-            selectedCat = null;
-        }
-
-        var filtered = VectorEmblemCatalog.Search(query, selectedCat);
-        var filteredIds = new HashSet<string>(filtered.Select(f => f.Id), StringComparer.OrdinalIgnoreCase);
-
-        VectorEmblemCards.Clear();
-        foreach (var card in _allEmblemCards)
-        {
-            if (filteredIds.Contains(card.Id))
-            {
-                UpdateEmblemCardVisualState(card);
-                VectorEmblemCards.Add(card);
-            }
-        }
-    }
-
-    private async void OnIconGridItemClick(object sender, ItemClickEventArgs e)
-    {
-        await GuardAsync(nameof(OnIconGridItemClick), async () =>
-        {
-            if (e.ClickedItem is VectorEmblemItemViewModel card)
-            {
-                _stagingModel.StageVectorEmblem(card.Id, _selectedEmblemColorHex);
-                SyncEmblemSelectionState();
-                IconFlyout?.Hide();
-                await RefreshLivePreviewAsync();
-            }
-        });
-    }
-
-    private async void OnRemoveEmblemClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnRemoveEmblemClicked), async () =>
-        {
-            _stagingModel.RemoveEmblem();
-            SyncEmblemSelectionState();
-            SyncEmojiSelectionState();
-            IconFlyout?.Hide();
-            EmojiFlyout?.Hide();
-            await RefreshLivePreviewAsync();
-        });
-    }
 
     private async void OnEmojiFlyoutOpening(object? sender, object? e)
     {
@@ -1336,143 +1025,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         });
     }
 
-    private void EnsureEmojiCatalogInitialized()
-    {
-        if (_emojiCatalogInitialized)
-        {
-            return;
-        }
-
-        try
-        {
-            var allEntries = EmojiCatalog.All;
-            _allEmojiCards = new List<EmojiItemViewModel>(allEntries.Count);
-            foreach (var entry in allEntries)
-            {
-                _allEmojiCards.Add(new EmojiItemViewModel(
-                    entry.Grapheme,
-                    entry.Name,
-                    entry.Category));
-            }
-
-            if (EmojiCategoryComboBox != null)
-            {
-                EmojiCategoryComboBox.Items.Clear();
-                EmojiCategoryComboBox.Items.Add(AppResources.GetString("Category_All", _currentLanguage));
-                foreach (var cat in EmojiCatalog.Categories)
-                {
-                    EmojiCategoryComboBox.Items.Add(cat);
-                }
-                EmojiCategoryComboBox.SelectedIndex = 0;
-            }
-
-            EmojiCards.Clear();
-            foreach (var card in _allEmojiCards)
-            {
-                UpdateEmojiCardVisualState(card);
-                EmojiCards.Add(card);
-            }
-
-            if (EmojiGridView != null && EmojiGridView.ItemsSource == null)
-            {
-                EmojiGridView.ItemsSource = EmojiCards;
-            }
-
-            _emojiCatalogInitialized = true;
-        }
-        catch (Exception ex)
-        {
-            App.Log($"Failed to initialize emoji catalog: {ex}");
-        }
-    }
-
-    private void SyncEmojiSelectionState()
-    {
-        var currentEmblem = _stagingModel.StagedTemplateState.Emblem;
-        bool hasEmojiEmblem = currentEmblem.Kind == EmblemKind.Emoji && !string.IsNullOrWhiteSpace(currentEmblem.GraphemeSequence);
-
-        if (RemoveEmojiEmblemButton != null)
-        {
-            RemoveEmojiEmblemButton.Visibility = hasEmojiEmblem ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        if (_allEmojiCards != null)
-        {
-            foreach (var card in _allEmojiCards)
-            {
-                card.IsSelected = hasEmojiEmblem && string.Equals(card.Grapheme, currentEmblem.GraphemeSequence, StringComparison.Ordinal);
-                UpdateEmojiCardVisualState(card);
-            }
-        }
-    }
-
-    private static void UpdateEmojiCardVisualState(EmojiItemViewModel card)
-    {
-        if (card.IsSelected)
-        {
-            card.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
-            card.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
-        }
-        else
-        {
-            card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        }
-    }
-
-    private void OnEmojiSearchTextChanged(object sender, TextChangedEventArgs e)
-    {
-        FilterEmojiCards();
-    }
-
-    private void OnEmojiCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        FilterEmojiCards();
-    }
-
-    private void FilterEmojiCards()
-    {
-        if (_allEmojiCards == null)
-        {
-            return;
-        }
-
-        string query = EmojiSearchTextBox?.Text?.Trim() ?? string.Empty;
-        string? selectedCat = EmojiCategoryComboBox?.SelectedItem as string;
-        string allLabel = AppResources.GetString("Category_All", _currentLanguage);
-        if (string.Equals(selectedCat, allLabel, StringComparison.OrdinalIgnoreCase) || string.Equals(selectedCat, "All", StringComparison.OrdinalIgnoreCase))
-        {
-            selectedCat = null;
-        }
-
-        var filtered = EmojiCatalog.Search(query, selectedCat);
-        var filteredGraphemes = new HashSet<string>(filtered.Select(f => f.Grapheme), StringComparer.Ordinal);
-
-        EmojiCards.Clear();
-        foreach (var card in _allEmojiCards)
-        {
-            if (filteredGraphemes.Contains(card.Grapheme))
-            {
-                UpdateEmojiCardVisualState(card);
-                EmojiCards.Add(card);
-            }
-        }
-    }
-
-    private async void OnEmojiGridItemClick(object sender, ItemClickEventArgs e)
-    {
-        await GuardAsync(nameof(OnEmojiGridItemClick), async () =>
-        {
-            if (e.ClickedItem is EmojiItemViewModel card)
-            {
-                _stagingModel.StageEmojiEmblem(card.Grapheme);
-                SyncEmojiSelectionState();
-                SyncEmblemSelectionState();
-                EmojiFlyout?.Hide();
-                await RefreshLivePreviewAsync();
-            }
-        });
-    }
 
     private async void OnEmblemColorAutoClicked(object sender, RoutedEventArgs e)
     {
@@ -1639,7 +1191,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task HandlePasteAsync()
     {
-        if (_isProcessing)
+        if (_isProcessing || IsStagingInProgress)
         {
             return;
         }
@@ -1664,6 +1216,19 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             {
                 var streamRef = await package.GetBitmapAsync();
                 using var stream = await streamRef.OpenReadAsync();
+
+                // Check the clipboard payload size before copying it into a MemoryStream: a
+                // screenshot of a multi-monitor 8K desktop can be hundreds of megabytes and the
+                // copy doubles that residency.
+                if (stream.Size > (ulong)OrnareConstants.MaxInputImageBytes)
+                {
+                    App.Log($"Rejected oversized clipboard image ({stream.Size} bytes).");
+                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage,
+                        QuickPanelErrorCopy.Message(AppResources.Format("ErrorImageTooLarge", _currentLanguage,
+                            OrnareConstants.MaxInputImageBytes / (1024 * 1024))));
+                    return;
+                }
+
                 using var netStream = stream.AsStreamForRead();
                 using var ms = new MemoryStream();
                 await netStream.CopyToAsync(ms);
@@ -1682,8 +1247,39 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private async Task StageImageAsync(string imagePath)
     {
-        if (_isProcessing)
+        if (_isProcessing || IsStagingInProgress)
         {
+            return;
+        }
+
+        // Bound the read before it happens. The Magick pipeline caps decoded pixels and
+        // memory, but this read copies the compressed file into a single byte[] first, so a
+        // multi-gigabyte "image" would exhaust the large object heap before any policy runs.
+        long fileLength;
+        try
+        {
+            fileLength = new FileInfo(imagePath).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed,
+                QuickPanelErrorCopy.Of(AppResources.GetString("ErrorImageReadMessage", _currentLanguage), ex.Message));
+            return;
+        }
+
+        if (fileLength <= 0)
+        {
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed,
+                QuickPanelErrorCopy.Message(AppResources.GetString("ErrorEmptyImage", _currentLanguage)));
+            return;
+        }
+
+        if (fileLength > OrnareConstants.MaxInputImageBytes)
+        {
+            App.Log($"Rejected oversized input image ({fileLength} bytes, limit {OrnareConstants.MaxInputImageBytes}).");
+            ShowCategorizedError(QuickPanelErrorType.UnsupportedImage,
+                QuickPanelErrorCopy.Message(AppResources.Format("ErrorImageTooLarge", _currentLanguage,
+                    OrnareConstants.MaxInputImageBytes / (1024 * 1024))));
             return;
         }
 
@@ -1694,7 +1290,8 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, null, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed,
+                QuickPanelErrorCopy.Of(AppResources.GetString("ErrorImageReadMessage", _currentLanguage), ex.Message));
             return;
         }
 
@@ -1710,13 +1307,32 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (string.IsNullOrWhiteSpace(_currentFolderPath))
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorNoFolderSelected", _currentLanguage));
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, QuickPanelErrorCopy.Message(AppResources.GetString("ErrorNoFolderSelected", _currentLanguage)));
             return;
         }
 
         if (imageBytes == null || imageBytes.Length == 0)
         {
-            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, AppResources.GetString("ErrorEmptyImage", _currentLanguage));
+            ShowCategorizedError(QuickPanelErrorType.ImageReadFailed, QuickPanelErrorCopy.Message(AppResources.GetString("ErrorEmptyImage", _currentLanguage)));
+            return;
+        }
+
+        // The clipboard path reaches this method without passing StageImageAsync, so the byte
+        // cap has to be enforced here as well; a pasted 200 MB image must fail as a message,
+        // not as an OutOfMemoryException in the decoder.
+        if (imageBytes.Length > OrnareConstants.MaxInputImageBytes)
+        {
+            App.Log($"Rejected oversized image payload ({imageBytes.Length} bytes).");
+            ShowCategorizedError(QuickPanelErrorType.UnsupportedImage,
+                QuickPanelErrorCopy.Message(AppResources.Format("ErrorImageTooLarge", _currentLanguage,
+                    OrnareConstants.MaxInputImageBytes / (1024 * 1024))));
+            return;
+        }
+
+        // Two drag-drops, a paste and a pick can all arrive before SetProcessingStage has run,
+        // because the flag it controls is UI state, not a lock. The gate below is the lock.
+        if (!TryBeginStaging())
+        {
             return;
         }
 
@@ -1725,26 +1341,26 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             CleanupStagedFiles();
             App.Log($"StageImageBytesAsync started for '{_currentFolderPath}', bytes={imageBytes.Length}");
 
-            await SetProcessingStageAsync(ProcessingStage.PreparingImage);
+            SetProcessingStage(ProcessingStage.PreparingImage);
 
             _stagedOperationId = Guid.NewGuid();
             _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
 
-            await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+            SetProcessingStage(ProcessingStage.GeneratingIcon);
 
             var tempPath = _stagedTempIcoPath;
             var processResult = await Task.Run(() => _imagePipeline.ProcessImageBytes(imageBytes, tempPath));
             if (!processResult.IsSuccess || processResult.Value == null)
             {
-                App.Log($"ProcessImageBytes failed: {processResult.ErrorMessage}");
+                App.Log($"ProcessImageBytes failed: {processResult.DiagnosticDescription}");
                 CleanupStagedFiles();
                 if (processResult.ErrorCode == ErrorCode.UnsupportedImageFormat || processResult.ErrorCode == ErrorCode.ImageCorrupted)
                 {
-                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage, null, processResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.UnsupportedImage, QuickPanelErrorCopy.Diagnostic(processResult.DiagnosticDescription));
                 }
                 else
                 {
-                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, processResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, QuickPanelErrorCopy.Diagnostic(processResult.DiagnosticDescription));
                 }
                 return;
             }
@@ -1775,13 +1391,19 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             ApplyConfirmButton.IsEnabled = _stagingModel.CanApply;
             StatusInfoText.Text = AppResources.GetString("Status_UnappliedChanges", _currentLanguage);
 
-            await SetProcessingStageAsync(ProcessingStage.PreviewReady);
+            SetProcessingStage(ProcessingStage.PreviewReady);
         }
         catch (Exception ex)
         {
             App.Log($"StageImageBytesAsync unhandled exception: {ex}");
             CleanupStagedFiles();
-            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, QuickPanelErrorCopy.Diagnostic(ex.Message));
+        }
+        finally
+        {
+            // Released on every path: success, decode failure, unexpected exception, and the
+            // early return after a failed ProcessImageBytes.
+            EndStaging();
         }
     }
 
@@ -1799,7 +1421,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (CustomColorPicker != null)
         {
-            CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+            SetPickerColorSilently(global::Windows.UI.Color.FromArgb(255, 37, 99, 235));
         }
 
         if (CustomColorButton != null)
@@ -1916,11 +1538,11 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             {
                 if (ColorConversion.TryParseHex(_stagingModel.StagedTemplateState.FolderColorHex, out byte r, out byte g, out byte b))
                 {
-                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, r, g, b);
+                    SetPickerColorSilently(global::Windows.UI.Color.FromArgb(255, r, g, b));
                 }
                 else
                 {
-                    CustomColorPicker.Color = global::Windows.UI.Color.FromArgb(255, 37, 99, 235);
+                    SetPickerColorSilently(global::Windows.UI.Color.FromArgb(255, 37, 99, 235));
                 }
 
                 var currentColor = CustomColorPicker.Color;
@@ -1952,7 +1574,81 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
     private void OnCustomColorPickerColorChanged(ColorPicker sender, ColorChangedEventArgs args)
     {
+        // A programmatic seed (default colour, staged-state sync, flyout open) is not a user
+        // choice and must not mark the folder dirty.
+        if (_suppressColorPickerEvents)
+        {
+            return;
+        }
+
         TriggerCustomColorPreview();
+    }
+
+    /// <summary>
+    /// Shows or hides the first-use guidance. The hint reuses the preview subtitle line, so
+    /// there is no extra row and the frozen 420x330 panel geometry does not change.
+    /// </summary>
+    private void ApplyFirstUseHintState(bool showHint)
+    {
+        _firstUseHintVisible = showHint;
+
+        if (PreviewSubtitleText is null || FirstUseHintDismissButton is null)
+        {
+            return;
+        }
+
+        PreviewSubtitleText.Text = showHint
+            ? AppResources.GetString("QuickPanel_FirstUseHint", _currentLanguage)
+            : AppResources.GetString("PreviewSubtitle", _currentLanguage);
+
+        FirstUseHintDismissButton.Visibility = showHint ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Hides the first-use hint for good. A failed write only costs the hint another showing,
+    /// so it is logged rather than surfaced: no user action is blocked by a dismissed tip.
+    /// </summary>
+    private async Task DismissFirstUseHintAsync()
+    {
+        ApplyFirstUseHintState(showHint: false);
+
+        try
+        {
+            await _storageService.SetSettingAsync("QuickPanelHintDismissed", "true");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            App.Log($"First-use hint dismissal was not persisted: {ex.Message}");
+        }
+    }
+
+    private async void OnFirstUseHintDismissClicked(object sender, RoutedEventArgs e)
+    {
+        await GuardAsync(nameof(OnFirstUseHintDismissClicked), DismissFirstUseHintAsync);
+    }
+
+    /// <summary>
+    /// Assigns <see cref="CustomColorPicker"/> without raising the user-intent path. Every
+    /// programmatic colour write must go through here; only a real pointer or keyboard change
+    /// is allowed to stage a colour.
+    /// </summary>
+    private void SetPickerColorSilently(global::Windows.UI.Color color)
+    {
+        if (CustomColorPicker is null)
+        {
+            return;
+        }
+
+        bool previous = _suppressColorPickerEvents;
+        _suppressColorPickerEvents = true;
+        try
+        {
+            CustomColorPicker.Color = color;
+        }
+        finally
+        {
+            _suppressColorPickerEvents = previous;
+        }
     }
 
     private void TriggerCustomColorPreview()
@@ -2360,7 +2056,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (string.IsNullOrWhiteSpace(_currentFolderPath))
         {
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorNoFolderSelected", _currentLanguage));
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, QuickPanelErrorCopy.Message(AppResources.GetString("ErrorNoFolderSelected", _currentLanguage)));
             return;
         }
 
@@ -2372,16 +2068,15 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 _stagedTempIcoPath = Path.Combine(Path.GetTempPath(), $"ornare_staged_{_stagedOperationId:N}.ico");
                 var templateState = _stagingModel.StagedTemplateState;
 
-                await SetProcessingStageAsync(ProcessingStage.PreparingImage);
-                await SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+                SetProcessingStage(ProcessingStage.PreparingImage);
+                SetProcessingStage(ProcessingStage.GeneratingIcon);
 
                 var tempPath = _stagedTempIcoPath;
-                var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
 
                 var renderResult = await Task.Run(() =>
                 {
                     return FolderTemplateRenderer.RenderColoredTemplateIco(
-                        pipeline,
+                        _imagePipeline,
                         templateState.FolderColorHex,
                         tempPath,
                         templateState.TemplateId,
@@ -2392,7 +2087,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
                 if (!renderResult.IsSuccess || renderResult.Value == null)
                 {
                     CleanupStagedFiles();
-                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, null, renderResult.ErrorMessage);
+                    ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, QuickPanelErrorCopy.Diagnostic(renderResult.DiagnosticDescription));
                     return;
                 }
 
@@ -2419,7 +2114,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         catch (Exception ex)
         {
             App.Log($"ApplyStagedPersonalizationAsync exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
+            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, QuickPanelErrorCopy.Diagnostic(ex.Message));
         }
     }
 
@@ -2431,7 +2126,7 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
             CleanupStagedFiles();
             _stagedCustomColorHex = null;
             await RefreshLivePreviewAsync();
-            await SetProcessingStageAsync(ProcessingStage.Idle);
+            SetProcessingStage(ProcessingStage.Idle);
         });
     }
 
@@ -2440,529 +2135,6 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         Close();
     }
 
-    private async Task CommitStagedIconAsync()
-    {
-        // Reentrancy is guarded by a dedicated commit flag, not by _isProcessing.
-        // The apply flow legitimately sets _isProcessing=true while rendering, so
-        // keying this guard on _isProcessing silently skipped every commit.
-        if (_isCommitting || string.IsNullOrWhiteSpace(_stagedTempIcoPath) || !File.Exists(_stagedTempIcoPath) || _stagedProcessResult == null)
-        {
-            if (!_isCommitting && _stagedProcessResult == null)
-            {
-                ShowCategorizedError(QuickPanelErrorType.IconGenerationFailed, AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage));
-            }
-            return;
-        }
-
-        // Snapshot the operation identity. SetTargetFolderAsync may be called from a new
-        // shell activation while this commit is running; every filesystem and storage
-        // write below must address the captured target, never the mutable field.
-        string targetFolder = _currentFolderPath;
-        Guid epochId = _currentOwnershipEpochId;
-        FolderBaseline? baseline = _currentBaseline;
-        Guid operationId = _stagedOperationId;
-        string stagedIcoPath = _stagedTempIcoPath;
-        var stagedResult = _stagedProcessResult;
-        string? stagedColorHex = _stagedCustomColorHex;
-
-        _isCommitting = true;
-        bool filesystemCommitted = false;
-        try
-        {
-            using var lockHandle = await PerTargetSyncLock.TryAcquireAsync(targetFolder, TimeSpan.FromSeconds(5));
-            if (lockHandle == null)
-            {
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, AppResources.GetString("ErrorFolderLockedMessage", _currentLanguage));
-                return;
-            }
-
-            // The journal must reference the durable library ICO, not the staging
-            // temp file: the temp file is deleted by CleanupStagedFiles() after a
-            // successful apply, so crash-recovery reconciliation would otherwise
-            // resolve TargetAssetPath to a path that no longer exists.
-            string libraryIcoPath = OrnareConstants.LibraryIcoPath(stagedResult.ContentHash);
-
-            // Journal step: Prepared & AssetGenerated
-            JournalEntry journal = new()
-            {
-                OperationId = operationId,
-                Kind = OperationKind.Apply,
-                TargetFolderPath = targetFolder,
-                State = JournalState.Prepared,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-                TargetAssetPath = libraryIcoPath
-            };
-            await _storageService.RecordJournalEntryAsync(journal);
-            await _storageService.UpdateJournalStateAsync(operationId, JournalState.AssetGenerated);
-
-            // 1. Applying icon to folder
-            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
-
-            if (baseline == null)
-            {
-                FolderIconSemantics prior = DesktopIniParser.ReadSemantics(targetFolder);
-                epochId = Guid.NewGuid();
-                baseline = new FolderBaseline
-                {
-                    FolderAssignmentId = Guid.NewGuid(),
-                    OwnershipEpochId = epochId,
-                    PriorSemantics = prior,
-                    CapturedAt = DateTimeOffset.UtcNow
-                };
-            }
-
-            // Journal transitions raised by the synchronous ApplyIcon callback must be
-            // persisted in order. Fire-and-forget writes could land after the final
-            // JournalState.Completed and regress a successfully applied folder, so the
-            // states are buffered and flushed sequentially once ApplyIcon returns.
-            var journalStages = new System.Collections.Concurrent.ConcurrentQueue<JournalState>();
-            var applyResult = await Task.Run(() => _folderCustomizer.ApplyIcon(targetFolder, stagedIcoPath, journalStages.Enqueue));
-
-            while (journalStages.TryDequeue(out JournalState stage))
-            {
-                await _storageService.UpdateJournalStateAsync(operationId, stage);
-            }
-
-            if (!applyResult.IsSuccess || applyResult.Value == null)
-            {
-                App.Log($"ApplyIcon failed: {applyResult.ErrorMessage}");
-                await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, applyResult.ErrorMessage);
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, applyResult.ErrorMessage);
-                return;
-            }
-
-            // 2. Refreshing Explorer
-            await SetProcessingStageAsync(ProcessingStage.RefreshingExplorer);
-
-            // From this point the icon is committed on disk. Any later failure must be
-            // reported as a repairable partial success, never as a clean failure
-            // (INV-FS-006): reporting failure would invite a retry that re-applies the
-            // icon with a fresh epoch and duplicates assignment/history rows.
-            filesystemCommitted = true;
-
-            // 3. Save assignment & baseline to database
-            await _storageService.SaveFolderAssignmentAsync(
-                targetFolder,
-                epochId,
-                applyResult.Value,
-                baseline);
-
-            // Register canonical asset in Library & History
-            string canonicalIcoPath = string.Empty;
-            try
-            {
-                canonicalIcoPath = OrnareConstants.LibraryIcoPath(stagedResult.ContentHash);
-                Directory.CreateDirectory(OrnareConstants.LibraryDirectory);
-                if (!File.Exists(canonicalIcoPath))
-                {
-                    File.Copy(stagedIcoPath, canonicalIcoPath, overwrite: true);
-                }
-
-                await _storageService.AddOrUpdateAssetAsync(
-                    stagedResult.ContentHash,
-                    canonicalIcoPath,
-                    stagedResult.SourceFormat);
-
-                // Ensure render_cache entry exists for deduplication and Apply Last (F18/F21)
-                if (!string.IsNullOrWhiteSpace(stagedResult.RenderKey))
-                {
-                    var existingCache = await _storageService.GetRenderCacheEntryAsync(stagedResult.RenderKey);
-                    if (existingCache == null)
-                    {
-                        var fi = new FileInfo(canonicalIcoPath);
-                        await _storageService.SaveRenderCacheEntryAsync(new RenderCacheEntry
-                        {
-                            RenderKey = stagedResult.RenderKey,
-                            RecipeVersion = 1,
-                            RecipeJson = string.Empty,
-                            SourceAssetHash = stagedResult.ContentHash,
-                            CanonicalIcoPath = canonicalIcoPath,
-                            FrameSizes = string.Join(",", stagedResult.FrameSizes),
-                            FileSizeBytes = fi.Length,
-                            CreatedAt = DateTimeOffset.UtcNow,
-                            LastUsedAt = DateTimeOffset.UtcNow
-                        });
-                    }
-                }
-
-                await _storageService.RecordHistoryAsync(
-                    targetFolder,
-                    operationId,
-                    null,
-                    stagedResult.ContentHash,
-                    "apply");
-
-                var ntfsId = FolderIdentityService.GetNtfsIdentity(targetFolder);
-                if (ntfsId.HasValue)
-                {
-                    await _storageService.UpdateAssignmentIdentityAsync(targetFolder, ntfsId.Value.VolumeSerialNumber, ntfsId.Value.FileId64);
-                }
-                else
-                {
-                    var (vol, fid) = FolderIdentityService.GetFolderIdentity(targetFolder);
-                    await _storageService.UpdateAssignmentIdentityAsync(targetFolder, vol, fid);
-                }
-            }
-            catch (Exception ex)
-            {
-                App.Log($"Non-critical library tracking failure: {ex.Message}");
-            }
-
-            await _storageService.UpdateJournalStateAsync(operationId, JournalState.Completed);
-
-            // F21: Update LastAppliedRenderKey pointer only after successful durable apply commit
-            if (!string.IsNullOrWhiteSpace(stagedResult.RenderKey))
-            {
-                try
-                {
-                    await _storageService.SetLastAppliedRenderKeyAsync(stagedResult.RenderKey);
-                }
-                catch (Exception ex)
-                {
-                    App.Log($"Non-critical LastAppliedRenderKey save failure: {ex.Message}");
-                }
-            }
-
-            // Set final success icon preview from canonical path or staged path
-            SuccessIconImage.Source = !string.IsNullOrEmpty(canonicalIcoPath) && File.Exists(canonicalIcoPath)
-                ? LoadBitmapSafe(canonicalIcoPath)
-                : LoadBitmapSafe(stagedIcoPath);
-
-            // Clean up staged temp ICO
-            CleanupStagedFiles();
-
-            // Fire final targeted shell refresh now that all staged files are closed and committed
-            ShellRefreshService.NotifyFolderChanged(targetFolder);
-
-            App.Log($"CommitStagedIconAsync completed successfully for '{targetFolder}'");
-
-            // Persist recent custom color on successful folder apply (F02)
-            if (!string.IsNullOrWhiteSpace(stagedColorHex))
-            {
-                try
-                {
-                    var userSettings = await _storageService.GetUserSettingsAsync();
-                    var updatedSettings = userSettings.WithRecentCustomColor(stagedColorHex);
-                    await _storageService.SaveUserSettingsAsync(updatedSettings);
-                }
-                catch (Exception ex)
-                {
-                    App.Log($"Failed to record recent custom color: {ex.Message}");
-                }
-            }
-
-            // 4. Done / Success: Restrained success state with auto-close timer per spec
-            await SetProcessingStageAsync(ProcessingStage.Done);
-            ResetButton.Visibility = Visibility.Visible;
-        }
-        catch (Exception ex)
-        {
-            App.Log($"CommitStagedIconAsync unhandled exception: {ex}");
-
-            if (filesystemCommitted)
-            {
-                // The icon is already on disk. Record a repairable state instead of
-                // claiming a clean failure, because a retry would re-apply on top of a
-                // committed mutation.
-                try
-                {
-                    await _storageService.UpdateJournalStateAsync(operationId, JournalState.NeedsRepair, ex.Message);
-                }
-                catch (Exception journalEx)
-                {
-                    App.Log($"Failed to mark journal NeedsRepair: {journalEx.Message}");
-                }
-
-                ShowCategorizedError(
-                    QuickPanelErrorType.FolderApplyFailed,
-                    AppResources.GetString("ErrorAppliedNeedsRepair", _currentLanguage),
-                    ex.Message);
-            }
-            else
-            {
-                ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
-            }
-        }
-        finally
-        {
-            _isCommitting = false;
-            if (string.Equals(_currentFolderPath, targetFolder, StringComparison.OrdinalIgnoreCase))
-            {
-                _currentBaseline = baseline;
-                _currentOwnershipEpochId = epochId;
-                _stagedCustomColorHex = null;
-            }
-
-            // A newer activation arrived during this commit. Apply it only now, when the
-            // previous commit has fully finished, so target identity cannot interleave.
-            if (_pendingTargetPath is { } pendingTarget)
-            {
-                _pendingTargetPath = null;
-                try
-                {
-                    await ApplyTargetFolderAsync(pendingTarget);
-                }
-                catch (Exception ex)
-                {
-                    App.Log($"Deferred target switch failed for '{pendingTarget}': {ex}");
-                }
-            }
-        }
-    }
-
-    private async void OnUndoClicked(object sender, RoutedEventArgs e)
-    {
-        if (_isProcessing || _currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
-        {
-            return;
-        }
-
-        try
-        {
-            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
-
-            var baseline = _currentBaseline;
-            var targetFolder = _currentFolderPath;
-            var result = await Task.Run(() => _folderCustomizer.UndoIcon(targetFolder, baseline));
-            if (result.IsSuccess)
-            {
-                await _storageService.RemoveFolderAssignmentAsync(targetFolder);
-                _currentBaseline = null;
-                ResetButton.Visibility = Visibility.Collapsed;
-                PreviewIconImage.Source = null;
-                SuccessIconImage.Source = null;
-                _stagingModel.Initialize(PersonalizationMode.FolderTemplate);
-                await RefreshLivePreviewAsync();
-                await SetProcessingStageAsync(ProcessingStage.Idle);
-            }
-            else
-            {
-                ShowServiceError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage, "ErrorUndoFailed");
-            }
-        }
-        catch (Exception ex)
-        {
-            App.Log($"OnUndoClicked exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
-        }
-    }
-
-    private async void OnResetClicked(object sender, RoutedEventArgs e)
-    {
-        if (_isProcessing || _currentBaseline == null || string.IsNullOrWhiteSpace(_currentFolderPath))
-        {
-            return;
-        }
-
-        try
-        {
-            await SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
-
-            var baseline = _currentBaseline;
-            var targetFolder = _currentFolderPath;
-            var result = await Task.Run(() => _folderCustomizer.ResetIcon(targetFolder, baseline));
-            if (result.IsSuccess)
-            {
-                await _storageService.RemoveFolderAssignmentAsync(targetFolder);
-                _currentBaseline = null;
-                ResetButton.Visibility = Visibility.Collapsed;
-                PreviewIconImage.Source = null;
-                SuccessIconImage.Source = null;
-                _stagingModel.Initialize(PersonalizationMode.FolderTemplate);
-                await RefreshLivePreviewAsync();
-                await SetProcessingStageAsync(ProcessingStage.Idle);
-            }
-            else
-            {
-                ShowServiceError(QuickPanelErrorType.FolderApplyFailed, result.ErrorMessage, "ErrorResetFailed");
-            }
-        }
-        catch (Exception ex)
-        {
-            App.Log($"OnResetClicked exception: {ex}");
-            ShowCategorizedError(QuickPanelErrorType.FolderApplyFailed, null, ex.Message);
-        }
-    }
-
-    private void CleanupStagedFiles()
-    {
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(_stagedTempIcoPath) && File.Exists(_stagedTempIcoPath))
-            {
-                File.Delete(_stagedTempIcoPath);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // A locked staging file is retried on the next cleanup pass; clearing the
-            // in-memory state below is what matters for correctness.
-            App.Log($"Staged ICO cleanup deferred: {ex.Message}");
-        }
-        _stagedTempIcoPath = null;
-        _stagedProcessResult = null;
-        _stagedImageBytes = null;
-        _stagedPlacementMode = ImagePlacementMode.Contain;
-        if (PlacementModeRadioButtons != null)
-        {
-            PlacementModeRadioButtons.SelectedIndex = 0;
-        }
-        if (PlacementFillWarningText != null)
-        {
-            PlacementFillWarningText.Visibility = Visibility.Collapsed;
-        }
-        _stagedPaddingPercent = 0;
-        if (PaddingToggleSwitch != null)
-        {
-            PaddingToggleSwitch.IsOn = false;
-        }
-        if (PaddingSlider != null)
-        {
-            PaddingSlider.Value = 8;
-        }
-        if (PaddingSliderContainer != null)
-        {
-            PaddingSliderContainer.Visibility = Visibility.Collapsed;
-        }
-
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(_tempPreviewPngPath) && File.Exists(_tempPreviewPngPath))
-            {
-                File.Delete(_tempPreviewPngPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            // A locked preview file (still being decoded) is expected; log so an
-            // accumulating temp directory is diagnosable.
-            App.Log($"Preview temp delete failed: {ex.Message}");
-        }
-        _tempPreviewPngPath = null;
-    }
-
-    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadPreviewBitmapFromBytes(byte[] pngBytes)
-    {
-        try
-        {
-            string newTemp = Path.Combine(Path.GetTempPath(), $"ornare_prev_{Guid.NewGuid():N}.png");
-            File.WriteAllBytes(newTemp, pngBytes);
-            string? oldTemp = _tempPreviewPngPath;
-            _tempPreviewPngPath = newTemp;
-            if (oldTemp != null && File.Exists(oldTemp))
-            {
-                try
-                {
-                    File.Delete(oldTemp);
-                }
-                catch (IOException ex)
-                {
-                    App.Log($"Stale preview delete failed: {ex.Message}");
-                }
-            }
-            return LoadBitmapSafe(newTemp);
-        }
-        catch (Exception ex)
-        {
-            App.Log($"LoadPreviewBitmapFromBytes failed: {ex.Message}");
-            return null;
-        }
-    }
-
-    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapFromBytes(byte[] pngBytes)
-    {
-        try
-        {
-            string temp = Path.Combine(Path.GetTempPath(), $"ornare_thumb_{Guid.NewGuid():N}.png");
-            File.WriteAllBytes(temp, pngBytes);
-
-            // Track the file so Dispose can remove it. Untracked thumbnails used to
-            // accumulate in %TEMP% for every hover/render (9+ files per interaction).
-            _tempThumbnailPngPaths.Add(temp);
-
-            // Bound growth in a long-lived panel: only the most recent thumbnails
-            // can still be referenced by the live template cards.
-            while (_tempThumbnailPngPaths.Count > 64)
-            {
-                string oldest = _tempThumbnailPngPaths[0];
-                _tempThumbnailPngPaths.RemoveAt(0);
-                TryDeleteTempFile(oldest);
-            }
-
-            return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(temp));
-        }
-        catch (Exception ex)
-        {
-            // A blank thumbnail must not be silent: surface it so temp growth or a
-            // broken pipeline is visible.
-            App.Log($"LoadBitmapFromBytes failed: {ex.Message}");
-            return null;
-        }
-    }
-
-    private static void TryDeleteTempFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (IOException ex)
-        {
-            // BitmapImage may still hold the file; it will be retried on dispose.
-            App.Log($"Temp thumbnail delete deferred: {ex.Message}");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            App.Log($"Temp thumbnail delete denied: {ex.Message}");
-        }
-    }
-
-    public void Dispose()
-    {
-        _previewDebounceCts?.Cancel();
-        _previewDebounceCts?.Dispose();
-        _previewDebounceCts = null;
-
-        _autoCloseTimer?.Stop();
-        _autoCloseTimer = null;
-
-        CleanupStagedFiles();
-
-        foreach (string temp in _tempThumbnailPngPaths)
-        {
-            TryDeleteTempFile(temp);
-        }
-
-        _tempThumbnailPngPaths.Clear();
-
-        GC.SuppressFinalize(this);
-    }
-
-    private static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? LoadBitmapSafe(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                return new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path));
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or UriFormatException)
-        {
-            // Missing/corrupt preview files degrade to "no thumbnail", never a crash.
-            App.Log($"LoadBitmapSafe failed for '{path}': {ex.Message}");
-        }
-        return null;
-    }
-
-    private async void OnTryAgainClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnTryAgainClicked), () => SetProcessingStageAsync(ProcessingStage.Idle));
-    }
 
     private void StartAutoCloseTimer()
     {
@@ -2979,194 +2151,16 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
         _autoCloseTimer.Start();
     }
 
-    private Task SetProcessingStageAsync(ProcessingStage stage)
-    {
-        _currentStage = stage;
-
-        switch (stage)
-        {
-            case ProcessingStage.Idle:
-                _isProcessing = false;
-                PreviewStatePanel.Visibility = Visibility.Visible;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                DropAreaBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                DropAreaBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                break;
-
-            case ProcessingStage.PreparingImage:
-                _isProcessing = true;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = AppResources.GetString("PreparingImage", _currentLanguage);
-                break;
-
-            case ProcessingStage.GeneratingIcon:
-                _isProcessing = true;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = AppResources.GetString("GeneratingIcon", _currentLanguage);
-                break;
-
-            case ProcessingStage.PreviewReady:
-                _isProcessing = false;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Visible;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                PreviewTitleText.Text = AppResources.GetString("PreviewTitle", _currentLanguage);
-                PreviewSubtitleText.Text = AppResources.GetString("PreviewSubtitle", _currentLanguage);
-                UpdatePlacementStrings();
-                break;
-
-            case ProcessingStage.ApplyingIcon:
-                _isProcessing = true;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = AppResources.GetString("ApplyingIcon", _currentLanguage);
-                break;
-
-            case ProcessingStage.RefreshingExplorer:
-                _isProcessing = true;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Visible;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingText.Text = AppResources.GetString("RefreshingExplorer", _currentLanguage);
-                break;
-
-            case ProcessingStage.Done:
-                _isProcessing = false;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
-                SuccessStatePanel.Visibility = Visibility.Visible;
-                ErrorStatePanel.Visibility = Visibility.Collapsed;
-                SuccessTitleText.Text = AppResources.GetString("FolderIconUpdated", _currentLanguage);
-                SuccessSubtitleText.Text = AppResources.GetString("SuccessSubtitle", _currentLanguage);
-                CloseSuccessButton.Content = AppResources.GetString("Close", _currentLanguage);
-                UndoButton.Content = AppResources.GetString("Undo", _currentLanguage);
-
-                // The success state is transient: the panel closes itself once the
-                // pointer leaves. StartAutoCloseTimer existed but was never invoked,
-                // so the documented auto-close behaviour never happened.
-                StartAutoCloseTimer();
-                break;
-
-            case ProcessingStage.Error:
-                _isProcessing = false;
-                _autoCloseTimer?.Stop();
-                PreviewStatePanel.Visibility = Visibility.Collapsed;
-                ProcessingStatePanel.Visibility = Visibility.Collapsed;
-                SuccessStatePanel.Visibility = Visibility.Collapsed;
-                ErrorStatePanel.Visibility = Visibility.Visible;
-                TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
-                break;
-        }
-
-        // Flush layout synchronously so the new stage's visible elements exist before
-        // focus is moved. A fixed sleep was used before, which both delayed every
-        // transition and still did not guarantee a laid-out focus target.
-        if (Content is FrameworkElement root)
-        {
-            root.UpdateLayout();
-        }
-
-        RestoreFocusAfterTransition(stage);
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Service layers report failure text for diagnostics, not for end users. When they do
-    /// supply a message it is logged; the user always sees the localized fallback copy.
-    /// </summary>
-    private void ShowServiceError(QuickPanelErrorType errorType, string? serviceErrorMessage, string fallbackKey)
-    {
-        // The user always sees the localized fallback copy. Service messages are
-        // diagnostics only and are logged, never rendered: they can contain paths and
-        // storage/schema detail (INV-UI-004).
-        string localized = AppResources.GetString(fallbackKey, _currentLanguage);
-        ShowCategorizedError(errorType, localized, serviceErrorMessage);
-    }
-
-    /// <summary>
-    /// Shows a category-specific, fully localized error.
-    /// <paramref name="localizedMessage"/> is an optional caller-supplied user copy that is
-    /// already resolved from <see cref="AppResources"/> (never raw exception text).
-    /// <paramref name="diagnosticDetail"/> is diagnostic only: raw exception text can contain
-    /// storage paths and schema names, so it is written to the diagnostic log and never rendered.
-    /// </summary>
-    private void ShowCategorizedError(QuickPanelErrorType errorType, string? localizedMessage = null, string? diagnosticDetail = null)
-    {
-        _isProcessing = false;
-        _autoCloseTimer?.Stop();
-
-        if (!string.IsNullOrWhiteSpace(diagnosticDetail))
-        {
-            App.Log($"QuickPanel error ({errorType}): {diagnosticDetail}");
-        }
-
-        string title;
-        string message;
-
-        switch (errorType)
-        {
-            case QuickPanelErrorType.UnsupportedImage:
-                title = AppResources.GetString("ErrorUnsupportedImageTitle", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorUnsupportedImageMessage", _currentLanguage);
-                break;
-
-            case QuickPanelErrorType.ImageReadFailed:
-                title = AppResources.GetString("ErrorImageReadTitle", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorImageReadMessage", _currentLanguage);
-                break;
-
-            case QuickPanelErrorType.IconGenerationFailed:
-                title = AppResources.GetString("ErrorIconGenerationTitle", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorIconGenerationMessage", _currentLanguage);
-                break;
-
-            case QuickPanelErrorType.FolderApplyFailed:
-                title = AppResources.GetString("ErrorFolderApplyTitle", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorFolderApplyMessage", _currentLanguage);
-                break;
-
-            case QuickPanelErrorType.ExplorerRefreshFailed:
-                title = AppResources.GetString("ErrorExplorerRefreshTitle", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorExplorerRefreshMessage", _currentLanguage);
-                break;
-
-            default:
-                title = AppResources.GetString("ApplyFailed", _currentLanguage);
-                message = localizedMessage ?? AppResources.GetString("ErrorUnexpected", _currentLanguage);
-                break;
-        }
-
-        PreviewStatePanel.Visibility = Visibility.Collapsed;
-        ProcessingStatePanel.Visibility = Visibility.Collapsed;
-        SuccessStatePanel.Visibility = Visibility.Collapsed;
-        ErrorStatePanel.Visibility = Visibility.Visible;
-
-        ErrorTitleText.Text = title;
-        ErrorMessageText.Text = message;
-        TryAgainButton.Content = AppResources.GetString("TryAgain", _currentLanguage);
-        RestoreFocusAfterTransition(ProcessingStage.Error);
-    }
 
     public void ApplyVisualTestState(string? uiState, string? theme, string? lang)
     {
+        // Capture-only overrides: a shipped release must not be switched into a fake
+        // processing/error state or a different theme/language by an activation.
+        if (!App.VisualOverridesAllowed)
+        {
+            return;
+        }
+
         if (Content is FrameworkElement root)
         {
             if (string.Equals(theme, "light", StringComparison.OrdinalIgnoreCase))
@@ -3197,39 +2191,39 @@ public sealed partial class QuickPanelWindow : Window, IDisposable
 
         if (string.Equals(uiState, "drag-over", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.Idle);
+            SetProcessingStage(ProcessingStage.Idle);
             DropAreaBorder.BorderBrush = GetThemeBrush("AccentFillColorDefaultBrush", Microsoft.UI.Colors.DodgerBlue);
             DropAreaBorder.Background = GetThemeBrush("SubtleFillColorSecondaryBrush", Microsoft.UI.Colors.Transparent);
         }
         else if (string.Equals(uiState, "preparing", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.PreparingImage);
+            SetProcessingStage(ProcessingStage.PreparingImage);
         }
         else if (string.Equals(uiState, "generating", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.GeneratingIcon);
+            SetProcessingStage(ProcessingStage.GeneratingIcon);
         }
         else if (string.Equals(uiState, "preview", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.PreviewReady);
+            SetProcessingStage(ProcessingStage.PreviewReady);
         }
         else if (string.Equals(uiState, "applying", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.ApplyingIcon);
+            SetProcessingStage(ProcessingStage.ApplyingIcon);
         }
         else if (string.Equals(uiState, "refreshing", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.RefreshingExplorer);
+            SetProcessingStage(ProcessingStage.RefreshingExplorer);
         }
         else if (string.Equals(uiState, "success", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.Done);
+            SetProcessingStage(ProcessingStage.Done);
             _autoCloseTimer?.Stop();
             ResetButton.Visibility = Visibility.Visible;
         }
         else if (string.Equals(uiState, "undo", StringComparison.OrdinalIgnoreCase))
         {
-            _ = SetProcessingStageAsync(ProcessingStage.Done);
+            SetProcessingStage(ProcessingStage.Done);
             _autoCloseTimer?.Stop();
             UndoButton.Focus(FocusState.Programmatic);
         }

@@ -47,6 +47,8 @@ public sealed partial class ManagerWindow : Window, IDisposable
     private string _currentSectionTag = "Library";
     private bool _isLoaded;
     private bool _disposed;
+    private bool _closeFlushed;
+    private bool _errorDialogOpen;
     private readonly System.Threading.CancellationTokenSource _windowCts = new();
     private System.Threading.CancellationTokenSource? _searchCts;
 
@@ -60,6 +62,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
         ConfigureWindow();
         SetupKeyboardAccelerators();
         InitializeSettingsSurface();
+
+        // Seed the first frame from the preferences App resolved before this window existed.
+        // Without it the window paints the English/system defaults baked into XAML and only
+        // corrects itself once LoadInitialDataAsync finishes its settings round trip.
+        _currentLanguage = AppResources.CurrentLocale;
+        _currentTheme = App.CurrentTheme;
+        ApplyTheme(_currentTheme);
+        ApplyLanguage(_currentLanguage, localizeSettingsSurface: false);
 
         WebsiteHyperlink.Content = AppInfo.WebsiteDisplayName;
         WebsiteHyperlink.NavigateUri = new Uri(AppInfo.WebsiteUrl, UriKind.Absolute);
@@ -90,7 +100,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
     /// failures are recorded through the diagnostic sink (never shown as raw backend
     /// detail to the user).
     /// </summary>
-    private static async Task GuardAsync(string operation, Func<Task> body)
+    private async Task GuardAsync(string operation, Func<Task> body, string? userMessage = null)
     {
         try
         {
@@ -102,7 +112,67 @@ public sealed partial class ManagerWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
+            // Raw exception text is diagnostic only; the user gets a localized, generic
+            // message through a single dialog instead of silence or a raw stack detail.
             App.Log($"{operation} failed: {ex}");
+            await ShowUnexpectedErrorAsync(userMessage);
+        }
+    }
+
+    /// <summary>
+    /// Guard for work the user did not ask for directly (a language-driven surface refresh, a
+    /// collections reload). A failure is recorded instead of surfacing as an unobserved task,
+    /// and no modal dialog interrupts the window, because the user did not initiate it.
+    /// </summary>
+    private static async Task GuardBackgroundAsync(string operation, Func<Task> body)
+    {
+        try
+        {
+            await body();
+        }
+        catch (OperationCanceledException)
+        {
+            // The window closed; expected.
+        }
+        catch (Exception ex)
+        {
+            App.Log($"{operation} background failure: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Shows one non-stacking dialog for an unexpected guarded failure. A burst of failures
+    /// from the same event keeps a single dialog open and only logs the rest.
+    /// </summary>
+    private async Task ShowUnexpectedErrorAsync(string? userMessage)
+    {
+        if (_errorDialogOpen || Content is not FrameworkElement root || root.XamlRoot is null)
+        {
+            return;
+        }
+
+        _errorDialogOpen = true;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = root.XamlRoot,
+                Title = "Ornare",
+                Content = userMessage ?? AppResources.GetString("ErrorUnexpected", _currentLanguage),
+                CloseButtonText = AppResources.GetString("Close", _currentLanguage),
+                DefaultButton = ContentDialogButton.Close
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Showing the error surface itself failed (for example during teardown); the
+            // diagnostic log already has the original failure.
+            App.Log($"Unexpected-error dialog failed: {ex.Message}");
+        }
+        finally
+        {
+            _errorDialogOpen = false;
         }
     }
 
@@ -257,6 +327,16 @@ public sealed partial class ManagerWindow : Window, IDisposable
             e.Handled = true;
             await GuardAsync(nameof(OnTargetTrayDropZoneKeyDown), OpenFolderPickerForStagingAsync);
         }
+    }
+
+    /// <summary>
+    /// First-run path out of the empty library: pick a folder to customize instead of telling
+    /// the user to go back to File Explorer. Audit finding 2.2 was that this view offered only
+    /// "Import Icon...", which imports an icon but does nothing with a folder.
+    /// </summary>
+    private async void OnEmptyStateChooseFolderClicked(object sender, RoutedEventArgs e)
+    {
+        await GuardAsync(nameof(OnEmptyStateChooseFolderClicked), OpenFolderPickerForStagingAsync);
     }
 
     private async Task OpenFolderPickerForStagingAsync()
@@ -484,6 +564,11 @@ public sealed partial class ManagerWindow : Window, IDisposable
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
 
+        // Defer the close until the pending cloud snapshot is flushed. Doing this in
+        // AppWindow.Closing keeps the UI thread responsive; the previous implementation
+        // blocked it for up to three seconds inside Dispose.
+        appWindow.Closing += OnAppWindowClosing;
+
         // Effective target: 920x640 per Visual Reference Spec
         appWindow.Resize(new global::Windows.Graphics.SizeInt32(920, 640));
 
@@ -528,7 +613,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
             await RefreshAllDataAsync();
             await RefreshCloudSurfaceAsync();
-            _ = ShowCloudRestorePromptIfNeededAsync();
+            _ = GuardAsync(nameof(ShowCloudRestorePromptIfNeededAsync), ShowCloudRestorePromptIfNeededAsync);
             _isLoaded = true;
             NavListView.SelectedIndex = 0;
 
@@ -927,6 +1012,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
             FavoriteToolTip = favToolTip,
             ContextToggleFavoriteText = toggleText,
             ContextOpenExplorerText = explorerText,
+            ContextApplyToFolderText = L("ApplyToFolder"),
             ContextManageTagsText = manageTagsText,
             ContextManageCollectionsText = manageCollectionsText,
             ContextExportIcoText = exportText,
@@ -956,13 +1042,32 @@ public sealed partial class ManagerWindow : Window, IDisposable
         return null;
     }
 
-    private static string FormatTimeAgo(DateTimeOffset time)
+    private string FormatTimeAgo(DateTimeOffset time)
     {
         TimeSpan diff = DateTimeOffset.UtcNow - time;
-        if (diff.TotalMinutes < 1) return "Just now";
-        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
-        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        return $"{(int)diff.TotalDays}d ago";
+        if (diff.TotalMinutes < 1)
+        {
+            return AppResources.GetString("TimeJustNow", _currentLanguage);
+        }
+        if (diff.TotalMinutes < 60)
+        {
+            return string.Format(
+                AppResources.CultureFor(_currentLanguage),
+                AppResources.GetString("TimeMinutesAgo", _currentLanguage),
+                (int)diff.TotalMinutes);
+        }
+        if (diff.TotalHours < 24)
+        {
+            return string.Format(
+                AppResources.CultureFor(_currentLanguage),
+                AppResources.GetString("TimeHoursAgo", _currentLanguage),
+                (int)diff.TotalHours);
+        }
+
+        return string.Format(
+            AppResources.CultureFor(_currentLanguage),
+            AppResources.GetString("TimeDaysAgo", _currentLanguage),
+            (int)diff.TotalDays);
     }
 
     private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1017,7 +1122,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
                 {
                     CollectionsView.Visibility = Visibility.Visible;
                     SectionTitleText.Text = AppResources.GetString("Nav_Collections", _currentLanguage);
-                    _ = LoadCollectionsViewAsync();
+                    _ = GuardBackgroundAsync(nameof(LoadCollectionsViewAsync), LoadCollectionsViewAsync);
                 }
                 break;
             case "Presets":
@@ -1127,14 +1232,14 @@ public sealed partial class ManagerWindow : Window, IDisposable
             if (_libraryItems.Count == 0)
             {
                 LibraryEmptyTitle.Text = AppResources.GetString("SearchNoResultsTitle", _currentLanguage);
-                LibraryEmptySubtitle.Text = string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchNoResultsSubtitle", _currentLanguage), query);
+                LibraryEmptySubtitle.Text = string.Format(AppResources.CultureFor(_currentLanguage), AppResources.GetString("SearchNoResultsSubtitle", _currentLanguage), query);
                 SectionSubtitleText.Text = AppResources.GetString("SearchResultsZero", _currentLanguage);
             }
             else
             {
                 SectionSubtitleText.Text = _libraryItems.Count == 1
-                    ? string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchResultSingle", _currentLanguage), query)
-                    : string.Format(CultureInfo.CurrentCulture, AppResources.GetString("SearchResultsCount", _currentLanguage), _libraryItems.Count, query);
+                    ? string.Format(AppResources.CultureFor(_currentLanguage), AppResources.GetString("SearchResultSingle", _currentLanguage), query)
+                    : string.Format(AppResources.CultureFor(_currentLanguage), AppResources.GetString("SearchResultsCount", _currentLanguage), _libraryItems.Count, query);
             }
         }
         catch (OperationCanceledException)
@@ -1195,6 +1300,83 @@ public sealed partial class ManagerWindow : Window, IDisposable
             await _storageService.ClearRecentHistoryAsync();
             await LoadRecentAsync();
             ClearRecentButton.Visibility = Visibility.Collapsed;
+        });
+    }
+
+    /// <summary>
+    /// Applies an icon that already lives in the library to a folder the user picks. Without
+    /// this the library was read-only: the only way to bind an icon to a folder was to go back
+    /// to Explorer, and "Apply to Folder" existed in the resource dictionary but nothing called
+    /// it.
+    /// </summary>
+    private async void OnApplyToFolderClicked(object sender, RoutedEventArgs e)
+    {
+        await GuardAsync(nameof(OnApplyToFolderClicked), async () =>
+        {
+            if (sender is not MenuFlyoutItem item || item.Tag is not string sha256)
+            {
+                return;
+            }
+
+            LibraryItemVm? vm = _libraryItems.FirstOrDefault(i => i.Sha256 == sha256)
+                ?? _favoriteItems.FirstOrDefault(i => i.Sha256 == sha256);
+            if (vm is null || string.IsNullOrEmpty(vm.CanonicalIcoPath) || !File.Exists(vm.CanonicalIcoPath))
+            {
+                return;
+            }
+
+            var picker = new global::Windows.Storage.Pickers.FolderPicker
+            {
+                SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.Desktop
+            };
+            IntPtr hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+            picker.FileTypeFilter.Add("*");
+
+            global::Windows.Storage.StorageFolder? folder = await picker.PickSingleFolderAsync();
+            if (folder is null)
+            {
+                return;
+            }
+
+            string folderPath = folder.Path;
+            if (!_folderCustomizer.IsSupportedPath(folderPath))
+            {
+                await ShowAlertAsync(L("ErrorFolderApplyTitle"), L("ErrorFolderNotCustomizable"));
+                return;
+            }
+
+            FolderBaseline baseline = new FolderBaseline
+            {
+                FolderAssignmentId = Guid.NewGuid(),
+                OwnershipEpochId = Guid.NewGuid(),
+                PriorSemantics = DesktopIniParser.ReadSemantics(folderPath),
+                CapturedAt = DateTimeOffset.UtcNow
+            };
+
+            OperationResult<FolderIconSemantics> applyResult =
+                await Task.Run(() => _folderCustomizer.ApplyIcon(folderPath, vm.CanonicalIcoPath));
+            if (!applyResult.IsSuccess || applyResult.Value is null)
+            {
+                App.Log($"OnApplyToFolderClicked: apply failed: {applyResult.ErrorMessage}");
+                await ShowAlertAsync(L("ErrorFolderApplyTitle"), L("ErrorFolderApplyMessage"));
+                return;
+            }
+
+            await _storageService.SaveFolderAssignmentAsync(
+                folderPath,
+                baseline.OwnershipEpochId,
+                applyResult.Value,
+                baseline);
+
+            await _storageService.RecordHistoryAsync(
+                folderPath,
+                Guid.NewGuid(),
+                null,
+                sha256,
+                "apply");
+
+            await LoadFoldersAsync();
         });
     }
 
@@ -1371,6 +1553,12 @@ public sealed partial class ManagerWindow : Window, IDisposable
 
     public void ApplyTheme(string theme)
     {
+        // Keep both the window field and the process-wide value in step: the field drives the
+        // caption colour, and the process value seeds windows created later (the quick panel is
+        // transient and has no settings surface of its own).
+        _currentTheme = theme;
+        App.CurrentTheme = theme;
+
         if (Content is FrameworkElement root)
         {
             if (string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase))
@@ -1398,7 +1586,10 @@ public sealed partial class ManagerWindow : Window, IDisposable
         if (appWindow != null && AppWindowTitleBar.IsCustomizationSupported())
         {
             var titleBar = appWindow.TitleBar;
-            bool isDark = (Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+            // ActualTheme is only dependable once the visual tree is loaded, and this method
+            // also runs while the window is being constructed. The requested theme is known
+            // from the very first frame, so the caption colour is derived from it instead.
+            bool isDark = IsDarkTheme(_currentTheme);
             var fgColor = isDark ? Colors.White : Colors.Black;
             titleBar.ButtonForegroundColor = fgColor;
             titleBar.ButtonHoverForegroundColor = fgColor;
@@ -1406,134 +1597,47 @@ public sealed partial class ManagerWindow : Window, IDisposable
         }
     }
 
-    public void ApplyLanguage(string lang)
+    /// <summary>
+    /// Resolves a stored theme choice to "is the chrome dark". The "System" value follows the
+    /// application's resolved theme, which WinUI seeds from Windows before the first window.
+    /// </summary>
+    private static bool IsDarkTheme(string theme)
     {
-        // All six first-class locales must round-trip: collapsing non-Turkish
-        // choices to en-US silently discarded the user's selection and persisted
-        // it back to disk as en-US.
-        string locale = AppResources.NormalizeLocale(lang);
-        _currentLanguage = locale;
-
-        // Keep the process-wide locale in sync so helpers that do not receive the locale
-        // explicitly (settings surface, cloud status, onboarding) resolve the same language.
-        AppResources.CurrentLocale = locale;
-
-        // Nav/chrome copy is resolved per key so every supported locale is honoured
-        // instead of the previous two-way tr/en ternary.
-        string L(string key) => AppResources.GetString(key, locale);
-
-        NavTextLibrary.Text = L("Nav_Library");
-        if (AppSubtitleText != null) AppSubtitleText.Text = L("AppSubtitle");
-        if (RejectedItemsLabel != null) RejectedItemsLabel.Text = L("RejectedItemsLabel");
-
-        // Screen readers announce AutomationProperties.Name verbatim; keeping these in
-        // English made navigation and settings unusable in the other five locales.
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemLibrary, L("Nav_Library"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemRecent, L("Nav_Recent"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemFavorites, L("Nav_Favorites"));
-        if (NavItemCollections != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemCollections, L("Nav_Collections"));
-        if (NavItemPresets != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemPresets, L("Nav_Presets"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemFolders, L("Nav_Folders"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavItemSettings, L("Nav_Settings"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SearchTextBox, L("SearchLibrary"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearRecentButton, L("ClearRecent"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, L("Staging_TrayTitle"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, L("Staging_ClearStaging"));
-        ToolTipService.SetToolTip(SearchTextBox, L("Tip_SearchLibrary"));
-        ToolTipService.SetToolTip(TargetTrayDropZone, L("Tip_AddFolders"));
-        ToolTipService.SetToolTip(ClearStagingButton, L("Tip_ClearStaging"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ThemeComboBox, L("Settings_ThemeLabel"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(LanguageComboBox, L("Settings_LanguageLabel"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ExportReportButton, L("ExportDiagnosticReport"));
-        if (ImportIconButton != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ImportIconButton, L("ImportIcon"));
-        if (ImportIconButton != null) ToolTipService.SetToolTip(ImportIconButton, L("Tip_ImportIcon"));
-        if (NewCollectionButton != null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NewCollectionButton, L("Collections_NewShort"));
-        NavTextRecent.Text = L("Nav_Recent");
-        NavTextFavorites.Text = L("Nav_Favorites");
-        if (NavTextCollections != null) NavTextCollections.Text = L("Nav_Collections");
-        if (NavTextPresets != null) NavTextPresets.Text = L("Nav_Presets");
-        NavTextFolders.Text = L("Nav_Folders");
-        NavTextSettings.Text = L("Nav_Settings");
-
-        if (CollectionsListHeader != null) CollectionsListHeader.Text = L("Nav_Collections");
-        if (NewCollectionButtonText != null) NewCollectionButtonText.Text = L("Collections_NewShort");
-        if (CollectionsEmptyTitle != null) CollectionsEmptyTitle.Text = L("Collections_EmptyTitle");
-        if (CollectionsEmptySubtitle != null) CollectionsEmptySubtitle.Text = L("Collections_EmptySubtitle");
-        if (CollectionAssetsEmptyTitle != null) CollectionAssetsEmptyTitle.Text = L("Collections_NoAssetsTitle");
-        if (CollectionAssetsEmptySubtitle != null) CollectionAssetsEmptySubtitle.Text = L("Collections_NoAssetsSubtitle");
-
-        if (PresetTemplateLabel != null) PresetTemplateLabel.Text = L("Preset_StyleLabel");
-        if (PresetRadioClassic != null) PresetRadioClassic.Content = L("Template_Classic");
-        if (PresetRadioSoft != null) PresetRadioSoft.Content = L("Template_Soft");
-        if (PresetRadioFlat != null) PresetRadioFlat.Content = L("Template_Flat");
-        if (PresetDisclaimerText != null)
+        if (string.Equals(theme, "Dark", StringComparison.OrdinalIgnoreCase))
         {
-            PresetDisclaimerText.Text = L("Preset_Disclaimer");
+            return true;
         }
 
-        LibraryEmptyTitle.Text = L("Library_EmptyTitle");
-        LibraryEmptySubtitle.Text = L("Library_EmptySubtitle");
-        RecentEmptyTitle.Text = L("Recent_EmptyTitle");
-        FavoritesEmptyTitle.Text = L("EmptyFavoritesTitle");
-        FavoritesEmptySubtitle.Text = L("Favorites_EmptySubtitle");
-        FoldersEmptyTitle.Text = L("Folders_EmptyTitle");
-        TargetTrayTitle.Text = L("Staging_TrayTitle");
-        TargetTraySubtitle.Text = L("Staging_TraySubtitle");
-        ClearStagingButton.Content = L("Staging_ClearStaging");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TargetTrayDropZone, L("Staging_TrayTitle"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ClearStagingButton, L("Staging_ClearStaging"));
-
-        SettingsAppearanceHeader.Text = L("Settings_Appearance");
-        SettingsThemeLabel.Text = L("Settings_ThemeLabel");
-        ThemeItemSystem.Content = L("Settings_SystemDefault");
-        ThemeItemLight.Content = L("Settings_Light");
-        ThemeItemDark.Content = L("Settings_Dark");
-
-        SettingsLanguageHeader.Text = L("Language");
-        SettingsLanguageLabel.Text = L("Settings_LanguageLabel");
-        LangItemSystem.Content = L("Settings_SystemDefault");
-
-        // A ComboBox paints the selected entry from the item's Content and does not repaint
-        // when that Content is replaced in place: the item read "Sistem varsayılanı" while
-        // the closed picker still showed "System default". Re-selecting the current index
-        // forces the selection box to render the new text.
-        RefreshComboBoxSelection(ThemeComboBox);
-        RefreshComboBoxSelection(LanguageComboBox);
-
-        SettingsDiagnosticsHeader.Text = L("Diagnostics");
-        SettingsDiagnosticsLabel.Text = L("Settings_DiagnosticsLabel");
-        SettingsDiagnosticsSubtext.Text = L("Settings_DiagnosticsSubtext");
-        ExportReportButton.Content = L("ExportDiagnosticReport");
-        SettingsAboutHeader.Text = L("Settings_About");
-        SettingsPublisherLabel.Text = L("Settings_PublisherLabel");
-        SettingsWebsiteLabel.Text = L("Settings_WebsiteLabel");
-        SettingsVersionLabel.Text = L("Version");
-        // Version badge must follow the shipped assembly metadata, not a design-time
-        // literal that silently drifts from the installer/packaged version.
-        SettingsVersionValue.Text = AppInfo.Version;
-        SettingsArchLabel.Text = L("Architecture");
-        SettingsPrivacyStatement.Text = L("Settings_PrivacyStatement");
-        ApplySettingsSurfaceLocalization();
-        ClearRecentButton.Content = L("ClearRecent");
-        SearchTextBox.PlaceholderText = L("Search_Placeholder");
-        if (ImportIconButton != null) ImportIconButton.Content = L("ImportIcon");
-
-        if (!string.IsNullOrEmpty(_currentSectionTag))
+        if (string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase))
         {
-            SwitchSection(_currentSectionTag);
+            return false;
         }
+
+        return global::Microsoft.UI.Xaml.Application.Current?.RequestedTheme == ApplicationTheme.Dark;
     }
 
+    /// <summary>
+    /// Applies localized copy. <paramref name="localizeSettingsSurface"/> is false during
+    /// construction: the settings surface is already populated there and is localized again
+    /// immediately after the stored settings load, so doing it twice would rebuild the app
+    /// icon preview list on the UI thread before the first frame is drawn.
+    /// </summary>
     public void ApplyVisualTestState(string? section, string? theme, string? lang)
     {
-        if (!string.IsNullOrEmpty(theme))
+        // Theme and language overrides exist only to capture reference screenshots.
+        // Section navigation is a real feature (--section), so it always applies.
+        if (App.VisualOverridesAllowed)
         {
-            ApplyTheme(theme);
+            if (!string.IsNullOrEmpty(theme))
+            {
+                ApplyTheme(theme);
+            }
+            if (!string.IsNullOrEmpty(lang))
+            {
+                ApplyLanguage(lang);
+            }
         }
-        if (!string.IsNullOrEmpty(lang))
-        {
-            ApplyLanguage(lang);
-        }
+
         if (!string.IsNullOrEmpty(section))
         {
             SwitchSection(section);
@@ -1760,758 +1864,7 @@ public sealed partial class ManagerWindow : Window, IDisposable
         }
     }
 
-    #region F15: Library Tags UI
 
-    private async Task RefreshTagFilterBarAsync()
-    {
-        if (_storageService == null) return;
-
-        var tags = await _storageService.GetAllTagsAsync();
-        if (tags.Count == 0 && string.IsNullOrEmpty(_selectedFilterTagId))
-        {
-            TagFilterScrollViewer.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        TagFilterScrollViewer.Visibility = Visibility.Visible;
-        TagFilterBar.Children.Clear();
-
-        string allLabel = L("Category_All");
-
-        // "All" pill
-        var allBtn = CreateFilterPill(allLabel, null, _selectedFilterTagId == null);
-        TagFilterBar.Children.Add(allBtn);
-
-        foreach (var tag in tags)
-        {
-            var btn = CreateFilterPill(tag.DisplayName, tag.Id, _selectedFilterTagId == tag.Id);
-            TagFilterBar.Children.Add(btn);
-        }
-    }
-
-    private Button CreateFilterPill(string label, string? tagId, bool isSelected)
-    {
-        var btn = new Button
-        {
-            Content = label,
-            Tag = tagId,
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(12, 4, 12, 4),
-            FontSize = 12,
-            FontWeight = isSelected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal
-        };
-
-        if (isSelected)
-        {
-            if (Application.Current.Resources.TryGetValue("AccentFillColorDefaultBrush", out object? accentBrush))
-            {
-                btn.Background = (Brush)accentBrush;
-            }
-            if (Application.Current.Resources.TryGetValue("TextOnAccentFillColorPrimaryBrush", out object? textAccentBrush))
-            {
-                btn.Foreground = (Brush)textAccentBrush;
-            }
-        }
-        else
-        {
-            if (Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out object? subtleBrush))
-            {
-                btn.Background = (Brush)subtleBrush;
-            }
-            if (Application.Current.Resources.TryGetValue("TextFillColorPrimaryBrush", out object? textBrush))
-            {
-                btn.Foreground = (Brush)textBrush;
-            }
-        }
-
-        btn.Click += async (s, e) => await GuardAsync("ApplyTagFilter", async () =>
-        {
-            _selectedFilterTagId = tagId;
-            await LoadLibraryAsync();
-        });
-        return btn;
-    }
-
-    private async void OnManageTagsClicked(object sender, RoutedEventArgs e)
-    {
-        if (_storageService == null) return;
-        string? sha256 = null;
-        if (sender is MenuFlyoutItem mfi && mfi.Tag is string s) sha256 = s;
-        if (string.IsNullOrEmpty(sha256)) return;
-
-        var dialog = new ContentDialog
-        {
-            Title = L("ManageTags_Title"),
-            CloseButtonText = L("Close"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = this.Content.XamlRoot
-        };
-
-        var rootPanel = new StackPanel { Spacing = 12, Width = 360 };
-
-        var tagsWrap = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var tagsScroll = new ScrollViewer
-        {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            HorizontalScrollMode = ScrollMode.Enabled,
-            VerticalScrollMode = ScrollMode.Disabled,
-            Content = tagsWrap
-        };
-
-        var noTagsText = new TextBlock
-        {
-            Text = L("ManageTags_Empty"),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed
-        };
-        if (Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out object? secTextBrush))
-        {
-            noTagsText.Foreground = (Brush)secTextBrush;
-        }
-
-        var inputGrid = new Grid();
-        inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var textBox = new TextBox
-        {
-            PlaceholderText = L("Tag_AddPlaceholder"),
-            MaxLength = 40
-        };
-        Grid.SetColumn(textBox, 0);
-
-        var addBtn = new Button
-        {
-            Content = L("Add"),
-            Margin = new Thickness(8, 0, 0, 0)
-        };
-        if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accentStyle))
-        {
-            addBtn.Style = (Style)accentStyle;
-        }
-        Grid.SetColumn(addBtn, 1);
-
-        inputGrid.Children.Add(textBox);
-        inputGrid.Children.Add(addBtn);
-
-        var errorText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 239, 68, 68)),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed,
-            TextWrapping = TextWrapping.Wrap
-        };
-
-        rootPanel.Children.Add(tagsScroll);
-        rootPanel.Children.Add(noTagsText);
-        rootPanel.Children.Add(inputGrid);
-        rootPanel.Children.Add(errorText);
-        dialog.Content = rootPanel;
-
-        async Task RefreshDialogTagsAsync()
-        {
-            tagsWrap.Children.Clear();
-            var currentTags = await _storageService.GetTagsForAssetAsync(sha256);
-            if (currentTags.Count == 0)
-            {
-                noTagsText.Visibility = Visibility.Visible;
-                tagsScroll.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                noTagsText.Visibility = Visibility.Collapsed;
-                tagsScroll.Visibility = Visibility.Visible;
-                foreach (var t in currentTags)
-                {
-                    var pill = new Border
-                    {
-                        CornerRadius = new CornerRadius(12),
-                        Padding = new Thickness(8, 3, 4, 3),
-                        BorderThickness = new Thickness(1),
-                        Margin = new Thickness(0, 0, 4, 4)
-                    };
-                    if (Application.Current.Resources.TryGetValue("CardBackgroundFillColorDefaultBrush", out object? cardBg))
-                    {
-                        pill.Background = (Brush)cardBg;
-                    }
-                    if (Application.Current.Resources.TryGetValue("CardStrokeColorDefaultBrush", out object? cardStroke))
-                    {
-                        pill.BorderBrush = (Brush)cardStroke;
-                    }
-
-                    var pillStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                    pillStack.Children.Add(new TextBlock { Text = t.DisplayName, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
-                    var removeBtn = new Button
-                    {
-                        Padding = new Thickness(0),
-                        Width = 20,
-                        Height = 20,
-                        CornerRadius = new CornerRadius(10),
-                        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                        BorderThickness = new Thickness(0),
-                        Content = new FontIcon { Glyph = "\uE711", FontSize = 10 }
-                    };
-                    removeBtn.Click += async (s, args) => await GuardAsync("DetachTag", async () =>
-                    {
-                        await _storageService.DetachTagFromAssetAsync(sha256, t.Id);
-                        await RefreshDialogTagsAsync();
-                        await RefreshTagFilterBarAsync();
-                    });
-                    pillStack.Children.Add(removeBtn);
-                    pill.Child = pillStack;
-                    tagsWrap.Children.Add(pill);
-                }
-            }
-        }
-
-        async Task TryAddTagAsync()
-        {
-            errorText.Visibility = Visibility.Collapsed;
-            string raw = textBox.Text;
-            if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(raw, out string display, out _, out LibraryNameError nameError))
-            {
-                errorText.Text = LocalizedNameError(nameError);
-                errorText.Visibility = Visibility.Visible;
-                return;
-            }
-
-            try
-            {
-                var tag = await _storageService.CreateOrGetTagAsync(display);
-                await _storageService.AttachTagToAssetAsync(sha256, tag.Id);
-                textBox.Text = string.Empty;
-                await RefreshDialogTagsAsync();
-                await RefreshTagFilterBarAsync();
-            }
-            catch (Exception ex)
-            {
-                ShowDialogError(errorText, ex, "AddTag");
-            }
-        }
-
-        addBtn.Click += async (s, args) => await GuardAsync("AddTag", TryAddTagAsync);
-        textBox.KeyDown += async (s, args) =>
-        {
-            if (args.Key == global::Windows.System.VirtualKey.Enter)
-            {
-                args.Handled = true;
-                await GuardAsync("AddTag", TryAddTagAsync);
-            }
-        };
-
-        await RefreshDialogTagsAsync();
-        await dialog.ShowAsync();
-    }
-
-    #endregion
-
-    #region F16: Custom Collections UI
-
-    private string? _selectedCollectionId;
-    private readonly List<CollectionItemVm> _collectionItems = new();
-    private readonly List<LibraryItemVm> _currentCollectionAssets = new();
-
-    private async Task LoadCollectionsViewAsync()
-    {
-        if (_storageService == null || CollectionsListView == null) return;
-
-        var collections = await _storageService.GetAllCollectionsAsync();
-        _collectionItems.Clear();
-
-        foreach (var c in collections)
-        {
-            var assets = await _storageService.GetAssetsInCollectionAsync(c.Id, limit: 1000);
-            int count = assets.Count;
-            string countText = count == 1
-                ? L("Item_Icons_Single")
-                : AppResources.Format("Item_Icons_Count", _currentLanguage, count);
-
-            _collectionItems.Add(new CollectionItemVm
-            {
-                Id = c.Id,
-                DisplayName = c.DisplayName,
-                SortKey = c.SortKey,
-                AssetCountText = countText,
-                MoveUpText = L("Collection_MoveUp"),
-                MoveDownText = L("Collection_MoveDown"),
-                RenameText = L("Collection_Rename"),
-                DeleteText = L("Delete")
-            });
-        }
-
-        SyncItems(CollectionsListView, _collectionItems);
-
-        if (CollectionsEmptyPanel != null)
-            CollectionsEmptyPanel.Visibility = _collectionItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (CollectionsListView != null)
-            CollectionsListView.Visibility = _collectionItems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        if (_collectionItems.Count > 0)
-        {
-            if (string.IsNullOrEmpty(_selectedCollectionId) || !_collectionItems.Any(ci => ci.Id == _selectedCollectionId))
-            {
-                _selectedCollectionId = _collectionItems[0].Id;
-                if (CollectionsListView != null) CollectionsListView.SelectedIndex = 0;
-            }
-            else
-            {
-                int idx = _collectionItems.FindIndex(ci => ci.Id == _selectedCollectionId);
-                if (idx >= 0 && CollectionsListView != null) CollectionsListView.SelectedIndex = idx;
-            }
-
-            if (!string.IsNullOrEmpty(_selectedCollectionId))
-            {
-                await LoadCollectionAssetsAsync(_selectedCollectionId);
-            }
-        }
-        else
-        {
-            _selectedCollectionId = null;
-            if (SelectedCollectionTitle != null) SelectedCollectionTitle.Text = string.Empty;
-            if (SelectedCollectionCount != null) SelectedCollectionCount.Text = string.Empty;
-            _currentCollectionAssets.Clear();
-            if (CollectionAssetsGridView != null) SyncItems(CollectionAssetsGridView, _currentCollectionAssets);
-            if (CollectionAssetsEmptyPanel != null) CollectionAssetsEmptyPanel.Visibility = Visibility.Collapsed;
-        }
-    }
-
-    private async Task LoadCollectionAssetsAsync(string collectionId)
-    {
-        if (_storageService == null || CollectionAssetsGridView == null) return;
-
-        var selectedColl = await _storageService.GetCollectionByIdAsync(collectionId);
-        if (selectedColl != null)
-        {
-            if (SelectedCollectionTitle != null) SelectedCollectionTitle.Text = selectedColl.DisplayName;
-        }
-
-        var assets = await _storageService.GetAssetsInCollectionAsync(collectionId, limit: 200);
-        int count = assets.Count;
-        if (SelectedCollectionCount != null)
-        {
-            SelectedCollectionCount.Text = count == 1
-                ? $"({L("Item_Icons_Single")})"
-                : AppResources.Format("SelectedCollectionCount", _currentLanguage, count);
-        }
-
-        _currentCollectionAssets.Clear();
-        foreach (var asset in assets)
-        {
-            _currentCollectionAssets.Add(CreateLibraryVm(asset, asset.IsFavorite));
-        }
-
-        SyncItems(CollectionAssetsGridView, _currentCollectionAssets);
-
-        if (CollectionAssetsEmptyPanel != null)
-            CollectionAssetsEmptyPanel.Visibility = _currentCollectionAssets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (CollectionAssetsGridView != null)
-            CollectionAssetsGridView.Visibility = _currentCollectionAssets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private async void OnCollectionsListViewSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        await GuardAsync(nameof(OnCollectionsListViewSelectionChanged), async () =>
-        {
-            if (CollectionsListView?.SelectedItem is CollectionItemVm item)
-            {
-                _selectedCollectionId = item.Id;
-                await LoadCollectionAssetsAsync(item.Id);
-            }
-        });
-    }
-
-    private async void OnNewCollectionClicked(object sender, RoutedEventArgs e)
-    {
-        if (_storageService == null || Content?.XamlRoot == null) return;
-
-        var textBox = new TextBox
-        {
-            PlaceholderText = L("Collection_NamePlaceholder"),
-            MaxLength = 80
-        };
-
-        var errorText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 239, 68, 68)),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed,
-            Margin = new Thickness(0, 8, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        };
-
-        var content = new StackPanel { Spacing = 8, Width = 320 };
-        content.Children.Add(textBox);
-        content.Children.Add(errorText);
-
-        var dialog = new ContentDialog
-        {
-            Title = L("Collections_NewCollectionTitle"),
-            PrimaryButtonText = L("Create"),
-            CloseButtonText = L("Cancel"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
-            Content = content
-        };
-
-        dialog.PrimaryButtonClick += async (d, args) =>
-        {
-            var deferral = args.GetDeferral();
-            try
-            {
-                if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(
-                    textBox.Text,
-                    out string displayName,
-                    out _,
-                    out LibraryNameError nameError,
-                    maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
-                {
-                    args.Cancel = true;
-                    errorText.Text = LocalizedNameError(nameError);
-                    errorText.Visibility = Visibility.Visible;
-                    return;
-                }
-
-                var created = await _storageService.CreateCollectionAsync(displayName);
-                _selectedCollectionId = created.Id;
-                await LoadCollectionsViewAsync();
-            }
-            catch (Exception ex)
-            {
-                args.Cancel = true;
-                ShowDialogError(errorText, ex, "CollectionDialog");
-            }
-            finally
-            {
-                deferral.Complete();
-            }
-        };
-
-        await dialog.ShowAsync();
-    }
-
-    private void OnRenameCollectionClicked(object sender, RoutedEventArgs e)
-    {
-        _ = GuardAsync(nameof(OnRenameCollectionClicked), () => RenameCollectionCoreAsync(sender, e));
-    }
-
-    private async Task RenameCollectionCoreAsync(object sender, RoutedEventArgs e)
-    {
-        if (_storageService == null || Content?.XamlRoot == null) return;
-        if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-        var collection = await _storageService.GetCollectionByIdAsync(collectionId);
-        if (collection == null) return;
-
-        var textBox = new TextBox
-        {
-            Text = collection.DisplayName,
-            MaxLength = 80
-        };
-
-        var errorText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 239, 68, 68)),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed,
-            Margin = new Thickness(0, 8, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        };
-
-        var content = new StackPanel { Spacing = 8, Width = 320 };
-        content.Children.Add(textBox);
-        content.Children.Add(errorText);
-
-        var dialog = new ContentDialog
-        {
-            Title = L("Collections_RenameTitle"),
-            PrimaryButtonText = L("Save"),
-            CloseButtonText = L("Cancel"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
-            Content = content
-        };
-
-        dialog.PrimaryButtonClick += async (d, args) =>
-        {
-            var deferral = args.GetDeferral();
-            try
-            {
-                if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(
-                    textBox.Text,
-                    out string displayName,
-                    out _,
-                    out LibraryNameError nameError,
-                    maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
-                {
-                    args.Cancel = true;
-                    errorText.Text = LocalizedNameError(nameError);
-                    errorText.Visibility = Visibility.Visible;
-                    return;
-                }
-
-                await _storageService.RenameCollectionAsync(collectionId, displayName);
-                await LoadCollectionsViewAsync();
-            }
-            catch (Exception ex)
-            {
-                args.Cancel = true;
-                ShowDialogError(errorText, ex, "RenameCollection");
-            }
-            finally
-            {
-                deferral.Complete();
-            }
-        };
-
-        await dialog.ShowAsync();
-    }
-
-    private async void OnDeleteCollectionClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnDeleteCollectionClicked), async () =>
-        {
-            if (_storageService == null || Content?.XamlRoot == null) return;
-            if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-            var dialog = new ContentDialog
-            {
-                Title = AppResources.GetString("Collections_DeleteTitle", _currentLanguage),
-                Content = AppResources.GetString("Collections_DeleteConfirm", _currentLanguage),
-                PrimaryButtonText = AppResources.GetString("Delete", _currentLanguage),
-                CloseButtonText = AppResources.GetString("Cancel", _currentLanguage),
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                await _storageService.DeleteCollectionAsync(collectionId);
-                if (_selectedCollectionId == collectionId) _selectedCollectionId = null;
-                await LoadCollectionsViewAsync();
-            }
-        });
-    }
-
-    private async void OnMoveCollectionUpClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnMoveCollectionUpClicked), async () =>
-        {
-            if (_storageService == null) return;
-            if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-            int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
-            if (idx > 0)
-            {
-                string targetId = _collectionItems[idx - 1].Id;
-                await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: true);
-                await LoadCollectionsViewAsync();
-            }
-        });
-    }
-
-    private async void OnMoveCollectionDownClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnMoveCollectionDownClicked), async () =>
-        {
-            if (_storageService == null) return;
-            if (sender is not Button btn || btn.Tag is not string collectionId) return;
-
-            int idx = _collectionItems.FindIndex(c => c.Id == collectionId);
-            if (idx >= 0 && idx < _collectionItems.Count - 1)
-            {
-                string targetId = _collectionItems[idx + 1].Id;
-                await _storageService.ReorderCollectionAsync(collectionId, targetId, insertBefore: false);
-                await LoadCollectionsViewAsync();
-            }
-        });
-    }
-
-    private async void OnRemoveFromCurrentCollectionClicked(object sender, RoutedEventArgs e)
-    {
-        await GuardAsync(nameof(OnRemoveFromCurrentCollectionClicked), async () =>
-        {
-            if (_storageService == null || string.IsNullOrEmpty(_selectedCollectionId)) return;
-            if (sender is not MenuFlyoutItem item || item.Tag is not string sha256) return;
-
-            await _storageService.RemoveAssetFromCollectionAsync(_selectedCollectionId, sha256);
-            await LoadCollectionAssetsAsync(_selectedCollectionId);
-
-            var ci = _collectionItems.FirstOrDefault(c => c.Id == _selectedCollectionId);
-            if (ci != null)
-            {
-                var assets = await _storageService.GetAssetsInCollectionAsync(_selectedCollectionId, limit: 1000);
-                ci.AssetCountText = string.Format(
-                    CultureInfo.CurrentCulture,
-                    AppResources.GetString("Collection_AssetCount", _currentLanguage),
-                    assets.Count);
-                SyncItems(CollectionsListView, _collectionItems);
-            }
-        });
-    }
-
-    private async void OnManageCollectionsClicked(object sender, RoutedEventArgs e)
-    {
-        if (_storageService == null) return;
-        string? sha256 = null;
-        if (sender is MenuFlyoutItem mfi && mfi.Tag is string s) sha256 = s;
-        if (string.IsNullOrEmpty(sha256) || Content?.XamlRoot == null) return;
-
-        var dialog = new ContentDialog
-        {
-            Title = L("ManageCollections_Title"),
-            CloseButtonText = L("Close"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = Content.XamlRoot
-        };
-
-        var rootPanel = new StackPanel { Spacing = 12, Width = 360 };
-
-        var collectionsListPanel = new StackPanel { Spacing = 6 };
-        var collectionsScroll = new ScrollViewer
-        {
-            MaxHeight = 240,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Content = collectionsListPanel
-        };
-
-        var noCollectionsText = new TextBlock
-        {
-            Text = L("Collections_Empty"),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed
-        };
-        if (Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out object? secTextBrush))
-        {
-            noCollectionsText.Foreground = (Brush)secTextBrush;
-        }
-
-        var inputGrid = new Grid();
-        inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var textBox = new TextBox
-        {
-            PlaceholderText = L("Collection_NewPlaceholder"),
-            MaxLength = 80
-        };
-        Grid.SetColumn(textBox, 0);
-
-        var addBtn = new Button
-        {
-            Content = L("Create"),
-            Margin = new Thickness(8, 0, 0, 0)
-        };
-        if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accentStyle))
-        {
-            addBtn.Style = (Style)accentStyle;
-        }
-        Grid.SetColumn(addBtn, 1);
-
-        inputGrid.Children.Add(textBox);
-        inputGrid.Children.Add(addBtn);
-
-        var errorText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 239, 68, 68)),
-            FontSize = 12,
-            Visibility = Visibility.Collapsed,
-            TextWrapping = TextWrapping.Wrap
-        };
-
-        rootPanel.Children.Add(collectionsScroll);
-        rootPanel.Children.Add(noCollectionsText);
-        rootPanel.Children.Add(inputGrid);
-        rootPanel.Children.Add(errorText);
-        dialog.Content = rootPanel;
-
-        async Task RefreshCollectionsInDialogAsync()
-        {
-            collectionsListPanel.Children.Clear();
-            var allCollections = await _storageService.GetAllCollectionsAsync();
-            var assetCollections = await _storageService.GetCollectionsForAssetAsync(sha256);
-            var memberSet = new HashSet<string>(assetCollections.Select(c => c.Id), StringComparer.Ordinal);
-
-            if (allCollections.Count == 0)
-            {
-                noCollectionsText.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                noCollectionsText.Visibility = Visibility.Collapsed;
-                foreach (var c in allCollections)
-                {
-                    var cb = new CheckBox
-                    {
-                        Content = c.DisplayName,
-                        IsChecked = memberSet.Contains(c.Id),
-                        Tag = c.Id
-                    };
-                    cb.Click += async (s, args) => await GuardAsync("ToggleCollectionMembership", async () =>
-                    {
-                        if (cb.IsChecked == true)
-                        {
-                            await _storageService.AddAssetToCollectionAsync(c.Id, sha256);
-                        }
-                        else
-                        {
-                            await _storageService.RemoveAssetFromCollectionAsync(c.Id, sha256);
-                        }
-
-                        if (CollectionsView != null && CollectionsView.Visibility == Visibility.Visible)
-                        {
-                            await LoadCollectionsViewAsync();
-                        }
-                    });
-                    collectionsListPanel.Children.Add(cb);
-                }
-            }
-        }
-
-        async Task TryCreateCollectionAsync()
-        {
-            errorText.Visibility = Visibility.Collapsed;
-            string text = textBox.Text;
-            if (!LibraryNameNormalizer.TryValidateAndNormalizeDetailed(text, out string display, out _, out LibraryNameError nameError, maxScalars: LibraryNameNormalizer.MaxScalarsPerCollection))
-            {
-                errorText.Text = LocalizedNameError(nameError);
-                errorText.Visibility = Visibility.Visible;
-                return;
-            }
-
-            try
-            {
-                var newColl = await _storageService.CreateCollectionAsync(display);
-                await _storageService.AddAssetToCollectionAsync(newColl.Id, sha256);
-                textBox.Text = string.Empty;
-                await RefreshCollectionsInDialogAsync();
-                if (CollectionsView != null && CollectionsView.Visibility == Visibility.Visible)
-                {
-                    await LoadCollectionsViewAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                ShowDialogError(errorText, ex, "AddAssetToCollection");
-            }
-        }
-
-        addBtn.Click += async (s, args) => await GuardAsync("CreateCollection", TryCreateCollectionAsync);
-        textBox.KeyDown += async (s, args) =>
-        {
-            if (args.Key == global::Windows.System.VirtualKey.Enter)
-            {
-                args.Handled = true;
-                await GuardAsync("CreateCollection", TryCreateCollectionAsync);
-            }
-        };
-
-        await RefreshCollectionsInDialogAsync();
-        await dialog.ShowAsync();
-    }
-
-    #endregion
 
     private void LoadPresetsView()
     {
@@ -2634,9 +1987,8 @@ public sealed partial class ManagerWindow : Window, IDisposable
         string tempIco = Path.Combine(Path.GetTempPath(), $"ornare_preset_apply_{Guid.NewGuid():N}.ico");
         try
         {
-            var pipeline = _imagePipeline as ImagePipeline ?? new ImagePipeline();
             var renderResult = FolderTemplateRenderer.RenderPresetIco(
-                pipeline,
+                _imagePipeline,
                 preset,
                 tempIco,
                 _selectedPresetTemplateId);
@@ -2748,7 +2100,6 @@ public sealed partial class ManagerWindow : Window, IDisposable
         }
 
         _disposed = true;
-        FlushCloudSync();
 
         // Dispose may run twice and a token source may already be disposed by a
         // completed operation; cancellation after disposal is a no-op, not a fault.
@@ -2831,6 +2182,7 @@ public class LibraryItemVm
     public string FavoriteToolTip { get; set; } = string.Empty;
     public string ContextToggleFavoriteText { get; set; } = string.Empty;
     public string ContextOpenExplorerText { get; set; } = string.Empty;
+    public string ContextApplyToFolderText { get; set; } = string.Empty;
     public string ContextManageTagsText { get; set; } = string.Empty;
     public string ContextManageCollectionsText { get; set; } = string.Empty;
     public string ContextExportIcoText { get; set; } = string.Empty;

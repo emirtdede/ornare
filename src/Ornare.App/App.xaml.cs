@@ -16,6 +16,23 @@ namespace Ornare.App;
 
 public partial class App : Application, IDisposable
 {
+    /// <summary>
+    /// True only when capture-only visual overrides (forced UI state, theme and language)
+    /// may be applied. They exist for reference-screenshot runs, so they are enabled in a
+    /// Debug build or when the <c>ORNARE_VISUAL_TEST</c> environment variable is set to
+    /// <c>1</c>; a shipped release must never let an activation switch its theme or fake a
+    /// processing state.
+    /// </summary>
+    internal static bool VisualOverridesAllowed { get; } =
+#if DEBUG
+        true;
+#else
+        string.Equals(
+            Environment.GetEnvironmentVariable("ORNARE_VISUAL_TEST"),
+            "1",
+            StringComparison.Ordinal);
+#endif
+
     private QuickPanelWindow? _window;
     private Microsoft.UI.Dispatching.DispatcherQueue? _mainDispatcherQueue;
     private bool _isExiting;
@@ -94,6 +111,19 @@ public partial class App : Application, IDisposable
         // Local-first diagnostic sink: bounded in-memory ring buffer with path
         // redaction; verbose on-disk logging is opt-in only (see docs/LOGGING_DIAGNOSTICS.md).
         DiagnosticLog.Write(msg);
+    }
+
+    /// <summary>
+    /// Trace-level breadcrumbs (startup steps, activation routing, window hand-offs). They are
+    /// retained only during an explicit diagnostic session so the 256-entry ring buffer always
+    /// has room for the failure that actually needs to be diagnosed.
+    /// </summary>
+    internal static void LogVerbose(string msg)
+    {
+        if (DiagnosticLog.PersistentSessionEnabled)
+        {
+            DiagnosticLog.Write(msg);
+        }
     }
 
     /// <summary>
@@ -188,6 +218,34 @@ public partial class App : Application, IDisposable
         }
     }
 
+    /// <summary>
+    /// Theme resolved for the process: the persisted choice at startup, or the latest choice
+    /// made in a settings surface. Windows seed their initial theme from this so the first
+    /// frame is already correct; <see cref="UserSettings.SystemValue"/> means "follow Windows".
+    /// </summary>
+    internal static string CurrentTheme { get; set; } = UserSettings.SystemValue;
+
+    /// <summary>
+    /// Publishes the language and theme the user chose in a previous session. Called once,
+    /// after storage is ready and before any window exists, so localization and theming do not
+    /// depend on a window's asynchronous load finishing before its first paint.
+    /// </summary>
+    private async Task ApplyPersistedPreferencesAsync()
+    {
+        try
+        {
+            UserSettings settings = await _storageService.GetUserSettingsAsync();
+            AppResources.CurrentLocale = settings.Language;
+            CurrentTheme = settings.Theme;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            // Preferences are cosmetic. A read failure must not stop startup; the window then
+            // falls back to the system language and theme, and the failure is recorded.
+            Log($"Persisted preferences could not be read: {ex.Message}");
+        }
+    }
+
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
@@ -201,7 +259,7 @@ public partial class App : Application, IDisposable
         try
         {
             IntPtr hwnd = WindowNative.GetWindowHandle(window);
-            Log($"BringToFront: HWND=0x{hwnd.ToInt64():X}");
+            LogVerbose($"BringToFront: HWND=0x{hwnd.ToInt64():X}");
             ShowWindow(hwnd, SW_RESTORE);
             SetForegroundWindow(hwnd);
         }
@@ -229,58 +287,83 @@ public partial class App : Application, IDisposable
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         _mainDispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-        Log("OnLaunched entered");
+        LogVerbose("OnLaunched entered");
         try
         {
             // 1. Single-instance check via AppInstance
             var mainInstance = AppInstance.FindOrRegisterForKey("OrnareSingleInstance");
-            Log($"AppInstance registered, IsCurrent: {mainInstance.IsCurrent}");
+            LogVerbose($"AppInstance registered, IsCurrent: {mainInstance.IsCurrent}");
             if (!mainInstance.IsCurrent)
             {
-                // Redirect activation to the existing instance and exit
-                var activatedEventArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
-                Log($"Redirecting activation to existing instance... Kind: {activatedEventArgs.Kind}");
-                await mainInstance.RedirectActivationToAsync(activatedEventArgs);
-                Log("Redirect complete. Exiting transient process.");
-                Environment.Exit(0);
+                // Redirect activation to the existing instance, then exit this transient
+                // process. The exit is unconditional: if the redirect throws (for example the
+                // primary instance is unresponsive) the transient process must still not linger
+                // as a windowless ghost.
+                try
+                {
+                    var activatedEventArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
+                    await mainInstance.RedirectActivationToAsync(activatedEventArgs);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Log($"Activation redirect failed: {ex}");
+                }
+                finally
+                {
+                    Dispose();
+                    Environment.Exit(0);
+                }
+
                 return;
             }
 
             // Listen for future redirected activations
             mainInstance.Activated += (sender, eventArgs) =>
             {
-                Log($"mainInstance.Activated fired. Kind: {eventArgs.Kind}");
-                // IMPORTANT: Extract payload synchronously while remote process is alive in RedirectActivationToAsync!
-                var request = ExtractLaunchRequest(eventArgs);
-                Log($"Synchronously extracted request: targetFolder='{request.TargetFolder}', isManager={request.IsManager}, cursor=({request.CursorX},{request.CursorY})");
+                // IMPORTANT: Extract payload synchronously while remote process is alive in
+                // RedirectActivationToAsync; the remote process is gone after this callback.
+                ParsedLaunchRequest request = ExtractLaunchRequest(eventArgs);
 
-                var queue = _mainDispatcherQueue ?? _window?.DispatcherQueue ?? ManagerWindowHost.Current?.DispatcherQueue;
-                queue?.TryEnqueue(async () =>
+                Microsoft.UI.Dispatching.DispatcherQueue? queue =
+                    _mainDispatcherQueue ?? _window?.DispatcherQueue ?? ManagerWindowHost.Current?.DispatcherQueue;
+
+                // DispatcherQueueHandler is a void delegate: passing an async lambda here would
+                // produce an async void whose exceptions kill the process. Dispatch a plain
+                // callback that owns its own error handling instead.
+                bool dispatched = queue is not null && queue.TryEnqueue(() => RunRedirectedLaunch(request));
+                if (!dispatched)
                 {
-                    Log("UI thread executing redirected launch request...");
-                    await ApplyLaunchRequestAsync(request);
-                });
+                    // A silently lost activation means the user clicked "Customize folder" in
+                    // Explorer and nothing happened. Say so and record it.
+                    Log("Redirected activation could not be dispatched to the UI thread.");
+                    ShowActivationFailureHint();
+                }
             };
 
             // 2. Initialize heavy services now that we know this is the primary instance
-            Log("Initializing services (DirectWrite, ImagePipeline, Storage)...");
             InitializeServices();
-            Log("Services initialized.");
 
             // 3. Initialize storage and run idempotent startup reconciliation
-            Log("Initializing SQLite storage...");
             await _storageService.InitializeAsync();
-            Log("Storage initialized. Reconciling startup...");
-            await _storageService.ReconcileStartupAsync();
-            Log("Startup reconciliation complete.");
+            int reconciled = await _storageService.ReconcileStartupAsync();
+            if (reconciled > 0)
+            {
+                // Reconciliation is silent on the happy path; only an actual repair is worth
+                // a log line, so the log stays readable when nothing was pending.
+                Log($"Startup reconciliation repaired {reconciled} pending journal entr{(reconciled == 1 ? "y" : "ies")}.");
+            }
 
-            // 3. Parse launch arguments and determine window mode
+            // 4. Publish the persisted language and theme before any window exists, so the
+            // first rendered frame is already localized and themed instead of flashing the
+            // English/system defaults baked into XAML.
+            await ApplyPersistedPreferencesAsync();
+
+            // 5. Parse launch arguments and determine window mode
             var currentArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
-            Log($"Handling current activation args. Kind: {currentArgs.Kind}");
             var initialRequest = ExtractLaunchRequest(currentArgs);
             await ApplyLaunchRequestAsync(initialRequest);
             EnsureTrayIcon();
-            Log("OnLaunched finished successfully.");
+            LogVerbose("OnLaunched finished successfully.");
         }
         catch (Exception ex)
         {
@@ -545,12 +628,45 @@ public partial class App : Application, IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs a redirected activation on the UI thread. This is the single place that owns the
+    /// failure contract for redirections, so a broken activation surfaces instead of vanishing.
+    /// </summary>
+    private async void RunRedirectedLaunch(ParsedLaunchRequest request)
+    {
+        try
+        {
+            await ApplyLaunchRequestAsync(request);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log($"Redirected launch failed: {ex}");
+            ShowActivationFailureHint();
+        }
+    }
+
+    private static void ShowActivationFailureHint()
+    {
+        try
+        {
+            string message = AppResources.GetString("ErrorStartupFailed", AppResources.CurrentLocale);
+            if (MessageBoxW(IntPtr.Zero, message, "Ornare", MB_OK | MB_ICONERROR) == 0)
+            {
+                System.Diagnostics.Trace.TraceWarning("Activation failure MessageBoxW failed.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Activation failure hint failed: {ex.Message}");
+        }
+    }
+
     private async Task ApplyLaunchRequestAsync(ParsedLaunchRequest request)
     {
-        Log($"ApplyLaunchRequestAsync: isApplyLast={request.IsApplyLast}, isManager={request.IsManager}, targetFolder='{request.TargetFolder}', uiState='{request.UiState}', cursor=({request.CursorX},{request.CursorY})");
+        LogVerbose($"ApplyLaunchRequestAsync: isApplyLast={request.IsApplyLast}, isManager={request.IsManager}, targetFolder='{request.TargetFolder}', uiState='{request.UiState}', cursor=({request.CursorX},{request.CursorY})");
         if (request.IsApplyLast && !string.IsNullOrWhiteSpace(request.TargetFolder))
         {
-            Log($"Executing ApplyLastAsync for '{request.TargetFolder}'...");
+            LogVerbose($"Executing ApplyLastAsync for '{request.TargetFolder}'...");
             var result = await ApplyLastService.ApplyLastAsync(
                 request.TargetFolder,
                 _storageService,
@@ -562,7 +678,7 @@ public partial class App : Application, IDisposable
 
         if (request.IsUndo && !string.IsNullOrWhiteSpace(request.TargetFolder))
         {
-            Log($"Executing UndoAsync for '{request.TargetFolder}'...");
+            LogVerbose($"Executing UndoAsync for '{request.TargetFolder}'...");
             var result = await UndoService.UndoAsync(
                 request.TargetFolder,
                 _storageService,
@@ -573,7 +689,7 @@ public partial class App : Application, IDisposable
 
         if (request.IsReset && !string.IsNullOrWhiteSpace(request.TargetFolder))
         {
-            Log($"Executing ResetAsync for '{request.TargetFolder}'...");
+            LogVerbose($"Executing ResetAsync for '{request.TargetFolder}'...");
             var result = await ResetService.ResetAsync(
                 request.TargetFolder,
                 _storageService,
@@ -600,18 +716,18 @@ public partial class App : Application, IDisposable
                 BringToFront(manager);
             }
 
-            Log("ManagerWindow brought to front.");
+            LogVerbose("ManagerWindow brought to front.");
         }
         else
         {
             string target = request.TargetFolder ?? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             if (_window == null)
             {
-                Log($"Instantiating QuickPanelWindow for '{target}'...");
+                LogVerbose($"Instantiating QuickPanelWindow for '{target}'...");
                 _window = new QuickPanelWindow(_imagePipeline, _folderCustomizer, _storageService);
                 _window.Closed += (_, _) =>
                 {
-                    Log("QuickPanelWindow Closed.");
+                    LogVerbose("QuickPanelWindow Closed.");
                     _window = null;
                     NotifyWindowClosed();
                 };
@@ -619,9 +735,9 @@ public partial class App : Application, IDisposable
             _window.PositionWindow(request.CursorX, request.CursorY);
             _window.Activate();
             BringToFront(_window);
-            Log("QuickPanelWindow activated and brought to front.");
+            LogVerbose("QuickPanelWindow activated and brought to front.");
 
-            Log($"Calling SetTargetFolderAsync on QuickPanelWindow for '{target}'...");
+            LogVerbose($"Calling SetTargetFolderAsync on QuickPanelWindow for '{target}'...");
             await _window.SetTargetFolderAsync(target);
             _window.ApplyVisualTestState(request.UiState, request.Theme, request.Lang);
         }

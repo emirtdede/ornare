@@ -14,36 +14,6 @@ public static partial class AppResources
     /// <summary>Native display name for a shipped locale, used by language pickers.</summary>
     public static string GetNativeName(string locale) => LocaleCatalog.NativeNameOf(locale);
 
-    /// <summary>Keys added by this part. Used by the localization parity gate.</summary>
-    public static IReadOnlyList<string> ExtendedKeys { get; } = new[]
-    {
-        "Icon_OrnareInk", "Icon_OrnareAccent", "Icon_OrnareOcean", "Icon_OrnareForest",
-        "Icon_OrnareEmber", "Icon_OrnarePlum", "Icon_OrnareGraphite", "Icon_OrnareGold",
-        "Settings_AccentLabel", "Settings_AccentApply", "Settings_AccentHint",
-        "Settings_AccentInvalid", "Settings_AccentApplied", "Settings_AccentSystem",
-        "Settings_AppIconLabel", "Settings_AppIconSubtext",
-        "Settings_ScaleLabel", "Settings_ScaleSubtext", "Settings_Reset", "Toggle_On", "Toggle_Off",
-        "Settings_CloudHeader", "Settings_CloudProviderLabel", "Settings_CloudStatusConnected",
-        "Settings_CloudStatusDisconnected", "Settings_CloudFallbackBadge", "Settings_CloudLastSync",
-        "Settings_CloudNever", "Settings_CloudSummary", "Settings_CloudConnect",
-        "Settings_CloudSyncNow", "Settings_CloudRestore", "Settings_CloudOpenFolder",
-        "Settings_CloudDisconnect", "Settings_CloudAutoSync", "Settings_CloudChooseFolder",
-        "Settings_CloudProviderNone", "Settings_CloudStatusSynced", "Settings_CloudStatusFailed",
-        "Settings_CloudBackupFound", "Settings_CloudConnectedTo", "Settings_CloudFallbackPath",
-        "Settings_CloudNeedProvider", "Settings_CloudRestoreDone", "Settings_CloudEmptyGuard",
-        "Settings_CloudRestorePromptTitle", "Settings_CloudRestorePromptBody",
-        "Settings_CloudRestoreAction", "Settings_CloudFreshStartAction",
-        "Settings_Onboarding", "Settings_ShowWelcome", "Settings_Repository",
-        "Settings_Sponsor", "Settings_License",
-        "Onboarding_StepCounter", "Onboarding_LanguageHeading", "Onboarding_LanguageSubheading",
-        "Onboarding_ThemeHeading", "Onboarding_ThemeSubheading", "Onboarding_WelcomeHeading",
-        "Onboarding_WelcomeBody", "Onboarding_WelcomePointOne", "Onboarding_WelcomePointTwo",
-        "Onboarding_WelcomePointThree", "Onboarding_TourHeading", "Onboarding_TourSubheading",
-        "Onboarding_TourPointOne", "Onboarding_TourPointTwo", "Onboarding_TourPointThree",
-        "Onboarding_TourPointFour", "Onboarding_CloudToggle", "Onboarding_CloudDescription",
-        "Onboarding_Skip", "Onboarding_Back", "Onboarding_Next", "Onboarding_Finish"
-    };
-
     static AppResources()
     {
         Add("en-US", new Dictionary<string, string>(StringComparer.Ordinal)

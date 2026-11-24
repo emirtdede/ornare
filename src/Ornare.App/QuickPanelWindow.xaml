@@ -133,7 +133,26 @@
                             Text="Drop image or customize below"
                             FontSize="11"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            HorizontalAlignment="Center" />
+                            HorizontalAlignment="Center"
+                            MaxWidth="300"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+                        <Button
+                            x:Name="FirstUseHintDismissButton"
+                            Content="Got it"
+                            FontSize="11"
+                            Height="22"
+                            Padding="8,0"
+                            Margin="0,2,0,0"
+                            CornerRadius="4"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            HorizontalAlignment="Center"
+                            Visibility="Collapsed"
+                            AutomationProperties.Name="Dismiss the first-use hint"
+                            ToolTipService.ToolTip="Dismiss the first-use hint"
+                            Click="OnFirstUseHintDismissClicked" />
                     </StackPanel>
 
                     <!-- Placement options for Mode A (Custom Image) -->
