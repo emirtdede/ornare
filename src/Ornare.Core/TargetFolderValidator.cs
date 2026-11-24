@@ -34,9 +34,9 @@ public static class TargetFolderValidator
         {
             fullPath = Path.GetFullPath(path);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return OperationResult.Failure(ErrorCode.InvalidTarget, $"Invalid path format: {ex.Message}");
+            return OperationResult.Failure(ErrorCode.InvalidTarget, "The folder path is not valid.", ex.ToString());
         }
 
         // Must be local drive format, not UNC
