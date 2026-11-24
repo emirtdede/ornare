@@ -1,9 +1,9 @@
 # Pre-Deployment QA and Architecture Audit
 
 Release: **Ornare 1.0.0**
-Audit date: 22 November 2026
+Audit date: 22 November 2026; second hardening pass: 23 November 2026
 Scope: every project in `Ornare.slnx`, plus the native shell extension and the native setup executable
-Verdict: **ship-ready for the x64 evaluation build**. The two open qualification items are listed under [Known limits](#known-limits), not hidden.
+Verdict: **ship-ready for the x64 evaluation build**. The independent pre-deployment audit of 22 November 2026 is closed: every Critical, High and Medium finding is fixed, with a regression test where one was missing. A second pass over the built binaries on 23 November closed six more defects at the shell and UI boundaries (section 5.4) and produced ADR-0015. The audit report itself was deleted rather than kept as a dated snapshot; ADR-0013 records where each class of finding now lives. The two open qualification items are listed under [Known limits](#known-limits), not hidden.
 
 This report records what was executed, what was observed, and what changed as a result. Every claim below is either reproducible by a command in the repository (test suite, CI workflow) or supported by a screenshot in [docs/screenshots](screenshots/).
 
@@ -16,7 +16,7 @@ Three independent passes, in this order, and repeated until the third pass was c
 | Pass | Question | Evidence |
 | :--- | :--- | :--- |
 | Behaviour | Does the product do what the requirements say, on a real installed package? | Packaged MSIX, driven through UI Automation, captured in `docs/screenshots` |
-| Contracts | Do the layers agree with each other and with the specification? | 606 behaviour tests plus 21 performance gates |
+| Contracts | Do the layers agree with each other and with the specification? | 637 behaviour tests plus 21 performance gates |
 | Hygiene | Are there leaks in language, characters, assets, versions or repository layout? | Repository scans documented in section 6 |
 
 The passes were run against the **installed** application, not the build output, because package identity, resource loading, `MRT` lookup and the shell integration only exist once the package is deployed.
@@ -115,12 +115,12 @@ Three runs, because the performance gates must not compete with the behaviour su
 
 | Suite | Passed | Failed |
 | :--- | ---: | ---: |
-| `Ornare.Core.Tests` | 133 | 0 |
-| `Ornare.UiTests` | 45 | 0 |
-| `Ornare.Storage.Tests` | 62 | 0 |
+| `Ornare.Core.Tests` | 140 | 0 |
+| `Ornare.UiTests` | 53 | 0 |
+| `Ornare.Storage.Tests` | 68 | 0 |
 | `Ornare.Imaging.Tests` | 207 | 0 |
-| `Ornare.IntegrationTests` | 159 | 0 |
-| **Total** | **606** | **0** |
+| `Ornare.IntegrationTests` | 169 | 0 |
+| **Total** | **637** | **0** |
 
 ### Performance gates
 
@@ -133,6 +133,8 @@ Three runs, because the performance gates must not compete with the behaviour su
 
 Every timing assertion now lives in this run. The search benchmarks and the render, palette, emblem-search and template-load budgets used to sit inside the behaviour suite, where they shared a parallel run with hundreds of other tests and measured the scheduler as much as the product. The performance job runs one test assembly at a time (`-m:1`), so an imaging encode or a ten-thousand-row insert cannot be charged to a timing gate in another assembly; finding 20 records why that matters.
 
+On 23 November 2026 the gate was re-run on a host at 97 percent CPU load (three IDE processes and Defender), where `cmd /c exit` took 185 to 306 ms instead of the usual 15 to 30 ms. Two timing gates failed in that run (render-cache hit P50 6.3 ms against a 5 ms budget, apply P95 1246 ms against 500 ms) and both passed when re-run alone on the same binaries once the host was quiet. The budget was not changed: finding 19 records the same load-versus-regression distinction.
+
 ### Installed package
 
 | Suite | Passed | Failed |
@@ -141,7 +143,9 @@ Every timing assertion now lives in this run. The search benchmarks and the rend
 
 `VerifyInvokeLaunchesPackagedApplication` drives `IExplorerCommand.Invoke` and requires the packaged application to appear. It can only run where Ornare is installed and signed, so it is excluded from the CI run explicitly, with the reason in the workflow, and is run through `scripts/quality-gate.ps1 -InstalledPackageOnly` on the release machine.
 
-The numbers above are the CI run for commit `0adfe5d`, which is the latest green run: the build, 606 behaviour tests, 21 performance gates and the static gate job all passed. `dotnet build Ornare.slnx -c Release` completes with **0 errors and 0 warnings**. Warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+The numbers above are the current working tree: the build, 637 behaviour tests and 21 performance gates all passed locally on the Windows 11 25H2 x64 reference machine. `dotnet build Ornare.slnx -c Debug` completes with **0 errors and 0 warnings**; warnings are errors in this repository (`TreatWarningsAsErrors` plus `EnforceCodeStyleInBuild`), so a warning cannot silently appear.
+
+The count grew from 606 by thirty-one regression tests: fourteen added while closing the pre-deployment audit (`desktop.ini` encoding round-trip for UTF-16 LE/BE, UTF-8 with and without BOM and legacy ANSI; two `NeedsRepair` reconciliation cases; settings persistence; three cloud path-redaction cases; the no-`SHCNE_ASSOCCHANGED` contract; and runtime key/placeholder parity across all six locales), seven `LongPath` cases for extended, UNC, device-namespace and relative inputs, three architecture guards that fail if a second atomic writer, a direct `desktop.ini` write in `FolderCustomizer`, or a missing trust check is reintroduced, and seven `QuickPanelRuntimeGuardsTests` that fail if the shell catch-all, the staging gate, the pre-read image bound, the preview sequence check, the error-copy factory split or the language subscription is removed. Finding 18 records the earlier reclassification of the performance tests.
 
 The counts differ from the earlier draft of this report because three classification defects were fixed rather than papered over; finding 18 records them.
 
@@ -153,6 +157,7 @@ New suites added for this release:
 | `CloudSyncServiceTests` | detection and connect/disconnect, atomic write, previous file, 15-day rotation, corrupt snapshot recovery, empty-data guard, post-format restore |
 | `ReentrancyScopeTests` | guarded regions are observable only while they run, nesting does not clear suppression early, a throwing region cannot leave suppression stuck on, independent scopes stay independent |
 | `LocalizationParityTests` additions | runtime dictionary covers exactly the complete locales; every new key exists in all six |
+| `QuickPanelRuntimeGuardsTests` | shell catch-all on every COM entry point plus `/EHa`; staging gate and its `finally` release; pre-read image bound; preview sequence check; type-separated error copy; language subscription and release |
 
 ---
 
@@ -198,6 +203,22 @@ New suites added for this release:
 | 19 | While validating locally, the apply-latency gate failed at 726 to 984 ms against its 500 ms budget on a machine where spawning `cmd /c exit` took 150 to 200 ms, because a game and three IDEs were saturating all 16 threads. The same build met the budget minutes earlier and meets it in CI. The first hypothesis, that the product had regressed, was disproved by instrumenting the phases: initialisation, render and commit each scaled with host load rather than with any change in the tree | Recorded as an environment observation, not a threshold change. The budget stays at 500 ms. When the host went idle, `cmd /c exit` dropped to 14 to 31 ms and the same binaries passed all 21 gates, which is the evidence that the failure was the host and not the product. Lowering the number to turn a red run green would have hidden exactly the regression the gate exists to catch |
 | 20 | The performance job still failed intermittently in CI (`8da2acb`) with the apply gate at 730 to 813 ms, while the median stayed near 245 ms. Two causes: `dotnet test` on a solution starts the imaging, storage and integration assemblies together, so a timing gate measured another assembly's image encoding and a 35,000-row insert; and three storage gates timed one query once, so a single scheduler pause decided the verdict | The performance job and the local gate now pass `-m:1` so one assembly is measured at a time; the two integration benchmarks are serialized by the `PerformanceGate` collection; and the tag, bulk-tag and collection-page queries became 5 warm-up calls plus P95 over 100 executions with the same 50 ms budget. Three consecutive serial runs: 21 of 21 gates green, and the storage query P95s landed at 0.19, 1.26 and 0.80 ms against the 50 ms budget |
 
+### 5.4 Second hardening pass (23 November 2026)
+
+A review of the built product, run against the shipped binaries rather than a preview tree,
+found defects that compiled cleanly and passed the existing suite. They are fixed here with a
+regression guard each; ADR-0015 records the decisions and `docs/LOGIC_INVARIANTS.md` the rules.
+
+| # | Finding | Fix |
+| :--- | :--- | :--- |
+| 21 | No COM entry point in the native shell extension caught exceptions. `Invoke` runs on Explorer's UI thread inside `noexcept`, so an escaping `std::bad_alloc` from `CoTaskMemAlloc` would call `std::terminate` and take `explorer.exe` down | Every entry point (`GetTitle`, `GetIcon`, `GetToolTip`, `GetState`, `Invoke`, `DllGetClassObject`) catches all, and the project compiles with `/EHa`. A fault degrades one menu item (INV-SHELL-001) |
+| 22 | Image staging keyed its reentrancy guard on `_isProcessing`, a UI flag set after work begins, so two drag-drops or pastes could interleave into one staged ICO | An `Interlocked` gate (`_stagingGate`) admits one operation, released in `finally` (INV-CON-005) |
+| 23 | No input size bound: a multi-gigabyte file reached `ReadAllBytesAsync` | `FileInfo.Length` and the clipboard stream size are checked against `OrnareConstants.MaxInputImageBytes` (64 MB) before allocation, with localized `ErrorImageTooLarge` copy (INV-CON-006) |
+| 24 | Live preview renders completed out of order, and a render could paint after the panel closed | Monotonic render sequence, pure-render cache, debounced cancellable hover, and a discard on staleness or disposal (INV-CON-007) |
+| 25 | `ShowCategorizedError` took two `string?` parameters, so an exception message passed into the rendered slot compiled and showed paths to the user | A `QuickPanelErrorCopy` value separates `Message` (rendered) from `Diagnostic` (logged), so the mistake does not compile (INV-UI-005) |
+| 26 | An open quick panel did not follow a language change and formatted numbers with the OS culture | `AppResources.CurrentLocaleChanged` notifies live windows, which repaint and unsubscribe on close; copy formats through `AppResources.CultureFor(language)` (INV-UI-006, INV-UI-007) |
+| 27 | Step 5 of the quality gate, the one that proves every locale holds the same keys, had never run. It interpolated `"$locale: ..."`, which PowerShell reads as a drive qualifier, so the script stopped with a parse error before the step existed. The "258 keys per locale" figure in this report came from the deleted `.resw` mirror, and the real dictionary holds 436 | `"${locale}: ..."`, and the step now reads `AppResources.cs` and `AppResources.Extended.cs` directly. Running it produced 436 keys in all six locales and exposed a second drift: nothing checked for a UTF-8 byte order mark although `.editorconfig` says `utf-8`, so 23 files carried one. All BOMs were stripped and step 3 now fails on any new one |
+
 ---
 
 ## 6. Hygiene scans
@@ -206,13 +227,14 @@ Every scan below is implemented in `scripts/quality-gate.ps1`, which CI runs on 
 
 | Scan | Gate | Result |
 | :--- | :--- | :--- |
-| Em dash (U+2014), en dash (U+2013), horizontal bar (U+2015) | gate step 2 over `src`, `tests`, `docs`, `scripts` and the root documents | 0 in 317 files |
-| Invalid UTF-8 or U+FFFD replacement character | gate step 3, strict decoding of the same file set | 0 in 317 files |
-| Emoji in user-facing copy | gate step 4 over `src` XAML, `resw`, `AppResources*.cs`, `InstallerStrings.cpp` and `docs` | 0 in 38 files |
-| Resource parity | gate step 5, every locale compared key for key with `en-US` | 258 keys per locale, exact match in all six |
+| Em dash (U+2014), en dash (U+2013), horizontal bar (U+2015) | gate step 2 over `src`, `tests`, `docs`, `scripts` and the root documents | 0 in 355 files |
+| Invalid UTF-8 or U+FFFD replacement character | gate step 3, strict decoding of the same file set | 0 in 355 files |
+| UTF-8 byte order mark | gate step 3, first three bytes of every text file outside `bin`, `obj` and `production_artifacts` | 0 BOMs in 355 files (`.editorconfig` says `utf-8`, not `utf-8-bom`) |
+| Emoji in user-facing copy | gate step 4 over `src` XAML, `resw`, `AppResources*.cs`, `InstallerStrings.cpp` and `docs` | 0 in 47 files |
+| Resource parity | gate step 5, every locale compared key for key with `en-US` | 436 keys per locale, exact match in all six |
 | Version drift | gate step 1, `Directory.Build.props` vs `Package.appxmanifest` vs `installer.rc` | all `1.0.0` |
 | Dead documentation links to screenshots | gate step 6 over `docs/*.md` and `README.md` | 13 references, all resolve |
-| Orphan documentation | `docs/` contains only `ARCHITECTURE.md`, `DESIGN_SYSTEM.md`, `LOCALIZATION.md`, `QA_REPORT.md`, `WORK_REPORT.md`, `adr/` and `screenshots/` | clean |
+| Orphan documentation | `docs/` contains `ARCHITECTURE.md`, `COMPETITOR_COMPARISON.md`, `DEFINITION_OF_READY_DONE.md`, `DESIGN_SYSTEM.md`, `LOCALIZATION.md`, `LOGGING_DIAGNOSTICS.md`, `LOGIC_INVARIANTS.md`, `LONG_PATH_COMPATIBILITY.md`, `OSS_REUSE.md`, `PERFORMANCE.md`, `QA_REPORT.md`, `QUALITY_GATES.md`, `REQUIREMENTS_TRACEABILITY.md`, `SECURE_SDLC.md`, `THREAT_MODEL.md`, `adr/` and `screenshots/` | clean |
 | Orphan scripts | every remaining script is referenced by CI, the README or the release flow | clean |
 | Stale build output and packaging leftovers | `production_artifacts/` regenerated from source, `bin`/`obj` ignored by git | clean |
 

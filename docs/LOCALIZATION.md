@@ -29,7 +29,7 @@ The first run uses the Windows UI language. The user's explicit choice is persis
 
 - **Setup:** the installer lists the same 73 languages in a picker on its first screen, preselects the Windows UI language, falls back to English when nothing matches, and writes the choice to `HKCU\Software\Vellium\Ornare\InstallerLanguage`. Onboarding reads that value before it renders, so the walkthrough opens in the language chosen during setup instead of re-detecting the machine. The setup window itself is translated for the six complete locales and shows English for the rest.
 - **First launch:** the onboarding language step lists all 73 languages with their native names, preselects the detected Windows language (or the setup choice, see above), and offers English when nothing matches.
-- **Settings:** the language picker offers the same list plus **System default**. Choosing a language applies immediately, re-titles the visible section, rebuilds the settings surface and re-resolves the cloud status badge.
+- **Settings:** the language picker offers the same list plus **System default**. Choosing a language applies immediately, re-titles the visible section, rebuilds the settings surface and re-resolves the cloud status badge. The change is raised once through `AppResources.CurrentLocaleChanged`, so any window that is already open (the quick panel outlives the manager) repaints its chrome in the new language instead of keeping the locale it was born with (INV-UI-006).
 - **Cloud restore:** a restored snapshot carries `UserSettings.Language`; the app applies it after the restore completes.
 
 ## 4. Resource layers
@@ -39,16 +39,18 @@ Ornare uses two layers on purpose:
 | Layer | Location | Used for |
 | :--- | :--- | :--- |
 | Runtime dictionary | `src/Ornare.App/AppResources.cs`, `AppResources.Extended.cs` | All strings resolved from C#, including strings composed at runtime |
-| MRT resources | `src/Ornare.App/Strings/<locale>/Resources.resw` | WinUI/MRT parity and designer tooling |
 | Setup table | `src/Ornare.Installer/InstallerStrings.cpp` | The native setup window, which cannot load WinUI resources |
 
+There is deliberately no `.resw` layer. A `Strings/<locale>/Resources.resw` tree used to sit beside the dictionaries as a "verified mirror"; it held 259 of 436 keys, was never compiled into a `resources.pri`, and its tests compared it only against itself. It was deleted under audit finding 3.4 and ADR-0014 now records why. `NoStaleReswCopyOfTheRuntimeCopyExists` and step 5 of `scripts/quality-gate.ps1` fail if the tree returns.
+
 The application layers must contain the same key set per locale. `GetString` returns the requested locale, then `en-US`, then the key itself, so a typo in a key is visible instead of silently empty. The setup table keeps the same 73 tags in the same order and mirrors the translated set: a language selectable in the app is selectable in setup as well.
+
+Why the runtime dictionary, not `x:Uid`, is the source of copy is recorded in ADR-0014: language switches without a restart, the CLI shares the catalogue under Native AOT, and `x:Uid` would add a third copy rather than remove one. The XAML literals are design-time fallbacks and the test described in section 9 proves each one is overwritten on the exact property.
 
 Adding a string:
 
 1. add the key to every complete locale in `AppResources.cs` (or `AppResources.Extended.cs` for appearance, onboarding and cloud keys) and register it in `ExtendedKeys`;
-2. mirror the key in all six `Resources.resw` files;
-3. verify with the parity tests, which also check placeholder parity (`{0}`, `{1}` ordering) and reject mojibake.
+2. verify with the parity tests, which also check placeholder parity (`{0}`, `{1}` ordering) and reject mojibake.
 
 ## 5. Right-to-left languages
 
@@ -74,7 +76,7 @@ German, French, Spanish and Portuguese follow the same principles with their own
 
 ## 7. Formatting and plurals
 
-- Dates and times use `CultureInfo.CurrentCulture` with the Windows short format (`g`).
+- Dates and times use `AppResources.CultureFor(language)` with the Windows short format (`g`), so a date is formatted in the same language as the sentence around it rather than in the OS culture (INV-UI-007).
 - Counts are rendered as `Label: value` segments instead of inflected sentences, so English, Turkish, German, French, Spanish and Portuguese never need plural rules in a shared format string. Example: `Folders: 12 - Collections: 3 - Backups: 1`.
 - Paths are shown verbatim with wrapping and a tooltip; they are never translated.
 
@@ -89,6 +91,13 @@ German, French, Spanish and Portuguese follow the same principles with their own
 
 Automation names, help text and toggle state labels are localized resources like any other string. `ToggleSwitch.OnContent` and `OffContent` are set from `Toggle_On` and `Toggle_Off` so Narrator announces the state in the user's language instead of the default English.
 
+An accessible name is a separate property from visible text, and the guard treats it that way. Before this rule, the parity test accepted "*some* assignment on the element", so `AccentHexBox.Text = ...` silently excused `AutomationProperties.Name="Accent color hex"` and Narrator read English on a Turkish, German, French, Spanish or Portuguese screen. The same trap hid an unlocalized `PlaceholderText`. The test now matches the exact property:
+
+- a `Text`, `Content`, `Header` or `PlaceholderText` literal needs `Element.Property =` in code;
+- an `AutomationProperties.Name` literal needs `AutomationProperties.SetName(Element, ...)` in code.
+
+Six names were fixed by that rule (`AccentHexBox` in the manager and in onboarding, `ScaleComboBox`, `CloudToggle`, and both "Remove Emblem" buttons). A hex colour sample such as `#0F6CBD` is not language and is the only literal allowed to bypass the rule.
+
 ## 10. Verification
 
 Localization is part of the definition of done:
@@ -98,7 +107,7 @@ Localization is part of the definition of done:
 | Key parity across the six complete locales | `AppResourceKeySetsAreIdenticalAcrossAllSixLocales`, `AllSixLocalesHaveMatchingKeysAndNonEmptyValues` |
 | Runtime dictionary equals the complete catalogue | `RuntimeDictionaryCoversExactlyTheCompleteLocales` |
 | Every referenced key exists | `EveryReferencedResourceKeyExists` |
-| No untranslated XAML literals | `EveryXamlUserFacingLiteralIsLocalizedAtRuntime` |
+| No untranslated XAML literals | `EveryXamlUserFacingLiteralIsLocalizedAtRuntime` (exact-property match, including accessible names) |
 | No tr/en-only branching | `NoTwoWayTurkishEnglishTernariesRemainInAppCode` |
 | Catalogue invariants (73 tags, ordering, fallback) | `LocaleCatalogTests` |
 | Setup picker ships the same 73 tags | `InstallerStrings.cpp` table, reviewed against `LocaleCatalog.Entries`, verified in the setup screenshot |

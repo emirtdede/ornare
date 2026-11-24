@@ -11,5 +11,5 @@ description: Use for strings/resources, Turkish/English language behavior, syste
 - Validate Turkish casing/length.
 - UIA names/patterns for custom controls.
 - Keyboard path for all essential actions.
-- Test text scaling and 100–200% DPI/mixed-DPI.
+- Test text scaling and 100-200% DPI/mixed-DPI.
 - Use `winapp ui inspect/search/invoke/screenshot` as part of verification.

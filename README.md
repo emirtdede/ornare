@@ -168,11 +168,21 @@ Ornare/
 ├── docs/
 │   ├── adr/                         # Architecture decision records
 │   ├── screenshots/                 # Runtime evidence captured from the packaged app
-│   ├── ARCHITECTURE.md              # Layer map, invariants and data flow
+│   ├── ARCHITECTURE.md              # Architecture as built: layering, write funnel, storage
+│   ├── COMPETITOR_COMPARISON.md     # Scored comparison with the market, and the verdict
+│   ├── DEFINITION_OF_READY_DONE.md  # What "done" means for a change
 │   ├── DESIGN_SYSTEM.md             # Visual language and motion rules
 │   ├── LOCALIZATION.md              # 73-language catalog and fallback rules
-│   ├── QA_REPORT.md                 # Pre-deployment QA and architecture audit
-│   └── WORK_REPORT.md               # What was built in this release
+│   ├── LOGGING_DIAGNOSTICS.md       # What is logged, where, and what is never logged
+│   ├── LOGIC_INVARIANTS.md          # The INV-* registry cited by code comments
+│   ├── LONG_PATH_COMPATIBILITY.md   # What is supported and why the folder path is bounded
+│   ├── OSS_REUSE.md                 # Third-party provenance and licence rules
+│   ├── PERFORMANCE.md               # Budgets, gates and measurement method
+│   ├── QA_REPORT.md                 # Verification evidence, gates and known limits
+│   ├── QUALITY_GATES.md             # The automatable gates and their thresholds
+│   ├── REQUIREMENTS_TRACEABILITY.md # Requirement -> code -> test mapping
+│   ├── SECURE_SDLC.md               # Security practices applied to the build
+│   └── THREAT_MODEL.md              # Assets, attackers and mitigations
 ├── scripts/                         # Build, packaging, quality gate and release helpers
 ├── src/
 │   ├── Ornare.App/                  # WinUI 3 Manager, Quick Panel, onboarding, resources
