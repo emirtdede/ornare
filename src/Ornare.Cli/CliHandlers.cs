@@ -48,11 +48,11 @@ public sealed class CliHandlers : IAsyncDisposable
     {
         bool isSuccess = plan.Status != PlanStatus.WouldFail;
         string code = isSuccess ? "Success" : (plan.Blockers.Count > 0 ? plan.Blockers[0].Code : "PlanFailed");
-        string messageKey = isSuccess ? plan.Status.ToString() : (plan.Blockers.Count > 0 ? plan.Blockers[0].Message : "Operation would fail");
+        string message = isSuccess ? plan.Status.ToString() : (plan.Blockers.Count > 0 ? plan.Blockers[0].Message : "Operation would fail");
 
         var env = isSuccess
             ? CliEnvelope.CreateSuccess(plan.Command, plan)
-            : CliEnvelope.CreateFailure(plan.Command, code, messageKey, operationId: null, data: plan);
+            : CliEnvelope.CreateFailure(plan.Command, code, message, operationId: null, data: plan);
 
         CliResponseFormatter.WritePlan(isJson, env);
 
@@ -104,7 +104,7 @@ public sealed class CliHandlers : IAsyncDisposable
                 return OutputPlanResponse(isJson, failPlan);
             }
 
-            CliResponseFormatter.WriteGeneralError(isJson, "apply", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
+            CliResponseFormatter.WriteGeneralError(isJson, "apply", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.", diagnostic: folderValidation.DiagnosticDetail);
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
@@ -318,7 +318,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!renderResult.IsSuccess || renderResult.Value == null)
             {
                 int exitCode = CliExitCodes.FromErrorCode(renderResult.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "apply", renderResult.ErrorCode.ToString(), renderResult.ErrorMessage ?? "Icon rendering failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "apply", renderResult.ErrorCode.ToString(), renderResult.ErrorMessage ?? "Icon rendering failed.", diagnostic: renderResult.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -335,7 +335,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!applyResult.IsSuccess || applyResult.Value == null)
             {
                 int exitCode = CliExitCodes.FromErrorCode(applyResult.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "apply", applyResult.ErrorCode.ToString(), applyResult.ErrorMessage ?? "Applying icon failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "apply", applyResult.ErrorCode.ToString(), applyResult.ErrorMessage ?? "Applying icon failed.", diagnostic: applyResult.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -392,7 +392,7 @@ public sealed class CliHandlers : IAsyncDisposable
                 return OutputPlanResponse(isJson, failPlan);
             }
 
-            CliResponseFormatter.WriteGeneralError(isJson, "apply-last", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
+            CliResponseFormatter.WriteGeneralError(isJson, "apply-last", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.", diagnostic: folderValidation.DiagnosticDetail);
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
@@ -416,7 +416,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!result.IsSuccess)
             {
                 int exitCode = CliExitCodes.FromErrorCode(result.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "apply-last", result.ErrorCode.ToString(), result.ErrorMessage ?? "Apply-last failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "apply-last", result.ErrorCode.ToString(), result.ErrorMessage ?? "Apply-last failed.", diagnostic: result.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -455,7 +455,7 @@ public sealed class CliHandlers : IAsyncDisposable
                 return OutputPlanResponse(isJson, failPlan);
             }
 
-            CliResponseFormatter.WriteGeneralError(isJson, "reset", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
+            CliResponseFormatter.WriteGeneralError(isJson, "reset", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.", diagnostic: folderValidation.DiagnosticDetail);
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
@@ -474,7 +474,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!result.IsSuccess)
             {
                 int exitCode = CliExitCodes.FromErrorCode(result.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "reset", result.ErrorCode.ToString(), result.ErrorMessage ?? "Reset failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "reset", result.ErrorCode.ToString(), result.ErrorMessage ?? "Reset failed.", diagnostic: result.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -513,7 +513,7 @@ public sealed class CliHandlers : IAsyncDisposable
                 return OutputPlanResponse(isJson, failPlan);
             }
 
-            CliResponseFormatter.WriteGeneralError(isJson, "undo", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
+            CliResponseFormatter.WriteGeneralError(isJson, "undo", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.", diagnostic: folderValidation.DiagnosticDetail);
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
@@ -532,7 +532,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!result.IsSuccess)
             {
                 int exitCode = CliExitCodes.FromErrorCode(result.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "undo", result.ErrorCode.ToString(), result.ErrorMessage ?? "Undo failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "undo", result.ErrorCode.ToString(), result.ErrorMessage ?? "Undo failed.", diagnostic: result.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -558,7 +558,7 @@ public sealed class CliHandlers : IAsyncDisposable
         var folderValidation = TargetFolderValidator.ValidateTarget(folderPath);
         if (!folderValidation.IsSuccess)
         {
-            CliResponseFormatter.WriteGeneralError(isJson, "inspect", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.");
+            CliResponseFormatter.WriteGeneralError(isJson, "inspect", folderValidation.ErrorCode.ToString(), folderValidation.ErrorMessage ?? "Invalid target folder.", diagnostic: folderValidation.DiagnosticDetail);
             return CliExitCodes.FromErrorCode(folderValidation.ErrorCode);
         }
 
@@ -570,7 +570,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!result.IsSuccess || result.Value == null)
             {
                 int exitCode = CliExitCodes.FromErrorCode(result.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "inspect", result.ErrorCode.ToString(), result.ErrorMessage ?? "Inspect failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "inspect", result.ErrorCode.ToString(), result.ErrorMessage ?? "Inspect failed.", diagnostic: result.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -811,7 +811,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!renderResult.IsSuccess || !File.Exists(fullOutputPath))
             {
                 int exitCode = CliExitCodes.FromErrorCode(renderResult.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "export-ico", renderResult.ErrorCode.ToString(), renderResult.ErrorMessage ?? "Export ICO failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "export-ico", renderResult.ErrorCode.ToString(), renderResult.ErrorMessage ?? "Export ICO failed.", diagnostic: renderResult.DiagnosticDetail);
                 return exitCode;
             }
 
@@ -1044,7 +1044,7 @@ public sealed class CliHandlers : IAsyncDisposable
             if (!result.IsSuccess || result.Value == null)
             {
                 int exitCode = CliExitCodes.FromErrorCode(result.ErrorCode);
-                CliResponseFormatter.WriteGeneralError(isJson, "export-png", result.ErrorCode.ToString(), result.ErrorMessage ?? "PNG rendering failed.");
+                CliResponseFormatter.WriteGeneralError(isJson, "export-png", result.ErrorCode.ToString(), result.ErrorMessage ?? "PNG rendering failed.", diagnostic: result.DiagnosticDetail);
                 return exitCode;
             }
 

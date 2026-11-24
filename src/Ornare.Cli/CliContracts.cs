@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace Ornare.Cli;
 
@@ -12,7 +13,15 @@ public sealed record CliEnvelope<T>
     public string Command { get; init; } = string.Empty;
     public bool Success { get; init; }
     public string Code { get; init; } = string.Empty;
-    public string MessageKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Human-readable status. On success this is <c>Success</c>; on failure it is the message
+    /// itself, not a resource key. The JSON name stays <c>messageKey</c> because schema 1 is
+    /// frozen, even though the value has always been a message.
+    /// </summary>
+    [JsonPropertyName("messageKey")]
+    public string Message { get; init; } = string.Empty;
+
     public string? OperationId { get; init; }
     public T? Data { get; init; }
 }
@@ -25,18 +34,18 @@ public static class CliEnvelope
         Command = command,
         Success = true,
         Code = "Success",
-        MessageKey = "Success",
+        Message = "Success",
         OperationId = operationId,
         Data = data
     };
 
-    public static CliEnvelope<T> CreateFailure<T>(string command, string code, string messageKey, string? operationId = null, T? data = default) => new()
+    public static CliEnvelope<T> CreateFailure<T>(string command, string code, string message, string? operationId = null, T? data = default) => new()
     {
         SchemaVersion = 1,
         Command = command,
         Success = false,
         Code = code,
-        MessageKey = messageKey,
+        Message = message,
         OperationId = operationId,
         Data = data
     };

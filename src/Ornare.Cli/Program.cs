@@ -13,6 +13,29 @@ public static class Program
 
     private static readonly nint DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 
+    private static int _renderingConfigured;
+
+    /// <summary>
+    /// Installs the DirectWrite emoji rasterizer the imaging pipeline renders emblems with.
+    /// <para>
+    /// This used to run unconditionally at process start, so <c>ornare --help</c>,
+    /// <c>inspect</c>, <c>reset</c> and <c>undo</c> paid for a DirectWrite factory they never
+    /// use. It is now created on the first command that actually renders (audit finding 4.1:
+    /// the CLI was several times slower than the packaged alias for work that never touched an
+    /// image).
+    /// </para>
+    /// </summary>
+    private static void EnsureRenderingConfigured()
+    {
+        if (Interlocked.Exchange(ref _renderingConfigured, 1) == 1)
+        {
+            return;
+        }
+
+        Ornare.Imaging.Emblems.FolderEmblemCompositor.EmojiRasterizer =
+            new Ornare.Windows.DirectWriteEmojiRasterizer();
+    }
+
     public static async Task<int> Main(string[] args)
     {
         try
@@ -24,10 +47,25 @@ public static class Program
             // Graceful fallback
         }
 
-        Ornare.Imaging.Emblems.FolderEmblemCompositor.EmojiRasterizer = new Ornare.Windows.DirectWriteEmojiRasterizer();
+        // A raw Ornare.Cli.exe run outside the package resolves %LOCALAPPDATA%\Ornare, while
+        // the packaged app is redirected to ...\Packages\Ornare_<publisher>\LocalCache\Local\
+        // Ornare. That produced two databases and two "truths" for the same folder: the app
+        // never saw the CLI's assignments and could not undo or repair them. Adopt the
+        // installed package's data root when one exists, before any storage object is built.
+        Ornare.Cli.PackageDataRoot.AdoptInstalledPackageRoot();
 
         System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
+        // System.CommandLine does not add --version on its own, so `ornare --version` used to
+        // answer "a subcommand must be specified". Automation needs the version to decide
+        // whether a script may rely on a flag, so it is answered before parsing.
+        if (args.Length == 1 && (string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(args[0], "-v", StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.Out.WriteLine(CliVersion.Describe());
+            return CliExitCodes.Success;
+        }
 
         var rootCommand = BuildCommandLine();
 
@@ -111,6 +149,8 @@ public static class Program
             string folder = result.GetValue(folderArg) ?? "";
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
 
+            EnsureRenderingConfigured();
+
             await using var handlers = new CliHandlers();
             return await handlers.HandleApplyAsync(folder, renderInput, isJson, isDryRun);
         });
@@ -131,6 +171,8 @@ public static class Program
             bool isJson = result.GetValue(jsonOption);
             bool isDryRun = result.GetValue(dryRunOpt);
             string folder = result.GetValue(folderArg) ?? "";
+
+            EnsureRenderingConfigured();
 
             await using var handlers = new CliHandlers();
             return await handlers.HandleApplyLastAsync(folder, isJson, isDryRun);
@@ -228,6 +270,8 @@ public static class Program
             string outputPath = result.GetValue(outputOpt) ?? "";
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
 
+            EnsureRenderingConfigured();
+
             await using var handlers = new CliHandlers();
             return await handlers.HandleExportIcoAsync(outputPath, renderInput, isJson, isDryRun);
         });
@@ -263,6 +307,8 @@ public static class Program
             string outputPath = result.GetValue(outputOpt) ?? "";
             int size = result.GetValue(sizeOpt);
             var renderInput = ExtractRenderInput(result, sourceOpt, colorOpt, presetOpt, templateOpt, modeOpt, paddingOpt, backgroundOpt, recolorOpt);
+
+            EnsureRenderingConfigured();
 
             await using var handlers = new CliHandlers();
             return await handlers.HandleExportPngAsync(outputPath, size, renderInput, isJson, isDryRun);
