@@ -99,7 +99,7 @@ if (-not $rcMatch.Success) {
     Write-Pass "installer.rc ProductVersion = $($rcMatch.Groups[1].Value).0"
 }
 
-$packaged = Join-Path $Root 'production_artifacts\release\candidate\Ornare_' + $Version + '.0_x64.msix'
+$packaged = Join-Path $Root ('production_artifacts\release\candidate\Ornare_' + $Version + '.0_x64.msix')
 if (Test-Path $packaged) {
     Write-Pass 'Setup payload matches the release version'
 }
@@ -141,6 +141,22 @@ if ($badEncoding.Count -gt 0) { Add-Failure ("not valid UTF-8: " + ($badEncoding
 if ($replacementChar.Count -gt 0) { Add-Failure ("U+FFFD replacement character: " + ($replacementChar -join ', ')) }
 if ($badEncoding.Count -eq 0 -and $replacementChar.Count -eq 0) {
     Write-Pass "all $($dashFiles.Count) files are valid UTF-8 without replacement characters"
+}
+
+# .editorconfig declares charset = utf-8, which means UTF-8 without a byte order mark. A BOM
+# that only some editors strip makes the first line of a file compare unequal to itself and
+# hides a leading character from every other text gate, so it is checked rather than assumed.
+$bomFiles = @()
+foreach ($file in (Get-TextFiles @('src', 'tests', 'docs', 'scripts', 'assets', 'README.md', 'AGENTS.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md'))) {
+    $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $bomFiles += $file.FullName.Substring($Root.Length + 1)
+    }
+}
+if ($bomFiles.Count -gt 0) {
+    Add-Failure ("UTF-8 BOM present (editorconfig says utf-8, not utf-8-bom): " + ($bomFiles -join ', '))
+} else {
+    Write-Pass 'no file carries a UTF-8 byte order mark'
 }
 
 # 4. Emoji leakage in shipped copy ------------------------------------------------------
@@ -188,24 +204,72 @@ if ($emojiOffenders.Count -gt 0) {
 }
 
 # 5. Resource parity across the six complete locales -----------------------------------
+# The runtime dictionaries are the only source of user-facing copy. A parallel
+# Strings/*/Resources.resw tree used to exist as a "verified mirror"; it was never compiled
+# into a resources.pri, held 259 of 436 keys, and its parity tests compared the mirror
+# against itself. This gate therefore reads the dictionaries the app actually renders.
 Write-Host '5. Resource parity'
-$stringsRoot = Join-Path $Root 'src\Ornare.App\Strings'
-$baselinePath = Join-Path $stringsRoot 'en-US\Resources.resw'
-$baseline = @([regex]::Matches([System.IO.File]::ReadAllText($baselinePath), '<data name="([^"]+)"') |
-    ForEach-Object { $_.Groups[1].Value })
-foreach ($localeDir in Get-ChildItem -LiteralPath $stringsRoot -Directory) {
-    $resw = Join-Path $localeDir.FullName 'Resources.resw'
-    if (-not (Test-Path $resw)) {
-        Add-Failure "$($localeDir.Name) has no Resources.resw"
+$resourceSources = @(
+    (Join-Path $Root 'src\Ornare.App\AppResources.cs'),
+    (Join-Path $Root 'src\Ornare.App\AppResources.Extended.cs')
+)
+$localeKeys = @{}
+$localePattern = '\["(?<loc1>[a-z]{2,3}-[A-Za-z]{2,4})"\]\s*=\s*new\(StringComparer\.Ordinal\)|Add\("(?<loc2>[a-z]{2,3}-[A-Za-z]{2,4})"\s*,\s*new Dictionary<string,\s*string>\(StringComparer\.Ordinal\)'
+foreach ($source in $resourceSources) {
+    if (-not (Test-Path -LiteralPath $source)) {
+        Add-Failure "missing resource source: $source"
         continue
     }
-    $keys = @([regex]::Matches([System.IO.File]::ReadAllText($resw), '<data name="([^"]+)"') |
-        ForEach-Object { $_.Groups[1].Value })
-    $missing = @($baseline | Where-Object { $keys -notcontains $_ })
-    $extra = @($keys | Where-Object { $baseline -notcontains $_ })
-    if ($missing.Count -gt 0) { Add-Failure "$($localeDir.Name) is missing $($missing.Count) keys, first: $($missing[0])" }
-    elseif ($extra.Count -gt 0) { Add-Failure "$($localeDir.Name) has $($extra.Count) unknown keys, first: $($extra[0])" }
-    else { Write-Pass "$($localeDir.Name): $($keys.Count) keys, exact match" }
+
+    $text = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)
+    $markers = @([regex]::Matches($text, $localePattern))
+    for ($i = 0; $i -lt $markers.Count; $i++) {
+        $marker = $markers[$i]
+        $locale = if ($marker.Groups['loc1'].Success) { $marker.Groups['loc1'].Value } else { $marker.Groups['loc2'].Value }
+        $sectionStart = $marker.Index + $marker.Length
+        $sectionEnd = if ($i + 1 -lt $markers.Count) { $markers[$i + 1].Index } else { $text.Length }
+        $section = $text.Substring($sectionStart, $sectionEnd - $sectionStart)
+
+        if (-not $localeKeys.ContainsKey($locale)) {
+            $localeKeys[$locale] = New-Object System.Collections.Generic.HashSet[string]
+        }
+
+        foreach ($entry in [regex]::Matches($section, '\["(?<key>[^"]+)"\]\s*=')) {
+            [void]$localeKeys[$locale].Add($entry.Groups['key'].Value)
+        }
+    }
+}
+
+$completeLocales = @('en-US', 'tr-TR', 'de-DE', 'fr-FR', 'es-ES', 'pt-BR')
+if (-not $localeKeys.ContainsKey('en-US')) {
+    Add-Failure 'en-US runtime dictionary not found'
+} else {
+    $baseline = $localeKeys['en-US']
+    foreach ($locale in $completeLocales) {
+        if (-not $localeKeys.ContainsKey($locale)) {
+            Add-Failure "$locale runtime dictionary missing"
+            continue
+        }
+
+        $keys = $localeKeys[$locale]
+        $missing = @($baseline | Where-Object { -not $keys.Contains($_) })
+        if ($missing.Count -gt 0) {
+            Add-Failure "$locale is missing $($missing.Count) keys, first: $($missing[0])"
+        } else {
+            Write-Pass "${locale}: $($keys.Count) keys, baseline covered"
+        }
+    }
+
+    foreach ($locale in $localeKeys.Keys) {
+        if ($completeLocales -notcontains $locale) {
+            Add-Failure "unexpected runtime dictionary for $locale"
+        }
+    }
+}
+
+$legacyMirror = Join-Path $Root 'src\Ornare.App\Strings'
+if (Test-Path -LiteralPath $legacyMirror) {
+    Add-Failure 'src\Ornare.App\Strings exists again: AppResources is the only copy source'
 }
 
 # 6. Documentation references ----------------------------------------------------------

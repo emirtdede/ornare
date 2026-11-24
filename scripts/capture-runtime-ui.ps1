@@ -7,6 +7,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# The app only honours --theme, --ui-state and --lang overrides when visual test mode is
+# explicitly enabled, so a stray argument can never restyle a real user session. Child
+# processes inherit this variable.
+$env:ORNARE_VISUAL_TEST = "1"
+
 if (!(Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 }

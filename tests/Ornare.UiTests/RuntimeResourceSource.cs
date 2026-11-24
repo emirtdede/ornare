@@ -11,7 +11,7 @@ namespace Ornare.UiTests;
 /// <para>
 /// The project used to ship a parallel <c>Strings/*/Resources.resw</c> tree "verified" by
 /// tests that only compared the mirror against itself. It had drifted to 259 keys against
-/// 712 real ones and was not compiled into a resources.pri, so it was a second truth that
+/// 436 real ones and was not compiled into a resources.pri, so it was a second truth that
 /// nobody read. Tests now parse the dictionary source directly, which is what the app
 /// actually renders.
 /// </para>

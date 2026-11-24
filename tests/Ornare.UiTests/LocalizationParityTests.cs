@@ -487,7 +487,7 @@ public class LocalizationParityTests
     /// <summary>
     /// Guards audit finding 3.4. A parallel <c>Strings/*/Resources.resw</c> tree used to sit
     /// beside the runtime dictionaries. It was neither compiled into a resources.pri nor
-    /// complete (259 keys against 712), and the tests that "verified" it only compared the
+    /// complete (259 keys against 436), and the tests that "verified" it only compared the
     /// mirror against itself. A second copy of user-facing copy is a defect: one of the two
     /// always rots, and translators cannot tell which one ships.
     /// </summary>
